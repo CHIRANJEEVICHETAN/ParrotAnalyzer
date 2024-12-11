@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "ParrotAnalyzer",
-    "slug": "ParrotAnalyzer",
+    "name": "Parrot Analyzer",
+    "slug": "parraotanalyzer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -32,10 +32,20 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "593351fc-6ce3-4e49-8d3e-f0d33c486168"
+      }
+    },
+    "owner": "loginware"
   }
 }
