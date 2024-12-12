@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import AuthContext from '../context/AuthContext';
 import ThemeContext from '../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { IconName } from '@/types/common';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -339,10 +340,10 @@ export default function EmployeeDashboard() {
       {/* Bottom Navigation */}
       <View style={[styles.bottomNav, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
         {[
-          { id: 'home', icon: 'home', label: 'Home' },
-          { id: 'notifications', icon: 'notifications', label: 'Notifications' },
-          { id: 'calendar', icon: 'calendar', label: 'Attendance' },
-          { id: 'person', icon: 'person', label: 'Profile' }
+          { id: 'home', icon: 'home' as IconName, label: 'Home' },
+          { id: 'notifications', icon: 'notifications' as IconName, label: 'Notifications' },
+          { id: 'calendar', icon: 'calendar' as IconName, label: 'Attendance' },
+          { id: 'person', icon: 'person' as IconName, label: 'Profile' }
         ].map((tab) => (
           <TouchableOpacity
             key={tab.id}
@@ -350,7 +351,7 @@ export default function EmployeeDashboard() {
             onPress={() => setActiveTab(tab.id)}
           >
             <Ionicons
-              name={`${tab.icon}${activeTab === tab.id ? '' : '-outline'}`}
+              name={`${tab.icon}${activeTab === tab.id ? '' : '-outline'}` as IconName}
               size={24}
               color={activeTab === tab.id ? '#3B82F6' : theme === 'dark' ? '#9CA3AF' : '#6B7280'}
             />

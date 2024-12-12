@@ -4,9 +4,10 @@
     "strict": true,
     "paths": {
       "@/*": [
-        "./*"
+        "app/*"
       ]
-    }
+    },
+    "baseUrl": "."
   },
   "include": [
     "**/*.ts",

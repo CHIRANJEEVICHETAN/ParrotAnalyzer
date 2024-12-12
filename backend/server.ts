@@ -4,8 +4,19 @@ import cors from 'cors';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import { Request, Response, NextFunction } from 'express';
 
 dotenv.config();
+
+// Add this interface at the top of the file, after imports
+interface CustomRequest extends Request {
+  user?: {
+    id: number;
+    email: string;
+    phone: string;
+    role: string;
+  };
+}
 
 const app = express();
 app.use(cors());
@@ -49,7 +60,7 @@ const initDB = async () => {
 };
 
 // Middleware to verify JWT token
-const verifyToken = (req: any, res: any, next: any) => {
+const verifyToken = (req: CustomRequest, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.split(' ')[1];
 
   if (!token) {
@@ -58,11 +69,19 @@ const verifyToken = (req: any, res: any, next: any) => {
 
   try {
     const verified = jwt.verify(token, JWT_SECRET);
-    req.user = verified;
+    req.user = verified as CustomRequest['user'];
     next();
   } catch (error) {
     res.status(400).json({ error: 'Invalid token' });
   }
+};
+
+// Add this middleware
+const requireSuperAdmin = (req: CustomRequest, res: Response, next: NextFunction) => {
+  if (req.user?.role !== 'super-admin') {
+    return res.status(403).json({ error: 'Access denied. Super admin only.' });
+  }
+  next();
 };
 
 // Authentication endpoints
@@ -143,7 +162,7 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
-app.post('/auth/register', async (req, res) => {
+app.post('/auth/register', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const { name, email, phone, password, role } = req.body;
 
@@ -183,11 +202,11 @@ app.post('/auth/register', async (req, res) => {
 });
 
 // Protected route example
-app.get('/user/profile', verifyToken, async (req: any, res: any) => {
+app.get('/user/profile', verifyToken, async (req: CustomRequest, res: Response) => {
   try {
     const result = await pool.query(
       'SELECT id, name, email, phone, role FROM users WHERE id = $1',
-      [req.user.id]
+      [req.user!.id]
     );
     res.json(result.rows[0]);
   } catch (error) {

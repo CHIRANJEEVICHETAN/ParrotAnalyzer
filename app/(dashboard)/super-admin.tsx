@@ -1,11 +1,17 @@
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
+import { useState } from 'react';
 import ThemeContext from '../context/ThemeContext';
 import BottomNav from '../components/BottomNav';
 import { Ionicons } from '@expo/vector-icons';
 import type { NavItem } from '../types/nav';
+import { router } from 'expo-router';
+import { useAuth } from '../context/AuthContext';
+import { IconName } from '@/types/common';
 
 export default function SuperAdminDashboard() {
   const { theme, toggleTheme } = ThemeContext.useTheme();
+  const { logout } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const navItems: NavItem[] = [
     { icon: 'home-outline', label: 'Home', href: '/(dashboard)/super-admin' },
@@ -14,12 +20,100 @@ export default function SuperAdminDashboard() {
     { icon: 'person-outline', label: 'Profile', href: '/(dashboard)/super-admin/profile' },
   ];
 
+  // Side Menu Component
+  const SideMenu = () => (
+    <Modal
+      visible={isMenuOpen}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setIsMenuOpen(false)}
+    >
+      <TouchableOpacity
+        style={{ flex: 1 }}
+        onPress={() => setIsMenuOpen(false)}
+        className="bg-black/50"
+      >
+        <View 
+          className={`w-3/4 h-full ${
+            theme === 'dark' ? 'bg-gray-900' : 'bg-white'
+          }`}
+        >
+          <View className="p-6">
+            <Text 
+              className={`text-xl font-bold mb-6 ${
+                theme === 'dark' ? 'text-white' : 'text-gray-800'
+              }`}
+            >
+              Settings
+            </Text>
+            
+            {/* Theme Toggle */}
+            <TouchableOpacity 
+              onPress={toggleTheme}
+              className="flex-row items-center py-4"
+            >
+              <Ionicons 
+                name={theme === 'dark' ? 'sunny' : 'moon'} 
+                size={24} 
+                color={theme === 'dark' ? '#FFF' : '#000'}
+              />
+              <Text 
+                className={`ml-3 ${
+                  theme === 'dark' ? 'text-white' : 'text-gray-800'
+                }`}
+              >
+                {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Create Employee Button */}
+            <TouchableOpacity 
+              onPress={() => {
+                setIsMenuOpen(false);
+                router.push('/(dashboard)/super-admin/create-employee');
+              }}
+              className="flex-row items-center py-4"
+            >
+              <Ionicons 
+                name="person-add-outline" 
+                size={24} 
+                color={theme === 'dark' ? '#FFF' : '#000'}
+              />
+              <Text 
+                className={`ml-3 ${
+                  theme === 'dark' ? 'text-white' : 'text-gray-800'
+                }`}
+              >
+                Create Employee
+              </Text>
+            </TouchableOpacity>
+
+            {/* Logout Button */}
+            <TouchableOpacity 
+              onPress={logout}
+              className="flex-row items-center py-4"
+            >
+              <Ionicons 
+                name="log-out-outline" 
+                size={24} 
+                color="#EF4444"
+              />
+              <Text className="ml-3 text-red-500">
+                Logout
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+
   return (
     <View className="flex-1">
       <ScrollView 
         className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
       >
-        {/* Header */}
+        {/* Header with Menu Button */}
         <View className="px-6 pt-12 pb-4 flex-row justify-between items-center">
           <View>
             <Text 
@@ -32,9 +126,9 @@ export default function SuperAdminDashboard() {
               System Overview
             </Text>
           </View>
-          <TouchableOpacity onPress={toggleTheme} className="p-2">
+          <TouchableOpacity onPress={() => setIsMenuOpen(true)} className="p-2">
             <Ionicons 
-              name={theme === 'dark' ? 'sunny' : 'moon'} 
+              name="menu-outline" 
               size={24} 
               color={theme === 'dark' ? '#FFF' : '#000'}
             />
@@ -45,10 +139,10 @@ export default function SuperAdminDashboard() {
         <View className="px-6 py-4">
           <View className="flex-row flex-wrap justify-between">
             {[
-              { label: 'Total Users', value: '256', icon: 'people-outline', status: 'normal' },
-              { label: 'Active Sessions', value: '124', icon: 'pulse-outline', status: 'warning' },
-              { label: 'System Load', value: '65%', icon: 'speedometer-outline', status: 'normal' },
-              { label: 'Storage Used', value: '82%', icon: 'server-outline', status: 'critical' },
+              { label: 'Total Users', value: '256', icon: 'people-outline' as IconName, status: 'normal' },
+              { label: 'Active Sessions', value: '124', icon: 'pulse-outline' as IconName, status: 'warning' },
+              { label: 'System Load', value: '65%', icon: 'speedometer-outline' as IconName, status: 'normal' },
+              { label: 'Storage Used', value: '82%', icon: 'server-outline' as IconName, status: 'critical' },
             ].map((metric) => (
               <View 
                 key={metric.label}
@@ -57,7 +151,7 @@ export default function SuperAdminDashboard() {
               >
                 <View className="flex-row justify-between items-center">
                   <Ionicons 
-                    name={metric.icon as keyof typeof Ionicons.glyphMap}
+                    name={metric.icon}
                     size={24}
                     color={
                       metric.status === 'critical' ? '#EF4444' :
@@ -143,11 +237,11 @@ export default function SuperAdminDashboard() {
           </Text>
           <View className="space-y-3">
             {[
-              { label: 'User Management', icon: 'people-outline', badge: '3' },
-              { label: 'System Settings', icon: 'settings-outline' },
-              { label: 'Security Logs', icon: 'shield-checkmark-outline' },
-              { label: 'Database Management', icon: 'server-outline' },
-              { label: 'API Configuration', icon: 'code-working-outline' },
+              { label: 'User Management', icon: 'people-outline' as IconName, badge: '3' },
+              { label: 'System Settings', icon: 'settings-outline' as IconName },
+              { label: 'Security Logs', icon: 'shield-checkmark-outline' as IconName },
+              { label: 'Database Management', icon: 'server-outline' as IconName },
+              { label: 'API Configuration', icon: 'code-working-outline' as IconName },
             ].map((action) => (
               <TouchableOpacity
                 key={action.label}
@@ -155,7 +249,7 @@ export default function SuperAdminDashboard() {
                 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
               >
                 <Ionicons 
-                  name={action.icon as keyof typeof Ionicons.glyphMap}
+                  name={action.icon}
                   size={24}
                   color="#3B82F6"
                 />
@@ -185,6 +279,7 @@ export default function SuperAdminDashboard() {
       </ScrollView>
       
       <BottomNav items={navItems} />
+      <SideMenu />
     </View>
   );
 } 
