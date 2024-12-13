@@ -5,6 +5,8 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { Request, Response, NextFunction } from 'express';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -16,6 +18,38 @@ interface CustomRequest extends Request {
     phone: string;
     role: string;
   };
+}
+
+// Add this interface for expense data
+interface ExpenseData {
+  employeeName: string;
+  employeeNumber: string;
+  department: string;
+  designation: string;
+  location: string;
+  date: string;
+  vehicleType: string;
+  vehicleNumber?: string;
+  totalKilometers: string;
+  startTime: string;
+  endTime: string;
+  routeTaken: string;
+  lodgingExpenses: string;
+  dailyAllowance: string;
+  diesel: string;
+  tollCharges: string;
+  otherExpenses: string;
+  advanceTaken: string;
+  totalAmount: number;
+  amountPayable: number;
+  supportingDocs?: any[];
+}
+
+// Add this interface
+interface ResetToken {
+  email: string;
+  token: string;
+  expires: Date;
 }
 
 const app = express();
@@ -39,26 +73,7 @@ const pool = new Pool({
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-// Database initialization
-const initDB = async () => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(100) UNIQUE NOT NULL,
-        phone VARCHAR(20) UNIQUE,
-        password VARCHAR(100) NOT NULL,
-        role VARCHAR(20) NOT NULL CHECK (role IN ('employee', 'group-admin', 'management', 'super-admin')),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('Database initialized successfully');
-  } catch (error) {
-    console.error('Error initializing database:', error);
-  }
-};
-
+// Move middleware declarations to the top
 // Middleware to verify JWT token
 const verifyToken = (req: CustomRequest, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -84,7 +99,199 @@ const requireSuperAdmin = (req: CustomRequest, res: Response, next: NextFunction
   next();
 };
 
-// Authentication endpoints
+// Database initialization functions
+const initExpensesTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS expenses (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        employee_name VARCHAR(100) NOT NULL,
+        employee_number VARCHAR(50) NOT NULL,
+        department VARCHAR(100) NOT NULL,
+        designation VARCHAR(100),
+        location VARCHAR(100),
+        date TIMESTAMP NOT NULL,
+        vehicle_type VARCHAR(50),
+        vehicle_number VARCHAR(50),
+        total_kilometers DECIMAL,
+        start_time TIMESTAMP,
+        end_time TIMESTAMP,
+        route_taken TEXT,
+        lodging_expenses DECIMAL DEFAULT 0,
+        daily_allowance DECIMAL DEFAULT 0,
+        diesel DECIMAL DEFAULT 0,
+        toll_charges DECIMAL DEFAULT 0,
+        other_expenses DECIMAL DEFAULT 0,
+        advance_taken DECIMAL DEFAULT 0,
+        total_amount DECIMAL NOT NULL,
+        amount_payable DECIMAL NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Expenses table initialized successfully');
+  } catch (error) {
+    console.error('Error initializing expenses table:', error);
+  }
+};
+
+const initScheduleTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS schedule (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        location VARCHAR(255),
+        date DATE NOT NULL,
+        time TIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Schedule table initialized successfully');
+  } catch (error) {
+    console.error('Error initializing schedule table:', error);
+  }
+};
+
+const initDB = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        phone VARCHAR(20) UNIQUE,
+        password VARCHAR(100) NOT NULL,
+        role VARCHAR(20) NOT NULL CHECK (role IN ('employee', 'group-admin', 'management', 'super-admin')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await initExpensesTable();
+    await initScheduleTable();
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Error initializing database:', error);
+  }
+};
+
+// Add a temporary storage for OTPs (in production, use a database)
+const resetTokens = new Map<string, ResetToken>();
+
+// Now define your routes
+app.post('/api/expenses', verifyToken, async (req: CustomRequest, res: Response) => {
+  try {
+    const expenseData: ExpenseData = req.body;
+    const userId = req.user?.id;
+
+    console.log('Received expense data:', expenseData);
+    console.log('User ID:', userId);
+
+    // Validate required fields
+    const requiredFields = [
+      'employeeName',
+      'employeeNumber',
+      'department',
+      'date',
+      'totalKilometers',
+      'totalAmount',
+      'amountPayable'
+    ];
+
+    for (const field of requiredFields) {
+      if (!expenseData[field as keyof ExpenseData]) {
+        return res.status(400).json({ 
+          error: `Missing required field: ${field}` 
+        });
+      }
+    }
+
+    // Convert string amounts to numbers if needed
+    const numericFields = [
+      'lodgingExpenses',
+      'dailyAllowance',
+      'diesel',
+      'tollCharges',
+      'otherExpenses',
+      'advanceTaken',
+      'totalAmount',
+      'amountPayable'
+    ];
+
+    const sanitizedData: any = { ...expenseData };
+    for (const field of numericFields) {
+      if (typeof sanitizedData[field] === 'string') {
+        sanitizedData[field] = parseFloat(sanitizedData[field]) || 0;
+      }
+    }
+
+    // Insert expense into database
+    const result = await pool.query(
+      `INSERT INTO expenses (
+        user_id,
+        employee_name,
+        employee_number,
+        department,
+        designation,
+        location,
+        date,
+        vehicle_type,
+        vehicle_number,
+        total_kilometers,
+        start_time,
+        end_time,
+        route_taken,
+        lodging_expenses,
+        daily_allowance,
+        diesel,
+        toll_charges,
+        other_expenses,
+        advance_taken,
+        total_amount,
+        amount_payable,
+        status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      RETURNING id`,
+      [
+        userId,
+        sanitizedData.employeeName,
+        sanitizedData.employeeNumber,
+        sanitizedData.department,
+        sanitizedData.designation,
+        sanitizedData.location,
+        sanitizedData.date,
+        sanitizedData.vehicleType,
+        sanitizedData.vehicleNumber,
+        sanitizedData.totalKilometers,
+        sanitizedData.startTime,
+        sanitizedData.endTime,
+        sanitizedData.routeTaken,
+        sanitizedData.lodgingExpenses,
+        sanitizedData.dailyAllowance,
+        sanitizedData.diesel,
+        sanitizedData.tollCharges,
+        sanitizedData.otherExpenses,
+        sanitizedData.advanceTaken,
+        sanitizedData.totalAmount,
+        sanitizedData.amountPayable,
+        'pending'
+      ]
+    );
+
+    res.status(201).json({
+      message: 'Expense claim submitted successfully',
+      expenseId: result.rows[0].id
+    });
+
+  } catch (error) {
+    console.error('Error submitting expense:', error);
+    res.status(500).json({ error: 'Failed to submit expense claim' });
+  }
+});
+
 app.post('/auth/login', async (req, res) => {
   console.log('Login attempt:', {
     body: req.body,
@@ -201,7 +408,6 @@ app.post('/auth/register', verifyToken, requireSuperAdmin, async (req, res) => {
   }
 });
 
-// Protected route example
 app.get('/user/profile', verifyToken, async (req: CustomRequest, res: Response) => {
   try {
     const result = await pool.query(
@@ -272,6 +478,148 @@ const seedUsers = async () => {
 
 initDB().then(() => {
   seedUsers();
+});
+
+app.get('/api/schedule', verifyToken, async (req: CustomRequest, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        id, 
+        title, 
+        description, 
+        location, 
+        TO_CHAR(date, 'YYYY-MM-DD') as date, 
+        TO_CHAR(time, 'HH24:MI') as time, 
+        user_id 
+      FROM schedule 
+      WHERE user_id = $1 
+      ORDER BY date, time`,
+      [req.user!.id]
+    );
+    
+    console.log('Sending schedule data:', result.rows); // Debug log
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching schedule:', error);
+    res.status(500).json({ error: 'Failed to fetch schedule' });
+  }
+});
+
+app.post('/api/schedule', verifyToken, async (req: CustomRequest, res: Response) => {
+  try {
+    const { title, description, location, date, time } = req.body;
+    
+    const result = await pool.query(
+      `INSERT INTO schedule (user_id, title, description, location, date, time)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [req.user!.id, title, description, location, date, time]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error adding schedule event:', error);
+    res.status(500).json({ error: 'Failed to add event' });
+  }
+});
+
+// Add these endpoints
+app.post('/auth/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    // Check if user exists
+    const user = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate OTP
+    const otp = crypto.randomInt(100000, 999999).toString();
+    const expires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+    // Store OTP
+    resetTokens.set(email, {
+      email,
+      token: otp,
+      expires,
+    });
+
+    // Send email with OTP
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Password Reset Code',
+      text: `Your password reset code is: ${otp}. This code will expire in 30 minutes.`,
+      html: `
+        <h1>Password Reset Code</h1>
+        <p>Your password reset code is: <strong>${otp}</strong></p>
+        <p>This code will expire in 30 minutes.</p>
+      `,
+    });
+
+    res.json({ message: 'Reset code sent successfully' });
+  } catch (error) {
+    console.error('Error in forgot password:', error);
+    res.status(500).json({ error: 'Failed to process request' });
+  }
+});
+
+app.post('/auth/verify-otp', (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+    const resetToken = resetTokens.get(email);
+
+    if (!resetToken || resetToken.token !== otp || resetToken.expires < new Date()) {
+      return res.status(400).json({ error: 'Invalid or expired code' });
+    }
+
+    res.json({ message: 'Code verified successfully' });
+  } catch (error) {
+    console.error('Error in verify OTP:', error);
+    res.status(500).json({ error: 'Failed to verify code' });
+  }
+});
+
+app.post('/auth/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const resetToken = resetTokens.get(email);
+
+    if (!resetToken || resetToken.token !== otp || resetToken.expires < new Date()) {
+      return res.status(400).json({ error: 'Invalid or expired code' });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password in database
+    await pool.query(
+      'UPDATE users SET password = $1 WHERE email = $2',
+      [hashedPassword, email]
+    );
+
+    // Remove used token
+    resetTokens.delete(email);
+
+    res.json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Error in reset password:', error);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
 });
 
 const PORT = process.env.PORT || 3000;

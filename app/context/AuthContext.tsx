@@ -15,6 +15,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  token: string | null;
   login: (identifier: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   isLoading: boolean;
@@ -24,7 +25,6 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
-// const API_URL = 'http://192.168.0.105:3000';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -85,19 +85,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Navigate based on role
       switch (user.role) {
         case 'employee':
-          router.replace('/(dashboard)/employee');
+          router.replace('/(dashboard)/employee/employee');
           break;
         case 'group-admin':
-          router.replace('/(dashboard)/group-admin');
+          router.replace('/(dashboard)/Group-Admin/group-admin');
           break;
         case 'management':
-          router.replace('/(dashboard)/management');
+          router.replace('/(dashboard)/management/management');
           break;
         case 'super-admin':
-          router.replace('/(dashboard)/super-admin');
+          router.replace('/(dashboard)/super-admin/super-admin');
           break;
         default:
-          router.replace('/(dashboard)/employee');
+          router.replace('/(dashboard)/employee/employee');
       }
     } catch (error: any) {
       console.error('Login error details:', {
