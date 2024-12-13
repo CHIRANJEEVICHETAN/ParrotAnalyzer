@@ -49,6 +49,7 @@ interface FormData {
   designation: string;
   location: string;
   date: Date;
+  travelDate: Date;
   vehicleType: string;
   vehicleNumber: string;
   totalKilometers: string;
@@ -114,6 +115,7 @@ export default function EmployeeExpenses() {
     designation: '',
     location: '',
     date: new Date(),
+    travelDate: new Date(),
     vehicleType: '',
     vehicleNumber: '',
     totalKilometers: '',
@@ -1571,10 +1573,6 @@ const styles = StyleSheet.create({
   savedDetailSubText: {
     fontSize: 12,
     marginTop: 4,
-  },
-  deleteButton: {
-    padding: 2,
-    alignSelf: 'center',
   },
 });
 
