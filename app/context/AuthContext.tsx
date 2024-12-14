@@ -28,6 +28,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -35,17 +36,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const token = await AsyncStorage.getItem('auth_token');
-        if (token) {
-          // Set axios default header
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        console.log('Initializing auth...');
+        const storedToken = await AsyncStorage.getItem('auth_token');
+        console.log('Stored token:', storedToken);
+        
+        if (storedToken) {
+          setToken(storedToken);
+          axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+          console.log('Axios headers set:', axios.defaults.headers.common['Authorization']);
           
-          // Fetch user profile
           const response = await axios.get(`${API_URL}/user/profile`);
+          console.log('Profile response:', response.data);
           setUser(response.data);
         }
       } catch (error) {
+        console.error('Init auth error:', error);
         await AsyncStorage.removeItem('auth_token');
+        setToken(null);
         axios.defaults.headers.common['Authorization'] = '';
       } finally {
         setIsInitialized(true);
@@ -58,29 +65,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (identifier: string, password: string) => {
     setIsLoading(true);
     try {
-      console.log('Attempting login with:', { identifier, url: API_URL });
+      console.log('Login attempt:', { identifier, url: API_URL });
       
-      // Create axios instance with timeout
-      const axiosInstance = axios.create({
-        baseURL: API_URL,
-        timeout: 10000, // 10 seconds timeout
-      });
-
-      const response = await axiosInstance.post('/auth/login', {
+      // Create axios instance with full URL
+      const response = await axios.post(`${API_URL}/auth/login`, {
         identifier,
         password
       });
 
       console.log('Login response:', response.data);
+      const { token: newToken, user } = response.data;
 
-      const { token, user } = response.data;
-
-      // Store token
-      await AsyncStorage.setItem('auth_token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-
-      // Update state
+      await AsyncStorage.setItem('auth_token', newToken);
+      setToken(newToken);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
       setUser(user);
+
+      console.log('Auth state updated:', { user, token: newToken });
 
       // Navigate based on role
       switch (user.role) {
@@ -110,13 +111,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let errorMessage = 'An error occurred during login';
       
       if (error.response) {
-        // Server responded with an error
         errorMessage = error.response.data?.error || 'Server error: ' + error.response.status;
       } else if (error.request) {
-        // Request was made but no response
         errorMessage = 'No response from server. Please check your connection.';
       } else {
-        // Error in request setup
         errorMessage = error.message || 'Error setting up the request';
       }
 
@@ -132,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.removeItem('auth_token');
       axios.defaults.headers.common['Authorization'] = '';
       setUser(null);
+      setToken(null);
       router.replace('/');
     } catch (error) {
       console.error('Logout error:', error);
@@ -144,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider 
       value={{ 
         user, 
+        token,
         login, 
         logout, 
         isLoading,

@@ -1,8 +1,8 @@
 import { Slot } from 'expo-router';
-import ThemeContext from './context/ThemeContext';
-import AuthContext from './context/AuthContext';
 import { View } from 'react-native';
 import '../global.css';
+import AuthContext from './context/AuthContext';
+import ThemeContext from './context/ThemeContext';
 
 export default function RootLayout() {
   return (

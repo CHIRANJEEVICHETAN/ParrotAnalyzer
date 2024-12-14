@@ -52,34 +52,19 @@ export default function SignIn() {
     };
 
     const handleSignIn = async () => {
-        setError(''); // Clear previous errors
+        setError('');
         
-        // Input validation
         if (!identifier || !password) {
             setError('Please fill in all fields');
             return;
         }
 
-        if (!isValidIdentifier) {
-            if (identifierType === 'email') {
-                setError('Please enter a valid email address');
-            } else if (identifierType === 'phone') {
-                setError('Please enter a valid phone number (e.g., +919876543210)');
-            } else {
-                setError('Please enter a valid email or phone number');
-            }
-            return;
-        }
-
-        if (password.length < 8) {
-            setError('Password must be at least 8 characters long');
-            return;
-        }
-
         try {
+            console.log('Attempting signin with:', { identifier });
             await login(identifier, password);
-            // Navigation will be handled by RequireAuth component
+            console.log('Login successful');
         } catch (err: any) {
+            console.error('Login error in signin:', err);
             let errorMessage = 'An error occurred during login';
             
             // Handle specific error cases

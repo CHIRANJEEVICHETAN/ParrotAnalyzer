@@ -159,22 +159,40 @@ const initScheduleTable = async () => {
 
 const initDB = async () => {
   try {
+    // First create companies table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS companies (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        address TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Then create users table with company_id reference
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
-        phone VARCHAR(20) UNIQUE,
+        phone VARCHAR(20),
         password VARCHAR(100) NOT NULL,
         role VARCHAR(20) NOT NULL CHECK (role IN ('employee', 'group-admin', 'management', 'super-admin')),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        company_id INTEGER REFERENCES companies(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
     await initExpensesTable();
     await initScheduleTable();
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
+    throw error; // Re-throw to catch initialization failures
   }
 };
 
@@ -292,80 +310,48 @@ app.post('/api/expenses', verifyToken, async (req: CustomRequest, res: Response)
   }
 });
 
-app.post('/auth/login', async (req, res) => {
-  console.log('Login attempt:', {
-    body: req.body,
-    headers: req.headers
-  });
-
+app.post('/auth/login', async (req: Request, res: Response) => {
   try {
     const { identifier, password } = req.body;
 
-    if (!identifier || !password) {
-      console.log('Missing credentials');
-      return res.status(400).json({ 
-        error: 'Email/phone and password are required' 
-      });
+    // Find user by email or phone
+    const userResult = await pool.query(
+      'SELECT u.*, c.status as company_status FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.email = $1 OR u.phone = $1',
+      [identifier]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Check if identifier is email or phone
-    const isEmail = identifier.includes('@');
-    const query = isEmail 
-      ? 'SELECT * FROM users WHERE email = $1'
-      : 'SELECT * FROM users WHERE phone = $1';
+    const user = userResult.rows[0];
 
-    console.log('Executing query:', { query, identifier });
-    const result = await pool.query(query, [identifier]);
-
-    if (result.rows.length === 0) {
-      console.log('User not found');
-      return res.status(404).json({ 
-        error: 'User not found. Please check your email/phone' 
-      });
+    // Check if company is disabled (except for super-admin)
+    if (user.role !== 'super-admin' && user.company_status === 'disabled') {
+      return res.status(403).json({ error: 'Your company account is currently disabled. Please contact support.' });
     }
 
-    const user = result.rows[0];
-    console.log('User found:', { id: user.id, email: user.email });
-    
+    // Verify password
     const validPassword = await bcrypt.compare(password, user.password);
-
     if (!validPassword) {
-      console.log('Invalid password');
-      return res.status(401).json({ 
-        error: 'Invalid password' 
-      });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Generate JWT token
+    // Create token
     const token = jwt.sign(
-      { 
-        id: user.id, 
-        email: user.email,
-        phone: user.phone,
-        role: user.role 
-      },
-      process.env.JWT_SECRET!,
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
       { expiresIn: '24h' }
     );
 
-    console.log('Login successful:', { userId: user.id });
+    // Remove sensitive data before sending
+    delete user.password;
+    delete user.company_status;
 
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role
-      }
-    });
-
+    res.json({ token, user });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
-      error: 'An error occurred during login. Please try again later.' 
-    });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -619,6 +605,215 @@ app.post('/auth/reset-password', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error in reset password:', error);
     res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// Create new company with management account
+app.post('/api/companies', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  try {
+    const {
+      companyName,
+      companyEmail,
+      companyAddress,
+      managementName,
+      managementEmail,
+      managementPhone,
+      managementPassword
+    } = req.body;
+
+    // Validate required fields
+    if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        details: {
+          companyName: !companyName,
+          companyEmail: !companyEmail,
+          managementName: !managementName,
+          managementEmail: !managementEmail,
+          managementPassword: !managementPassword
+        }
+      });
+    }
+
+    // Start transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Check if company email already exists
+      const existingCompany = await client.query(
+        'SELECT id FROM companies WHERE email = $1',
+        [companyEmail]
+      );
+
+      if (existingCompany.rows.length > 0) {
+        throw new Error('Company with this email already exists');
+      }
+
+      // Check if management email already exists
+      const existingUser = await client.query(
+        'SELECT id FROM users WHERE email = $1',
+        [managementEmail]
+      );
+
+      if (existingUser.rows.length > 0) {
+        throw new Error('Management email already exists');
+      }
+
+      // Insert company
+      const companyResult = await client.query(
+        `INSERT INTO companies (name, email, address, status)
+         VALUES ($1, $2, $3, 'active')
+         RETURNING id`,
+        [companyName, companyEmail, companyAddress]
+      );
+
+      const companyId = companyResult.rows[0].id;
+
+      // Hash password for management account
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(managementPassword, salt);
+
+      // Create management account
+      await client.query(
+        `INSERT INTO users (name, email, phone, password, role, company_id)
+         VALUES ($1, $2, $3, $4, 'management', $5)`,
+        [managementName, managementEmail, managementPhone, hashedPassword, companyId]
+      );
+
+      await client.query('COMMIT');
+      res.status(201).json({ 
+        message: 'Company created successfully',
+        companyId: companyId
+      });
+    } catch (error: any) {
+      await client.query('ROLLBACK');
+      console.error('Transaction error:', error);
+      
+      if (error.message.includes('already exists')) {
+        return res.status(409).json({ error: error.message });
+      }
+      
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error('Error creating company:', error);
+    res.status(500).json({ 
+      error: 'Failed to create company',
+      details: error.message
+    });
+  }
+});
+
+// Get all companies
+app.get('/api/companies', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        c.id,
+        c.name,
+        c.email,
+        c.status,
+        c.created_at,
+        (
+          SELECT json_build_object(
+            'name', u.name,
+            'email', u.email,
+            'phone', u.phone
+          )
+          FROM users u 
+          WHERE u.company_id = c.id AND u.role = 'management'
+          LIMIT 1
+        ) as management,
+        (
+          SELECT COUNT(*) 
+          FROM users 
+          WHERE company_id = c.id AND role != 'management'
+        ) as user_count
+      FROM companies c
+      ORDER BY c.name
+    `);
+    
+    // Format the response
+    const companies = result.rows.map(company => ({
+      ...company,
+      management: company.management || null,
+      user_count: parseInt(company.user_count) || 0
+    }));
+
+    res.json(companies);
+  } catch (error) {
+    console.error('Error fetching companies:', error);
+    res.status(500).json({ error: 'Failed to fetch companies' });
+  }
+});
+
+// Toggle company status
+app.patch('/api/companies/:id/toggle-status', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Update company status
+    const result = await client.query(
+      `UPDATE companies 
+       SET status = CASE WHEN status = 'active' THEN 'disabled' ELSE 'active' END
+       WHERE id = $1
+       RETURNING status`,
+      [req.params.id]
+    );
+    
+    const newStatus = result.rows[0].status;
+
+    // If company is disabled, invalidate all user tokens (in a real app, you'd use Redis or similar)
+    if (newStatus === 'disabled') {
+      // You might want to implement a token blacklist or force users to reauthenticate
+      // For now, we'll just log it
+      console.log(`Company ${req.params.id} disabled - users will need to reauthenticate`);
+    }
+
+    await client.query('COMMIT');
+    res.json({ 
+      message: 'Company status updated successfully',
+      status: newStatus
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating company status:', error);
+    res.status(500).json({ error: 'Failed to update company status' });
+  } finally {
+    client.release();
+  }
+});
+
+// Delete company
+app.delete('/api/companies/:id', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // Delete all users associated with the company
+      await client.query('DELETE FROM users WHERE company_id = $1', [id]);
+      
+      // Delete the company
+      await client.query('DELETE FROM companies WHERE id = $1', [id]);
+      
+      await client.query('COMMIT');
+      res.json({ message: 'Company deleted successfully' });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Error deleting company:', error);
+    res.status(500).json({ error: 'Failed to delete company' });
   }
 });
 

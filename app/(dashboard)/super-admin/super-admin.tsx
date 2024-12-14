@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle } from 'react-native';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,23 +21,35 @@ export default function SuperAdminDashboard() {
 
     // Quick action items
     const quickActions = [
-        { label: 'Create User', icon: 'person-add', action: () => router.push('/(dashboard)/super-admin/create-user') },
+        { label: 'Add or Manage Company', icon: 'business', action: () => router.push('/(dashboard)/super-admin/company_management') },
         { label: 'System Config', icon: 'settings', action: () => router.push('/(dashboard)/super-admin/system-config') },
         { label: 'Reports', icon: 'bar-chart', action: () => router.push('/(dashboard)/super-admin/reports') },
         { label: 'Security', icon: 'shield', action: () => router.push('/(dashboard)/super-admin/security') },
     ];
 
     return (
-        <View className="flex-1" style={styles.container}>
+        <View className="flex-1" style={styles.container as ViewStyle}>
             {/* Enhanced Header with Gradient */}
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                style={{
+                    paddingBottom: 16,
+                    paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 3,
+                    elevation: 3,
+                }}
             >
                 <View className="flex-row items-center justify-between px-6">
                     <View>
-                        <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}
-                              style={styles.headerTitle}>
+                        <Text 
+                            style={[
+                                styles.headerTitle,
+                                { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }
+                            ]}
+                        >
                             Super Admin
                         </Text>
                         <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
@@ -59,9 +71,11 @@ export default function SuperAdminDashboard() {
             </LinearGradient>
 
             <ScrollView
-                className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
+                style={[
+                    styles.scrollView,
+                    { backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }
+                ]}
                 showsVerticalScrollIndicator={false}
-                style={styles.scrollView}
             >
                 {/* Quick Actions */}
                 <View className="px-6 py-4">
@@ -169,7 +183,7 @@ export default function SuperAdminDashboard() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-    },
+    } as ViewStyle,
     header: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
@@ -177,28 +191,28 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 3,
         paddingBottom: 16,
-    },
+    } as ViewStyle,
     headerTitle: {
         fontSize: 28,
         letterSpacing: 0.5,
-    },
+    } as TextStyle,
     settingsButton: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.1,
         shadowRadius: 2,
         elevation: 2,
-    },
+    } as ViewStyle,
     scrollView: {
         bounces: true,
-    },
+    } as ViewStyle,
     actionCard: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
         shadowRadius: 3,
         elevation: 2,
-    },
+    } as ViewStyle,
     statCard: {
         minWidth: 140,
         shadowColor: '#000',
@@ -206,12 +220,12 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 3,
         elevation: 2,
-    },
+    } as ViewStyle,
     activityCard: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
         shadowRadius: 3,
         elevation: 2,
-    },
+    } as ViewStyle,
 }); 
