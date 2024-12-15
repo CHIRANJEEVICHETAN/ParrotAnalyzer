@@ -184,7 +184,7 @@ export default function CompanyManagement() {
             filteredCompanies.map((company) => (
               <TouchableOpacity
                 key={company.id}
-                // onPress={() => router.push(`/(dashboard)/company/${company.id}`)}
+                onPress={() => router.push(`/super-admin/company/${company.id}`)}
                 className={`mx-4 mb-4 p-4 rounded-lg ${
                   theme === 'dark' ? 'bg-gray-800' : 'bg-white'
                 }`}

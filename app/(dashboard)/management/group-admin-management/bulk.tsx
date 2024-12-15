@@ -222,7 +222,8 @@ const styles = StyleSheet.create({
   },
   selectedFileText: {
     fontSize: 14,
-  },
+
+},
   uploadButton: {
     backgroundColor: '#3B82F6',
     flexDirection: 'row',

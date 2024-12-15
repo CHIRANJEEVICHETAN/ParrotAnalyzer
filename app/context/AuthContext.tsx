@@ -18,6 +18,7 @@ interface AuthContextType {
   token: string | null;
   login: (identifier: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshToken: () => Promise<string | null>;
   isLoading: boolean;
   isInitialized: boolean;
 }
@@ -34,32 +35,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize auth state
   useEffect(() => {
-    const initAuth = async () => {
+    const initializeAuth = async () => {
       try {
-        console.log('Initializing auth...');
+        setIsLoading(true);
         const storedToken = await AsyncStorage.getItem('auth_token');
-        console.log('Stored token:', storedToken);
         
         if (storedToken) {
-          setToken(storedToken);
-          axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-          console.log('Axios headers set:', axios.defaults.headers.common['Authorization']);
-          
-          const response = await axios.get(`${API_URL}/user/profile`);
-          console.log('Profile response:', response.data);
-          setUser(response.data);
+          console.log('Found stored token, attempting refresh');
+          const newToken = await refreshToken();
+          if (!newToken) {
+            console.log('Token refresh failed during initialization');
+            router.replace('/(auth)/signin');
+          } else {
+            console.log('Token refresh successful during initialization');
+          }
         }
       } catch (error) {
-        console.error('Init auth error:', error);
-        await AsyncStorage.removeItem('auth_token');
-        setToken(null);
-        axios.defaults.headers.common['Authorization'] = '';
+        console.error('Auth initialization error:', error);
       } finally {
         setIsInitialized(true);
+        setIsLoading(false);
       }
     };
 
-    initAuth();
+    initializeAuth();
   }, []);
 
   const login = async (identifier: string, password: string) => {
@@ -139,13 +138,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Add a function to refresh token
+  const refreshToken = async () => {
+    try {
+      console.log('=== Starting token refresh ===');
+      const storedToken = await AsyncStorage.getItem('auth_token');
+      if (!storedToken) {
+        console.log('No stored token found');
+        return null;
+      }
+      console.log('Found stored token:', storedToken.substring(0, 20) + '...');
+
+      try {
+        console.log('Making refresh token request...');
+        const response = await axios.post(`${API_URL}/auth/refresh`, null, {
+          headers: {
+            'Authorization': `Bearer ${storedToken}`
+          }
+        });
+
+        const { token: newToken, user } = response.data;
+        console.log('Refresh successful. New token:', newToken.substring(0, 20) + '...');
+        console.log('User data:', { id: user.id, role: user.role });
+
+        await AsyncStorage.setItem('auth_token', newToken);
+        setToken(newToken);
+        setUser(user);
+
+        // Set the token in axios defaults
+        axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+        console.log('Updated axios default headers');
+
+        return newToken;
+      } catch (error) {
+        console.error('Token refresh request failed:', error);
+        if (axios.isAxiosError(error)) {
+          console.error('Response status:', error.response?.status);
+          console.error('Response data:', error.response?.data);
+        }
+        throw error;
+      }
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        console.log('Clearing auth state due to 401');
+        await AsyncStorage.removeItem('auth_token');
+        setToken(null);
+        setUser(null);
+        delete axios.defaults.headers.common['Authorization'];
+      }
+      return null;
+    }
+  };
+
   return (
     <AuthContext.Provider 
       value={{ 
         user, 
         token,
         login, 
-        logout, 
+        logout,
+        refreshToken,
         isLoading,
         isInitialized
       }}

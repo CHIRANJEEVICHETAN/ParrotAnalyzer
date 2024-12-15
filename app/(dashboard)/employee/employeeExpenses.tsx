@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   StatusBar,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -112,7 +113,7 @@ const numberToWords = (num: number) => {
 
 export default function EmployeeExpenses() {
   const { theme } = ThemeContext.useTheme();
-  const { user } = AuthContext.useAuth();
+  const { user, token, refreshToken } = AuthContext.useAuth();
   const router = useRouter();
 
   // Form state
@@ -156,6 +157,7 @@ export default function EmployeeExpenses() {
   });
   const [savedTravelDetails, setSavedTravelDetails] = useState<TravelDetail[]>([]);
   const [companyName, setCompanyName] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Calculated fields
   const totalExpenses = React.useMemo(() => {
@@ -193,16 +195,26 @@ export default function EmployeeExpenses() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/*', 'application/pdf'],
-        multiple: true,
+        multiple: true
       });
 
       if (!result.canceled) {
+        // Map the files to include the necessary properties
+        const newFiles = result.assets.map(asset => ({
+          uri: asset.uri,
+          type: asset.mimeType || 'image/jpeg',
+          name: asset.name
+        }));
+
         setFormData(prev => ({
           ...prev,
-          supportingDocs: [...prev.supportingDocs, ...result.assets],
+          supportingDocs: [...prev.supportingDocs, ...newFiles]
         }));
+
+        console.log('Files selected:', newFiles);
       }
     } catch (err) {
+      console.error('Error picking document:', err);
       Alert.alert('Error', 'Failed to pick document');
     }
   };
@@ -229,73 +241,60 @@ export default function EmployeeExpenses() {
   useEffect(() => {
     const checkAuthAndFetchDetails = async () => {
       try {
-        const token = await AsyncStorage.getItem('auth_token');
-        if (!token) {
-          console.log('No auth token found');
-          router.replace('/login' as any);
+        const currentToken = await refreshToken();
+        if (!currentToken) {
+          router.replace('/(auth)/signin');
           return;
         }
 
-        // First verify token
-        const profileResponse = await axios.get(`${EXPO_PUBLIC_API_URL}/user/profile`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        // Set token in axios headers
+        axios.defaults.headers.common['Authorization'] = `Bearer ${currentToken}`;
 
-        if (!profileResponse.data) {
-          throw new Error('Invalid token');
-        }
+        const employeeResponse = await axios.get<EmployeeDetails>(
+          `${EXPO_PUBLIC_API_URL}/api/employee/details`
+        );
 
-        console.log('Profile data:', profileResponse.data); // Debug log
+        // Update form data with employee details
+        setFormData(prev => ({
+          ...prev,
+          employeeName: employeeResponse.data.name || '',
+          employeeNumber: employeeResponse.data.employee_number || '',
+          department: employeeResponse.data.department || '',
+          designation: employeeResponse.data.designation || ''
+        }));
 
-        // Then fetch employee details
-        try {
-          const employeeResponse = await axios.get<EmployeeDetails>(
-            `${EXPO_PUBLIC_API_URL}/api/employee/details`,
-            {
-              headers: {
-                'Authorization': `Bearer ${token}`
+        // Update company name
+        setCompanyName(employeeResponse.data.company_name || 'Company Not Assigned');
+
+        // Also update employeeDetails state
+        setEmployeeDetails(prev => ({
+          ...prev,
+          employeeName: employeeResponse.data.name || '',
+          employeeNumber: employeeResponse.data.employee_number || '',
+          department: employeeResponse.data.department || '',
+          designation: employeeResponse.data.designation || ''
+        }));
+      } catch (error) {
+        console.error('Auth/Details check error:', error);
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: async () => {
+                  await AsyncStorage.removeItem('auth_token');
+                  router.replace('/(auth)/signin');
+                }
               }
-            }
+            ]
           );
-
-          console.log('Employee details:', employeeResponse.data); // Debug log
-
-          // Update form data with employee details
-          setFormData(prev => ({
-            ...prev,
-            employeeName: employeeResponse.data.name || '',
-            employeeNumber: employeeResponse.data.employee_number || '',
-            department: employeeResponse.data.department || '',
-            designation: employeeResponse.data.designation || ''
-          }));
-
-          // Update company name
-          setCompanyName(employeeResponse.data.company_name || 'Company Not Assigned');
-
-          // Also update employeeDetails state
-          setEmployeeDetails(prev => ({
-            ...prev,
-            employeeName: employeeResponse.data.name || '',
-            employeeNumber: employeeResponse.data.employee_number || '',
-            department: employeeResponse.data.department || '',
-            designation: employeeResponse.data.designation || ''
-          }));
-
-        } catch (detailsError) {
-          console.error('Error fetching employee details:', detailsError);
+        } else {
           Alert.alert(
             'Error',
             'Failed to fetch employee details. Please try again later.'
           );
-        }
-
-      } catch (error) {
-        console.error('Auth/Details check error:', error);
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
-          await AsyncStorage.removeItem('auth_token');
-          router.replace('/login' as any);
         }
       }
     };
@@ -309,36 +308,91 @@ export default function EmployeeExpenses() {
       Alert.alert('Error', 'Please fill all required fields correctly');
       return;
     }
-
+  
+    setIsSubmitting(true);
+    
     try {
-      const token = await AsyncStorage.getItem('auth_token');
-      if (!token) {
-        router.replace('/login' as any);
-        return;
-      }
-
+      // Create FormData instance
+      const formDataToSend = new FormData();
+      
+      // Add expense data
       const expenseData = {
-        ...formData,
-        travelDetails: savedTravelDetails,
-        totalAmount: totalExpenses,
-        amountPayable: amountPayable,
+        employeeName: formData.employeeName,
+        employeeNumber: formData.employeeNumber,
+        department: formData.department,
+        designation: formData.designation,
+        location: formData.location,
+        date: formData.date,
+        travelDetails: [
+          ...savedTravelDetails,
+          ...(formData.totalKilometers.trim() !== '' ? [{
+            vehicleType: formData.vehicleType,
+            vehicleNumber: formData.vehicleNumber,
+            totalKilometers: parseFloat(formData.totalKilometers),
+            startDateTime: formData.startDateTime,
+            endDateTime: formData.endDateTime,
+            routeTaken: formData.routeTaken
+          }] : [])
+        ],
+        expenseDetails: [
+          ...savedExpenseDetails,
+          ...(hasCurrentExpenseDetails() ? [{
+            lodgingExpenses: parseFloat(formData.lodgingExpenses) || 0,
+            dailyAllowance: parseFloat(formData.dailyAllowance) || 0,
+            diesel: parseFloat(formData.diesel) || 0,
+            tollCharges: parseFloat(formData.tollCharges) || 0,
+            otherExpenses: parseFloat(formData.otherExpenses) || 0
+          }] : [])
+        ],
+        totalAmount: calculateTotalAmount(),
+        amountPayable: calculateAmountPayable(),
+        advanceTaken: formData.advanceTaken
       };
 
+      // Append expense data fields individually
+      Object.entries(expenseData).forEach(([key, value]) => {
+        if (key === 'travelDetails' || key === 'expenseDetails') {
+          formDataToSend.append(key, JSON.stringify(value));
+        } else {
+          formDataToSend.append(key, value?.toString() || '');
+        }
+      });
+
+      // Append files if any
+      if (formData.supportingDocs && formData.supportingDocs.length > 0) {
+        formData.supportingDocs.forEach((file, index) => {
+          const fileToUpload = {
+            uri: file.uri,
+            type: file.type || 'image/jpeg',
+            name: file.name || `file${index}.jpg`
+          };
+          formDataToSend.append('supportingDocs', fileToUpload as any);
+        });
+
+        console.log('Files being uploaded:', formData.supportingDocs);
+      }
+
+      console.log('Submitting expense data with files');
+
       const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/expenses`,
-        expenseData,
+        `${EXPO_PUBLIC_API_URL}/api/expenses/submit`, 
+        formDataToSend,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+            'Content-Type': 'multipart/form-data',
+            Accept: 'application/json',
+          },
+          transformRequest: (data, headers) => {
+            return data; // Don't transform the data
+          },
         }
       );
 
-      // Clear saved data after successful submission
-      await AsyncStorage.removeItem('employeeDetails');
+      // Clear saved data and show success message
       await AsyncStorage.removeItem('savedTravelDetails');
+      await AsyncStorage.removeItem('savedExpenseDetails');
       setSavedTravelDetails([]);
+      setSavedExpenseDetails([]);
 
       Alert.alert(
         'Success',
@@ -346,21 +400,60 @@ export default function EmployeeExpenses() {
         [
           {
             text: 'OK',
-            onPress: () => router.back()
+            onPress: () => router.replace('/(dashboard)/employee/employee')
           }
         ]
       );
+
     } catch (error) {
-      console.error('Submit error:', error);
+      console.error('Submission error:', error);
+      
       if (axios.isAxiosError(error)) {
+        console.error('Axios error details:', {
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message
+        });
+
         Alert.alert(
           'Error',
-          error.response?.data?.error || 'Failed to submit expense claim'
+          error.response?.data?.error || 'Failed to submit expense'
         );
       } else {
         Alert.alert('Error', 'An unexpected error occurred');
       }
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  // Helper function to check if current expense details exist
+  const hasCurrentExpenseDetails = () => {
+    return formData.lodgingExpenses.trim() !== '' ||
+      formData.dailyAllowance.trim() !== '' ||
+      formData.diesel.trim() !== '' ||
+      formData.tollCharges.trim() !== '' ||
+      formData.otherExpenses.trim() !== '';
+  };
+
+  // Helper function to calculate total amount including saved expenses
+  const calculateTotalAmount = () => {
+    const currentExpenseTotal = [
+      'lodgingExpenses',
+      'dailyAllowance',
+      'diesel',
+      'tollCharges',
+      'otherExpenses',
+    ].reduce((acc, key) => acc + (parseFloat(formData[key as keyof typeof formData] as string) || 0), 0);
+
+    const savedExpenseTotal = savedExpenseDetails.reduce((acc, expense) => acc + expense.totalAmount, 0);
+
+    return currentExpenseTotal + savedExpenseTotal;
+  };
+
+  // Helper function to calculate amount payable
+  const calculateAmountPayable = () => {
+    return calculateTotalAmount() - (parseFloat(formData.advanceTaken) || 0);
   };
 
   const handleStartDateTimeChange = (event: any, selectedDate?: Date) => {
@@ -441,30 +534,6 @@ export default function EmployeeExpenses() {
   const showEndDateTimePicker = () => {
     setPickerMode('date');
     setFormData(prev => ({ ...prev, showEndPicker: true }));
-  };
-
-  const handleEmployeeDetailsReset = async () => {
-    const resetData = {
-      ...employeeDetails,
-      employeeNumber: '',
-      department: '',
-      designation: '',
-      location: '',
-      // Preserve employee name
-      employeeName: user?.name || ''
-    };
-
-    setEmployeeDetails(resetData);
-    setFormData(prev => ({
-      ...prev,
-      ...resetData
-    }));
-
-    try {
-      await AsyncStorage.setItem('employeeDetails', JSON.stringify(resetData));
-    } catch (error) {
-      console.error('Error saving reset employee details:', error);
-    }
   };
 
   const handleTravelDetailsReset = () => {
@@ -627,7 +696,7 @@ export default function EmployeeExpenses() {
       return acc + (parseFloat(formData[key as keyof typeof formData] as string) || 0);
     }, 0);
 
-    const newExpenseDetail = {
+    const newExpenseDetail: ExpenseDetail = {
       id: Date.now(),
       lodgingExpenses: formData.lodgingExpenses,
       dailyAllowance: formData.dailyAllowance,
@@ -635,20 +704,40 @@ export default function EmployeeExpenses() {
       tollCharges: formData.tollCharges,
       otherExpenses: formData.otherExpenses,
       totalAmount: currentTotal
-    } as ExpenseDetail;
+    };
 
     const updatedDetails = [...savedExpenseDetails, newExpenseDetail];
-    setSavedExpenseDetails(updatedDetails);
 
     try {
+      // Save to AsyncStorage
       await AsyncStorage.setItem('savedExpenseDetails', JSON.stringify(updatedDetails));
+      setSavedExpenseDetails(updatedDetails);
+      
+      // Reset form fields
       handleExpenseDetailsReset();
+      
       Alert.alert('Success', `Expense Details ${updatedDetails.length} saved successfully`);
     } catch (error) {
       console.error('Error saving expense details:', error);
       Alert.alert('Error', 'Failed to save expense details');
     }
   };
+
+  // Add useEffect to load saved expense details on mount
+  useEffect(() => {
+    const loadSavedData = async () => {
+      try {
+        const savedExpenses = await AsyncStorage.getItem('savedExpenseDetails');
+        if (savedExpenses) {
+          setSavedExpenseDetails(JSON.parse(savedExpenses));
+        }
+      } catch (error) {
+        console.error('Error loading saved expense details:', error);
+      }
+    };
+
+    loadSavedData();
+  }, []);
 
   const handleDeleteExpenseDetail = async (id: number) => {
     Alert.alert(
@@ -826,15 +915,6 @@ export default function EmployeeExpenses() {
               {formData.date
                 ? format(new Date(formData.date), 'dd MMM yyyy')
                 : 'Select date'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.resetButton, { backgroundColor: theme === 'dark' ? '#4B5563' : '#E5E7EB' }]}
-            onPress={handleEmployeeDetailsReset}
-          >
-            <Text style={[styles.resetButtonText, { color: theme === 'dark' ? '#FFFFFF' : '#374151' }]}>
-              Reset Employee Details
             </Text>
           </TouchableOpacity>
         </View>
@@ -1342,10 +1422,19 @@ export default function EmployeeExpenses() {
 
         {/* Submit Button */}
         <TouchableOpacity
-          style={[styles.submitButton, { backgroundColor: '#3B82F6' }]}
+          style={[
+            styles.submitButton,
+            { backgroundColor: theme === 'dark' ? '#3B82F6' : '#2563EB' },
+            isSubmitting && { opacity: 0.7 } // Add opacity when submitting
+          ]}
           onPress={handleSubmit}
+          disabled={isSubmitting} // Disable button while submitting
         >
-          <Text style={styles.submitButtonText}>Submit Claim</Text>
+          {isSubmitting ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <Text style={styles.submitButtonText}>Submit Claim</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -1613,4 +1702,3 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 });
-
