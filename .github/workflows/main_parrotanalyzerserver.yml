@@ -1,7 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy Node.js app to Azure Web App - ParrotAnalyzerServer
+name: Build and Deploy Node.js App to Azure Web App - ParrotAnalyzerServer
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout code
+      # 1. Checkout the code
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -24,26 +24,26 @@ jobs:
         with:
           node-version: '20.x'
 
-      # 3. Install dependencies, build, and test (in 'backend' folder)
-      - name: npm install, build, and test
+      # 3. Install dependencies, build, and test (Backend folder)
+      - name: Install dependencies, build, and test
+        working-directory: ./backend
         run: |
-          cd backend
           npm install
           npm run build --if-present
-          npm run test --if-present
+          npm test --if-present
 
-      # 4. Zip 'backend' folder contents for deployment
-      - name: Zip artifact for deployment
+      # 4. Zip the backend folder for deployment
+      - name: Zip backend for deployment
         run: |
           cd backend
-          zip -r ../release.zip ./*
+          zip -r ../backend-release.zip ./*
 
       # 5. Upload artifact for deployment job
-      - name: Upload artifact for deployment job
+      - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: node-app
-          path: release.zip
+          name: backend-artifact
+          path: backend-release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -55,15 +55,15 @@ jobs:
       id-token: write # Required for requesting the JWT
 
     steps:
-      # 1. Download artifact
+      # 1. Download the build artifact
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: node-app
+          name: backend-artifact
 
-      # 2. Unzip the artifact
-      - name: Unzip artifact for deployment
-        run: unzip release.zip
+      # 2. Unzip the artifact for deployment
+      - name: Unzip artifact
+        run: unzip backend-release.zip
 
       # 3. Login to Azure
       - name: Login to Azure
@@ -73,7 +73,7 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_4134AF8F2B6545C6A2633320D4A28A84 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E1295A4C182D403490FF55C343F6F56E }}
 
-      # 4. Deploy to Azure Web App
+      # 4. Deploy the application to Azure Web App
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
