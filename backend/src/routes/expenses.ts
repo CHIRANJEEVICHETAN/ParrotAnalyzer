@@ -75,7 +75,6 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
   const client = await pool.connect();
   
   try {
-    // Log file upload details
     console.log('Files received:', req.files ? req.files.length : 0);
     if (req.files && Array.isArray(req.files)) {
       console.log('File details:', req.files.map(f => ({
@@ -86,10 +85,6 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
       })));
     }
 
-    // Parse travel and expense details from JSON strings
-    const travelDetails = req.body.travelDetails ? JSON.parse(req.body.travelDetails) : [];
-    const expenseDetails = req.body.expenseDetails ? JSON.parse(req.body.expenseDetails) : [];
-    
     const { 
       employeeName, 
       employeeNumber, 
@@ -102,6 +97,10 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
       advanceTaken
     } = req.body;
 
+    // Parse travel and expense details
+    const travelDetails = JSON.parse(req.body.travelDetails || '[]');
+    const expenseDetails = JSON.parse(req.body.expenseDetails || '[]');
+
     console.log('Received expense submission:', {
       employeeName,
       employeeNumber,
@@ -111,7 +110,9 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
       date,
       totalAmount,
       amountPayable,
-      files: req.files?.length
+      files: req.files?.length,
+      travelDetailsCount: travelDetails.length,
+      expenseDetailsCount: expenseDetails.length
     });
 
     // Basic validation
@@ -127,8 +128,6 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
       [employeeNumber, 'employee']
     );
 
-    console.log('Employee query result:', employeeResult.rows);
-
     if (!employeeResult.rows.length) {
       console.log('Employee not found:', employeeNumber);
       return res.status(404).json({ error: 'Employee not found' });
@@ -137,76 +136,94 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
     const userId = employeeResult.rows[0].id;
     const companyId = employeeResult.rows[0].company_id;
 
-    console.log('Found employee:', { userId, companyId });
-
     // Start transaction
     await client.query('BEGIN');
 
     try {
-      // Get the first travel detail and expense detail
-      const travelDetail = travelDetails?.[0] || {};
-      const expenseDetail = expenseDetails?.[0] || {};
+      const insertedExpenseIds = [];
 
-      // Insert expense record
-      const expenseResult = await client.query(
-        `INSERT INTO expenses (
-          user_id,
-          employee_name,
-          employee_number,
-          department,
-          designation,
-          location,
-          date,
-          vehicle_type,
-          vehicle_number,
-          total_kilometers,
-          start_time,
-          end_time,
-          route_taken,
-          lodging_expenses,
-          daily_allowance,
-          diesel,
-          toll_charges,
-          other_expenses,
-          total_amount,
-          amount_payable,
-          advance_taken,
-          status,
-          company_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
-        RETURNING id`,
-        [
-          userId,
-          employeeName,
-          employeeNumber,
-          department,
-          designation,
-          location,
-          new Date(date),
-          travelDetail.vehicleType || null,
-          travelDetail.vehicleNumber || null,
-          parseFloat(travelDetail.totalKilometers) || null,
-          travelDetail.startDateTime ? new Date(travelDetail.startDateTime) : null,
-          travelDetail.endDateTime ? new Date(travelDetail.endDateTime) : null,
-          travelDetail.routeTaken || null,
-          parseFloat(expenseDetail.lodgingExpenses) || 0,
-          parseFloat(expenseDetail.dailyAllowance) || 0,
-          parseFloat(expenseDetail.diesel) || 0,
-          parseFloat(expenseDetail.tollCharges) || 0,
-          parseFloat(expenseDetail.otherExpenses) || 0,
-          parseFloat(totalAmount) || 0,
-          parseFloat(amountPayable) || 0,
-          parseFloat(advanceTaken) || 0,
-          'pending',
-          companyId
-        ]
-      );
+      // Function to calculate total amount for a single expense entry
+      const calculateExpenseTotal = (expenseDetail: any) => {
+        return (
+          parseFloat(expenseDetail.lodgingExpenses || '0') +
+          parseFloat(expenseDetail.dailyAllowance || '0') +
+          parseFloat(expenseDetail.diesel || '0') +
+          parseFloat(expenseDetail.tollCharges || '0') +
+          parseFloat(expenseDetail.otherExpenses || '0')
+        );
+      };
 
-      const expenseId = expenseResult.rows[0].id;
-      console.log('Expense record created:', expenseId);
+      // Handle each travel and expense detail pair
+      const totalEntries = Math.max(travelDetails.length, expenseDetails.length);
+      
+      for (let i = 0; i < totalEntries; i++) {
+        const travelDetail = travelDetails[i] || {};
+        const expenseDetail = expenseDetails[i] || {};
+        
+        // Calculate individual expense total
+        const entryTotal = calculateExpenseTotal(expenseDetail);
+        const entryAdvanceTaken = i === 0 ? parseFloat(advanceTaken) || 0 : 0; // Only apply advance to first entry
+        const entryAmountPayable = entryTotal - entryAdvanceTaken;
 
-      // Save files to database
-      if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+        const expenseResult = await client.query(
+          `INSERT INTO expenses (
+            user_id,
+            employee_name,
+            employee_number,
+            department,
+            designation,
+            location,
+            date,
+            vehicle_type,
+            vehicle_number,
+            total_kilometers,
+            start_time,
+            end_time,
+            route_taken,
+            lodging_expenses,
+            daily_allowance,
+            diesel,
+            toll_charges,
+            other_expenses,
+            total_amount,
+            amount_payable,
+            advance_taken,
+            status,
+            company_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+          RETURNING id`,
+          [
+            userId,
+            employeeName,
+            employeeNumber,
+            department,
+            designation,
+            location,
+            new Date(date),
+            travelDetail.vehicleType || null,
+            travelDetail.vehicleNumber || null,
+            parseFloat(travelDetail.totalKilometers) || null,
+            travelDetail.startDateTime ? new Date(travelDetail.startDateTime) : null,
+            travelDetail.endDateTime ? new Date(travelDetail.endDateTime) : null,
+            travelDetail.routeTaken || null,
+            parseFloat(expenseDetail.lodgingExpenses) || 0,
+            parseFloat(expenseDetail.dailyAllowance) || 0,
+            parseFloat(expenseDetail.diesel) || 0,
+            parseFloat(expenseDetail.tollCharges) || 0,
+            parseFloat(expenseDetail.otherExpenses) || 0,
+            entryTotal,
+            entryAmountPayable,
+            entryAdvanceTaken,
+            'pending',
+            companyId
+          ]
+        );
+
+        insertedExpenseIds.push(expenseResult.rows[0].id);
+      }
+
+      // Save files if present (associate with the first expense entry)
+      if (req.files && Array.isArray(req.files) && req.files.length > 0 && insertedExpenseIds.length > 0) {
         console.log('Saving files to database...');
         for (const file of req.files) {
           try {
@@ -220,7 +237,7 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
               ) VALUES ($1, $2, $3, $4, $5)
               RETURNING id`,
               [
-                expenseId,
+                insertedExpenseIds[0], // Associate with first expense
                 file.originalname,
                 file.mimetype,
                 file.size,
@@ -240,8 +257,8 @@ router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
       console.log('Transaction committed successfully');
 
       res.status(201).json({
-        message: 'Expense submitted successfully',
-        expenseId
+        message: 'Expenses submitted successfully',
+        expenseIds: insertedExpenseIds
       });
 
     } catch (err) {

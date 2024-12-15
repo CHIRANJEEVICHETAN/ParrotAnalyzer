@@ -312,10 +312,74 @@ export default function EmployeeExpenses() {
     setIsSubmitting(true);
     
     try {
-      // Create FormData instance
-      const formDataToSend = new FormData();
+      // Get saved details from AsyncStorage
+      const savedTravelDetailsStr = await AsyncStorage.getItem('savedTravelDetails');
+      const savedExpenseDetailsStr = await AsyncStorage.getItem('savedExpenseDetails');
       
-      // Add expense data
+      let savedTravelDetails = [];
+      let savedExpenseDetails = [];
+
+      try {
+        if (savedTravelDetailsStr) {
+          savedTravelDetails = JSON.parse(savedTravelDetailsStr);
+        }
+        if (savedExpenseDetailsStr) {
+          savedExpenseDetails = JSON.parse(savedExpenseDetailsStr);
+        }
+      } catch (error) {
+        console.error('Error parsing saved details:', error);
+      }
+
+      // Create current travel detail if fields are filled
+      const currentTravelDetail = formData.totalKilometers.trim() !== '' ? {
+        vehicleType: formData.vehicleType,
+        vehicleNumber: formData.vehicleNumber,
+        totalKilometers: parseFloat(formData.totalKilometers),
+        startDateTime: formData.startDateTime,
+        endDateTime: formData.endDateTime,
+        routeTaken: formData.routeTaken
+      } : null;
+
+      // Create current expense detail if fields are filled
+      const currentExpenseDetail = hasCurrentExpenseDetails() ? {
+        lodgingExpenses: parseFloat(formData.lodgingExpenses) || 0,
+        dailyAllowance: parseFloat(formData.dailyAllowance) || 0,
+        diesel: parseFloat(formData.diesel) || 0,
+        tollCharges: parseFloat(formData.tollCharges) || 0,
+        otherExpenses: parseFloat(formData.otherExpenses) || 0
+      } : null;
+
+      // Combine all travel details
+      const allTravelDetails = [
+        ...savedTravelDetails,
+        ...(currentTravelDetail ? [currentTravelDetail] : [])
+      ];
+
+      // Combine all expense details
+      const allExpenseDetails = [
+        ...savedExpenseDetails,
+        ...(currentExpenseDetail ? [currentExpenseDetail] : [])
+      ];
+
+      // Calculate total amounts from all details
+      const totalLodgingExpenses = allExpenseDetails.reduce((sum, detail) => 
+        sum + (parseFloat(detail.lodgingExpenses) || 0), 0);
+      const totalDailyAllowance = allExpenseDetails.reduce((sum, detail) => 
+        sum + (parseFloat(detail.dailyAllowance) || 0), 0);
+      const totalDiesel = allExpenseDetails.reduce((sum, detail) => 
+        sum + (parseFloat(detail.diesel) || 0), 0);
+      const totalTollCharges = allExpenseDetails.reduce((sum, detail) => 
+        sum + (parseFloat(detail.tollCharges) || 0), 0);
+      const totalOtherExpenses = allExpenseDetails.reduce((sum, detail) => 
+        sum + (parseFloat(detail.otherExpenses) || 0), 0);
+
+      const totalAmount = totalLodgingExpenses + totalDailyAllowance + 
+        totalDiesel + totalTollCharges + totalOtherExpenses;
+      
+      const advanceTaken = parseFloat(formData.advanceTaken) || 0;
+      const amountPayable = totalAmount - advanceTaken;
+
+      // Prepare expense data
       const expenseData = {
         employeeName: formData.employeeName,
         employeeNumber: formData.employeeNumber,
@@ -323,32 +387,16 @@ export default function EmployeeExpenses() {
         designation: formData.designation,
         location: formData.location,
         date: formData.date,
-        travelDetails: [
-          ...savedTravelDetails,
-          ...(formData.totalKilometers.trim() !== '' ? [{
-            vehicleType: formData.vehicleType,
-            vehicleNumber: formData.vehicleNumber,
-            totalKilometers: parseFloat(formData.totalKilometers),
-            startDateTime: formData.startDateTime,
-            endDateTime: formData.endDateTime,
-            routeTaken: formData.routeTaken
-          }] : [])
-        ],
-        expenseDetails: [
-          ...savedExpenseDetails,
-          ...(hasCurrentExpenseDetails() ? [{
-            lodgingExpenses: parseFloat(formData.lodgingExpenses) || 0,
-            dailyAllowance: parseFloat(formData.dailyAllowance) || 0,
-            diesel: parseFloat(formData.diesel) || 0,
-            tollCharges: parseFloat(formData.tollCharges) || 0,
-            otherExpenses: parseFloat(formData.otherExpenses) || 0
-          }] : [])
-        ],
-        totalAmount: calculateTotalAmount(),
-        amountPayable: calculateAmountPayable(),
-        advanceTaken: formData.advanceTaken
+        travelDetails: allTravelDetails,
+        expenseDetails: allExpenseDetails,
+        totalAmount,
+        advanceTaken,
+        amountPayable
       };
 
+      // Create FormData instance
+      const formDataToSend = new FormData();
+      
       // Append expense data fields individually
       Object.entries(expenseData).forEach(([key, value]) => {
         if (key === 'travelDetails' || key === 'expenseDetails') {
@@ -372,8 +420,8 @@ export default function EmployeeExpenses() {
         console.log('Files being uploaded:', formData.supportingDocs);
       }
 
-      console.log('Submitting expense data with files');
-
+      console.log('Submitting expense data:', expenseData);
+      
       const response = await axios.post(
         `${EXPO_PUBLIC_API_URL}/api/expenses/submit`, 
         formDataToSend,
@@ -950,10 +998,13 @@ export default function EmployeeExpenses() {
                 Vehicle Number
               </Text>
               <TextInput
-                style={[styles.input, {
-                  backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
-                  color: theme === 'dark' ? '#FFFFFF' : '#111827'
-                }]}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
+                    color: theme === 'dark' ? '#FFFFFF' : '#111827'
+                  }
+                ]}
                 value={formData.vehicleNumber}
                 onChangeText={(text) => setFormData(prev => ({ ...prev, vehicleNumber: text }))}
                 placeholder="Enter vehicle number"
@@ -967,10 +1018,13 @@ export default function EmployeeExpenses() {
               Total Distance (KM) *
             </Text>
             <TextInput
-              style={[styles.input, {
-                backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
-                color: theme === 'dark' ? '#FFFFFF' : '#111827'
-              }]}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
+                  color: theme === 'dark' ? '#FFFFFF' : '#111827'
+                }
+              ]}
               value={formData.totalKilometers}
               onChangeText={(text) => setFormData(prev => ({ ...prev, totalKilometers: text }))}
               keyboardType="numeric"
