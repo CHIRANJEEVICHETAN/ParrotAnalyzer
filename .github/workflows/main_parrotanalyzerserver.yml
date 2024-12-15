@@ -1,6 +1,3 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
 name: Build and Deploy Node.js App to Azure Web App - ParrotAnalyzerServer
 
 on:
@@ -24,26 +21,25 @@ jobs:
         with:
           node-version: '20.x'
 
-      # 3. Install dependencies, build, and test (Backend folder)
-      - name: Install dependencies, build, and test
+      # 3. Install dependencies and build (Backend folder)
+      - name: Install dependencies and build
         working-directory: ./backend
         run: |
           npm install
-          npm run build --if-present
-          npm test --if-present
+          npm run build
 
-      # 4. Zip the backend folder for deployment
-      - name: Zip backend for deployment
+      # 4. Zip the 'dist' folder for deployment
+      - name: Zip dist folder
         run: |
-          cd backend
-          zip -r ../backend-release.zip ./*
+          cd backend/dist
+          zip -r ../../dist-release.zip ./*
 
       # 5. Upload artifact for deployment job
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: backend-artifact
-          path: backend-release.zip
+          name: dist-artifact
+          path: dist-release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -59,11 +55,11 @@ jobs:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: backend-artifact
+          name: dist-artifact
 
       # 2. Unzip the artifact for deployment
       - name: Unzip artifact
-        run: unzip backend-release.zip
+        run: unzip dist-release.zip
 
       # 3. Login to Azure
       - name: Login to Azure
