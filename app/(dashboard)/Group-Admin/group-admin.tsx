@@ -8,12 +8,45 @@ import type { NavItem } from '../../types/nav';
 export default function GroupAdminDashboard() {
     const { theme } = ThemeContext.useTheme();
     const router = useRouter();
+    const isDark = theme === 'dark';
 
     const navItems: NavItem[] = [
-        { icon: 'home-outline', label: 'Home', href: '/(dashboard)/group-admin' },
-        { icon: 'people-outline', label: 'Users', href: '/(dashboard)/group-admin/users' },
-        { icon: 'map-outline', label: 'Track', href: '/(dashboard)/group-admin/tracking' },
-        { icon: 'document-text-outline', label: 'Reports', href: '/(dashboard)/group-admin/reports' },
+        { icon: 'home-outline', label: 'Home', href: '/(dashboard)/Group-Admin/group-admin' },
+        { icon: 'people-outline', label: 'Employees', href: '/(dashboard)/Group-Admin/employee-management' },
+        { icon: 'document-text-outline', label: 'Reports', href: '/(dashboard)/Group-Admin/reports' },
+        { icon: 'settings-outline', label: 'Settings', href: '/(dashboard)/Group-Admin/settings' },
+    ];
+
+    // Quick action cards data
+    const quickActions = [
+        {
+            title: 'Add Employee',
+            icon: 'person-add-outline',
+            color: '#3B82F6',
+            route: '/(dashboard)/Group-Admin/employee-management/individual',
+            description: 'Create new employee account'
+        },
+        {
+            title: 'Bulk Upload',
+            icon: 'cloud-upload-outline',
+            color: '#10B981',
+            route: '/(dashboard)/Group-Admin/employee-management/bulk',
+            description: 'Upload multiple employees via CSV'
+        },
+        {
+            title: 'Manage Employees',
+            icon: 'people-outline',
+            color: '#6366F1',
+            route: '/(dashboard)/Group-Admin/employee-management',
+            description: 'View and manage all employees'
+        },
+        {
+            title: 'View Reports',
+            icon: 'bar-chart-outline',
+            color: '#F59E0B',
+            route: '/(dashboard)/Group-Admin/reports',
+            description: 'Access employee reports'
+        }
     ];
 
     return (
@@ -21,19 +54,19 @@ export default function GroupAdminDashboard() {
             {/* Header */}
             <View style={[
                 styles.header,
-                { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+                { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
             ]}>
                 <View style={styles.headerContent}>
                     <View>
                         <Text style={[
                             styles.headerTitle,
-                            { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+                            { color: isDark ? '#FFFFFF' : '#111827' }
                         ]}>
                             Group Admin
                         </Text>
                         <Text style={[
                             styles.headerSubtitle,
-                            { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
+                            { color: isDark ? '#9CA3AF' : '#6B7280' }
                         ]}>
                             Dashboard
                         </Text>
@@ -45,129 +78,110 @@ export default function GroupAdminDashboard() {
                         <Ionicons
                             name="settings-outline"
                             size={24}
-                            color={theme === 'dark' ? '#FFFFFF' : '#111827'}
+                            color={isDark ? '#FFFFFF' : '#111827'}
                         />
                     </TouchableOpacity>
                 </View>
             </View>
 
-            <ScrollView style={[
-                styles.content,
-                { backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }
-            ]}>
-                {/* User Management Section */}
+            <ScrollView 
+                style={[
+                    styles.content,
+                    { backgroundColor: isDark ? '#111827' : '#F3F4F6' }
+                ]}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* Quick Actions Grid */}
                 <View style={styles.section}>
                     <Text style={[
                         styles.sectionTitle,
-                        { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+                        { color: isDark ? '#FFFFFF' : '#111827' }
                     ]}>
-                        User Management
+                        Quick Actions
                     </Text>
-                    <View style={styles.cardContainer}>
-                        <TouchableOpacity 
-                            style={[
-                                styles.card,
-                                { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
-                            ]}
-                            onPress={() => router.push('/(dashboard)/group-admin/pending-approvals')}
-                        >
-                            <View style={styles.cardHeader}>
-                                <Ionicons name="people-outline" size={24} color="#3B82F6" />
+                    <View style={styles.quickActionsGrid}>
+                        {quickActions.map((action, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                style={[
+                                    styles.quickActionCard,
+                                    { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
+                                ]}
+                                onPress={() => router.push(action.route as any)}
+                            >
+                                <View style={[
+                                    styles.iconCircle,
+                                    { backgroundColor: `${action.color}20` }
+                                ]}>
+                                    <Ionicons
+                                        name={action.icon as any}
+                                        size={24}
+                                        color={action.color}
+                                    />
+                                </View>
                                 <Text style={[
-                                    styles.cardCount,
-                                    { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
-                                ]}>5</Text>
-                            </View>
-                            <Text style={[
-                                styles.cardTitle,
-                                { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
-                            ]}>Pending Approvals</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity 
-                            style={[
-                                styles.card,
-                                { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
-                            ]}
-                            onPress={() => router.push('/(dashboard)/group-admin/manage-users')}
-                        >
-                            <View style={styles.cardHeader}>
-                                <Ionicons name="person-add-outline" size={24} color="#3B82F6" />
+                                    styles.cardTitle,
+                                    { color: isDark ? '#FFFFFF' : '#111827' }
+                                ]}>
+                                    {action.title}
+                                </Text>
                                 <Text style={[
-                                    styles.cardCount,
-                                    { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
-                                ]}>12</Text>
-                            </View>
-                            <Text style={[
-                                styles.cardTitle,
-                                { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
-                            ]}>Active Users</Text>
-                        </TouchableOpacity>
+                                    styles.cardDescription,
+                                    { color: isDark ? '#9CA3AF' : '#6B7280' }
+                                ]}>
+                                    {action.description}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
                     </View>
                 </View>
 
-                {/* Live Tracking Section */}
-                <TouchableOpacity 
-                    style={[
-                        styles.trackingCard,
-                        { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
-                    ]}
-                    onPress={() => router.push('/(dashboard)/group-admin/tracking')}
-                >
-                    <View style={styles.trackingHeader}>
-                        <Ionicons name="map-outline" size={24} color="#3B82F6" />
-                        <Text style={[
-                            styles.trackingTitle,
-                            { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
-                        ]}>Live Tracking</Text>
-                    </View>
-                    <Text style={[
-                        styles.trackingSubtitle,
-                        { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
-                    ]}>8 team members currently active</Text>
-                </TouchableOpacity>
-
-                {/* Reports Section */}
+                {/* Recent Activity Section */}
                 <View style={styles.section}>
                     <Text style={[
                         styles.sectionTitle,
-                        { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+                        { color: isDark ? '#FFFFFF' : '#111827' }
                     ]}>
-                        Pending Approvals
+                        Recent Activity
                     </Text>
                     <View style={[
-                        styles.reportsList,
-                        { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+                        styles.activityList,
+                        { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
                     ]}>
                         {[
-                            { name: 'John Doe', type: 'Travel Expense', amount: '₹1,200' },
-                            { name: 'Jane Smith', type: 'Daily Allowance', amount: '₹800' },
-                            { name: 'Mike Johnson', type: 'Fuel Expense', amount: '₹500' },
-                        ].map((report, index) => (
-                            <TouchableOpacity 
+                            { type: 'New Employee', name: 'John Doe', time: '2 hours ago' },
+                            { type: 'Access Updated', name: 'Jane Smith', time: '4 hours ago' },
+                            { type: 'Bulk Upload', name: '5 employees added', time: 'Yesterday' },
+                        ].map((activity, index) => (
+                            <View 
                                 key={index}
                                 style={[
-                                    styles.reportItem,
+                                    styles.activityItem,
                                     index !== 2 && styles.borderBottom,
-                                    { borderColor: theme === 'dark' ? '#374151' : '#E5E7EB' }
+                                    { borderColor: isDark ? '#374151' : '#E5E7EB' }
                                 ]}
-                                onPress={() => router.push('/(dashboard)/group-admin/report-details')}
                             >
-                                <View>
+                                <View style={styles.activityContent}>
                                     <Text style={[
-                                        styles.reportName,
-                                        { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
-                                    ]}>{report.name}</Text>
+                                        styles.activityType,
+                                        { color: isDark ? '#60A5FA' : '#3B82F6' }
+                                    ]}>
+                                        {activity.type}
+                                    </Text>
                                     <Text style={[
-                                        styles.reportType,
-                                        { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
-                                    ]}>{report.type}</Text>
+                                        styles.activityName,
+                                        { color: isDark ? '#FFFFFF' : '#111827' }
+                                    ]}>
+                                        {activity.name}
+                                    </Text>
                                 </View>
                                 <Text style={[
-                                    styles.reportAmount,
-                                    { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
-                                ]}>{report.amount}</Text>
-                            </TouchableOpacity>
+                                    styles.activityTime,
+                                    { color: isDark ? '#9CA3AF' : '#6B7280' }
+                                ]}>
+                                    {activity.time}
+                                </Text>
+                            </View>
                         ))}
                     </View>
                 </View>
@@ -215,61 +229,48 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginBottom: 12,
     },
-    cardContainer: {
+    quickActionsGrid: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 12,
     },
-    card: {
+    quickActionCard: {
         width: '48%',
         padding: 16,
         borderRadius: 12,
+        marginBottom: 12,
         elevation: 2,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.2,
         shadowRadius: 2,
     },
-    cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+    iconCircle: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 8,
-    },
-    cardCount: {
-        fontSize: 24,
-        fontWeight: 'bold',
+        marginBottom: 12,
     },
     cardTitle: {
-        fontSize: 14,
+        fontSize: 16,
+        fontWeight: '600',
+        marginBottom: 4,
     },
-    trackingCard: {
-        margin: 16,
-        padding: 16,
+    cardDescription: {
+        fontSize: 12,
+    },
+    activityList: {
         borderRadius: 12,
+        overflow: 'hidden',
         elevation: 2,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.2,
         shadowRadius: 2,
     },
-    trackingHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    trackingTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        marginLeft: 8,
-    },
-    trackingSubtitle: {
-        fontSize: 14,
-    },
-    reportsList: {
-        borderRadius: 12,
-        overflow: 'hidden',
-    },
-    reportItem: {
+    activityItem: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -278,15 +279,19 @@ const styles = StyleSheet.create({
     borderBottom: {
         borderBottomWidth: 1,
     },
-    reportName: {
-        fontSize: 16,
-        fontWeight: '500',
+    activityContent: {
+        flex: 1,
     },
-    reportType: {
+    activityType: {
         fontSize: 14,
+        fontWeight: '500',
+        marginBottom: 4,
     },
-    reportAmount: {
+    activityName: {
         fontSize: 16,
         fontWeight: '500',
+    },
+    activityTime: {
+        fontSize: 12,
     },
 }); 

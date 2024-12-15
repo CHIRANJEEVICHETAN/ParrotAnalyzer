@@ -7,6 +7,8 @@ import dotenv from 'dotenv';
 import { Request, Response, NextFunction } from 'express';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import multer from 'multer';
+import { parse } from 'csv-parse/sync';
 
 dotenv.config();
 
@@ -18,6 +20,7 @@ interface CustomRequest extends Request {
     phone: string;
     role: string;
   };
+  file?: any;
 }
 
 // Add this interface for expense data
@@ -51,6 +54,41 @@ interface ResetToken {
   token: string;
   expires: Date;
 }
+
+// Add type for CSV row
+interface CSVRow extends Array<string> {
+  [index: number]: string;
+}
+
+interface CSVHeaders {
+  [key: string]: number;
+}
+
+interface CSVRowData {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+interface EmployeeData {
+  name: string;
+  employeeNumber: string;
+  email: string;
+  phone: string;
+  password: string;
+  department: string;
+  designation: string;
+  can_submit_expenses_anytime?: boolean;
+}
+
+interface DatabaseError {
+  code?: string;
+  message?: string;
+  detail?: string;
+}
+
+type ParsedCSV = string[][];
 
 const app = express();
 app.use(cors());
@@ -198,6 +236,65 @@ const initDB = async () => {
 
 // Add a temporary storage for OTPs (in production, use a database)
 const resetTokens = new Map<string, ResetToken>();
+
+// Add middleware to check expense submission access
+const checkExpenseAccess = async (req: CustomRequest, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    if (req.user.role !== 'employee') {
+      return res.status(403).json({ error: 'Only employees can submit expenses' });
+    }
+
+    // Get employee's permissions and company status
+    const result = await client.query(
+      `SELECT 
+        u.can_submit_expenses_anytime,
+        u.shift_status,
+        c.status as company_status
+      FROM users u
+      JOIN users ga ON u.group_admin_id = ga.id
+      JOIN companies c ON ga.company_id = c.id
+      WHERE u.id = $1`,
+      [req.user.id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const { can_submit_expenses_anytime, shift_status, company_status } = result.rows[0];
+
+    // Check company status
+    if (company_status !== 'active') {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        details: 'Company is not active. Please contact your administrator.'
+      });
+    }
+
+    // Check if employee can submit expenses
+    if (!can_submit_expenses_anytime && shift_status !== 'active') {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        details: 'You can only submit expenses during active shifts'
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Permission check error:', error);
+    res.status(500).json({ error: 'Failed to verify permissions' });
+  } finally {
+    client.release();
+  }
+};
+
+// Use the middleware for expense-related routes
+app.use('/api/expenses', checkExpenseAccess);
 
 // Now define your routes
 app.post('/api/expenses', verifyToken, async (req: CustomRequest, res: Response) => {
@@ -610,15 +707,20 @@ app.post('/auth/reset-password', async (req: Request, res: Response) => {
 
 // Create new company with management account
 app.post('/api/companies', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
-    const {
-      companyName,
-      companyEmail,
-      companyAddress,
-      managementName,
-      managementEmail,
-      managementPhone,
-      managementPassword
+    if (!req.user || req.user.role !== 'super-admin') {
+      return res.status(403).json({ error: 'Access denied. Super admin only.' });
+    }
+
+    const { 
+      companyName, 
+      companyEmail, 
+      companyAddress, 
+      managementName, 
+      managementEmail, 
+      managementPhone, 
+      managementPassword 
     } = req.body;
 
     // Validate required fields
@@ -636,74 +738,66 @@ app.post('/api/companies', verifyToken, requireSuperAdmin, async (req: CustomReq
     }
 
     // Start transaction
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
+    await client.query('BEGIN');
 
-      // Check if company email already exists
-      const existingCompany = await client.query(
-        'SELECT id FROM companies WHERE email = $1',
-        [companyEmail]
-      );
+    // Check if company email already exists
+    const existingCompany = await client.query(
+      'SELECT id FROM companies WHERE email = $1',
+      [companyEmail]
+    );
 
-      if (existingCompany.rows.length > 0) {
-        throw new Error('Company with this email already exists');
-      }
-
-      // Check if management email already exists
-      const existingUser = await client.query(
-        'SELECT id FROM users WHERE email = $1',
-        [managementEmail]
-      );
-
-      if (existingUser.rows.length > 0) {
-        throw new Error('Management email already exists');
-      }
-
-      // Insert company
-      const companyResult = await client.query(
-        `INSERT INTO companies (name, email, address, status)
-         VALUES ($1, $2, $3, 'active')
-         RETURNING id`,
-        [companyName, companyEmail, companyAddress]
-      );
-
-      const companyId = companyResult.rows[0].id;
-
-      // Hash password for management account
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(managementPassword, salt);
-
-      // Create management account
-      await client.query(
-        `INSERT INTO users (name, email, phone, password, role, company_id)
-         VALUES ($1, $2, $3, $4, 'management', $5)`,
-        [managementName, managementEmail, managementPhone, hashedPassword, companyId]
-      );
-
-      await client.query('COMMIT');
-      res.status(201).json({ 
-        message: 'Company created successfully',
-        companyId: companyId
-      });
-    } catch (error: any) {
-      await client.query('ROLLBACK');
-      console.error('Transaction error:', error);
-      
-      if (error.message.includes('already exists')) {
-        return res.status(409).json({ error: error.message });
-      }
-      
-      throw error;
-    } finally {
-      client.release();
+    if (existingCompany.rows.length > 0) {
+      throw new Error('Company with this email already exists');
     }
-  } catch (error: any) {
-    console.error('Error creating company:', error);
-    res.status(500).json({ 
-      error: 'Failed to create company',
-      details: error.message
+
+    // Check if management email already exists
+    const existingUser = await client.query(
+      'SELECT id FROM users WHERE email = $1',
+      [managementEmail]
+    );
+
+    if (existingUser.rows.length > 0) {
+      throw new Error('Management email already exists');
+    }
+
+    // Insert company
+    const companyResult = await client.query(
+      `INSERT INTO companies (name, email, address, status)
+       VALUES ($1, $2, $3, 'active')
+       RETURNING id`,
+      [companyName, companyEmail, companyAddress]
+    );
+
+    const companyId = companyResult.rows[0].id;
+
+    // Hash password for management account
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(managementPassword, salt);
+
+    // Create management account
+    await client.query(
+      `INSERT INTO users (name, email, phone, password, role, company_id)
+       VALUES ($1, $2, $3, $4, 'management', $5)`,
+      [managementName, managementEmail, managementPhone, hashedPassword, companyId]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ 
+      message: 'Company created successfully',
+      companyId: companyId
     });
+  } catch (error: unknown) {
+    await client.query('ROLLBACK');
+    console.error('Transaction error:', error);
+    
+    const dbError = error as DatabaseError;
+    if (dbError.code === '23505') {
+      return res.status(409).json({ error: 'Company name already exists' });
+    }
+    
+    res.status(500).json({ error: 'Failed to create company' });
+  } finally {
+    client.release();
   }
 });
 
@@ -814,6 +908,661 @@ app.delete('/api/companies/:id', verifyToken, requireSuperAdmin, async (req: Cus
   } catch (error) {
     console.error('Error deleting company:', error);
     res.status(500).json({ error: 'Failed to delete company' });
+  }
+});
+
+// Get group admins for a company
+app.get('/api/group-admins', verifyToken, async (req: CustomRequest, res: Response) => {
+  try {
+    // Only management and super-admin can access this
+    if (!['management', 'super-admin'].includes(req.user?.role || '')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.created_at,
+        c.name as company_name
+      FROM users u
+      JOIN companies c ON u.company_id = c.id
+      WHERE u.role = 'group-admin'
+      AND (
+        $1 = 'super-admin' 
+        OR 
+        (u.company_id = (SELECT company_id FROM users WHERE id = $2))
+      )
+      ORDER BY u.created_at DESC
+    `, [req.user?.role, req.user?.id]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching group admins:', error);
+    res.status(500).json({ error: 'Failed to fetch group admins' });
+  }
+});
+
+// Create a single group admin
+app.post('/api/group-admins', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    // Only management and super-admin can create group admins
+    if (!['management', 'super-admin'].includes(req.user?.role || '')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { name, email, phone, password } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !password) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        errors: {
+          name: !name ? 'Name is required' : null,
+          email: !email ? 'Email is required' : null,
+          password: !password ? 'Password is required' : null
+        }
+      });
+    }
+
+    // Email format validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ 
+        error: 'Invalid email format',
+        errors: { email: 'Invalid email format' }
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // Get company_id for the new group admin
+    let companyId;
+    if (req.user?.role === 'super-admin') {
+      // Super admin needs to specify company_id in request
+      companyId = req.body.company_id;
+      if (!companyId) {
+        return res.status(400).json({ error: 'Company ID is required for super admin' });
+      }
+    } else {
+      // Management users can only create group admins for their company
+      const userResult = await client.query(
+        'SELECT company_id FROM users WHERE id = $1',
+        [req.user?.id]
+      );
+      
+      if (!userResult.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Invalid user or company association' });
+      }
+      
+      companyId = userResult.rows[0].company_id;
+    }
+
+    // Check if company exists and is active
+    const companyResult = await client.query(
+      'SELECT status FROM companies WHERE id = $1',
+      [companyId]
+    );
+
+    if (!companyResult.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Invalid company ID' });
+    }
+
+    if (companyResult.rows[0].status !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Company is not active' });
+    }
+
+    // Check if email already exists
+    const existingUser = await client.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ 
+        error: 'Email already exists',
+        errors: { email: 'Email already exists' }
+      });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create group admin
+    const result = await client.query(
+      `INSERT INTO users (name, email, phone, password, role, company_id)
+       VALUES ($1, $2, $3, $4, 'group-admin', $5)
+       RETURNING id, name, email, phone, created_at`,
+      [name, email, phone || null, hashedPassword, companyId]
+    );
+
+    await client.query('COMMIT');
+
+    // Log success for debugging
+    console.log('Group admin created successfully:', {
+      id: result.rows[0].id,
+      name: result.rows[0].name,
+      email: result.rows[0].email
+    });
+
+    res.status(201).json(result.rows[0]);
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('Error creating group admin:', {
+      error: error.message,
+      stack: error.stack,
+      details: error
+    });
+    
+    // Send more specific error messages
+    if (error.code === '23505') { // Unique violation
+      res.status(409).json({ error: 'Email already exists' });
+    } else if (error.code === '23503') { // Foreign key violation
+      res.status(400).json({ error: 'Invalid company ID' });
+    } else {
+      res.status(500).json({ 
+        error: 'Failed to create group admin',
+        details: error.message
+      });
+    }
+  } finally {
+    client.release();
+  }
+});
+
+// Bulk create group admins from CSV
+const upload = multer();
+
+app.post('/api/group-admins/bulk', verifyToken, upload.single('file'), async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!['management', 'super-admin'].includes(req.user?.role || '')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    await client.query('BEGIN');
+
+    // Get company_id
+    let companyId;
+    if (req.user?.role === 'super-admin') {
+      companyId = req.body.company_id;
+      if (!companyId) {
+        return res.status(400).json({ error: 'Company ID is required' });
+      }
+    } else {
+      const userResult = await client.query(
+        'SELECT company_id FROM users WHERE id = $1',
+        [req.user?.id]
+      );
+      companyId = userResult.rows[0].company_id;
+    }
+
+    // Read and parse CSV file
+    const fileContent = req.file.buffer.toString();
+    const parsedRows: ParsedCSV = parse(fileContent, {
+      skip_empty_lines: true,
+      trim: true
+    });
+
+    if (parsedRows.length < 2) {
+      return res.status(400).json({ error: 'File is empty or missing headers' });
+    }
+
+    const headerRow = parsedRows[0];
+    const headers: CSVHeaders = {};
+    headerRow.forEach((header: string, index: number) => {
+      headers[header.toLowerCase()] = index;
+    });
+
+    const results: any[] = [];
+    const errors: any[] = [];
+
+    // Process each row (skip header)
+    for (let i = 1; i < parsedRows.length; i++) {
+      const row: string[] = parsedRows[i];
+      try {
+        const admin: CSVRowData = {
+          name: row[headers['name']]?.trim() || '',
+          email: row[headers['email']]?.trim() || '',
+          phone: row[headers['phone']]?.trim() || '',
+          password: row[headers['password']]?.trim() || ''
+        };
+
+        // Validate required fields
+        if (!admin.name || !admin.email || !admin.password) {
+          errors.push({ row: i + 1, error: 'Missing required fields' });
+          continue;
+        }
+
+        // Check if email exists
+        const existingUser = await client.query(
+          'SELECT id FROM users WHERE email = $1',
+          [admin.email]
+        );
+
+        if (existingUser.rows.length > 0) {
+          errors.push({ row: i + 1, email: admin.email, error: 'Email already exists' });
+          continue;
+        }
+
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(admin.password, salt);
+
+        // Create group admin
+        const result = await client.query(
+          `INSERT INTO users (name, email, phone, password, role, company_id)
+           VALUES ($1, $2, $3, $4, 'group-admin', $5)
+           RETURNING id, name, email, phone`,
+          [admin.name, admin.email, admin.phone, hashedPassword, companyId]
+        );
+
+        results.push(result.rows[0]);
+      } catch (error) {
+        errors.push({ row: i + 1, error: 'Failed to create user' });
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({
+      success: results,
+      errors: errors
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error in bulk create:', error);
+    res.status(500).json({ error: 'Failed to process bulk creation' });
+  } finally {
+    client.release();
+  }
+});
+
+// Delete group admin
+app.delete('/api/group-admins/:id', verifyToken, async (req: CustomRequest, res: Response) => {
+  try {
+    // Only management and super-admin can delete group admins
+    if (!['management', 'super-admin'].includes(req.user?.role || '')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+
+    // Verify the group admin belongs to the correct company for management users
+    if (req.user?.role === 'management') {
+      const checkResult = await pool.query(
+        `SELECT u.id FROM users u
+         WHERE u.id = $1 AND u.role = 'group-admin'
+         AND u.company_id = (SELECT company_id FROM users WHERE id = $2)`,
+        [id, req.user?.id]
+      );
+
+      if (checkResult.rows.length === 0) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    res.json({ message: 'Group admin deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting group admin:', error);
+    res.status(500).json({ error: 'Failed to delete group admin' });
+  }
+});
+
+// Get employees for a group admin
+app.get('/api/group-admin/employees', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const result = await client.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.created_at,
+        u.can_submit_expenses_anytime,
+        u.shift_status
+      FROM users u
+      WHERE u.group_admin_id = $1
+      AND u.role = 'employee'
+      ORDER BY u.created_at DESC
+    `, [req.user.id]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching employees:', error);
+    res.status(500).json({ error: 'Failed to fetch employees' });
+  } finally {
+    client.release();
+  }
+});
+
+// Create single employee
+app.post('/api/group-admin/employees', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const { 
+      name, 
+      employeeNumber, 
+      email, 
+      phone, 
+      password, 
+      department, 
+      designation, 
+      can_submit_expenses_anytime 
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !password || !employeeNumber || !department) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        errors: {
+          name: !name ? 'Name is required' : null,
+          employeeNumber: !employeeNumber ? 'Employee number is required' : null,
+          email: !email ? 'Email is required' : null,
+          password: !password ? 'Password is required' : null,
+          department: !department ? 'Department is required' : null
+        }
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // Check if email or employee number exists
+    const existingUser = await client.query(
+      'SELECT id FROM users WHERE email = $1 OR employee_number = $2',
+      [email, employeeNumber]
+    );
+
+    if (existingUser.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ 
+        error: 'Email or Employee Number already exists',
+        errors: { 
+          email: 'Email or Employee Number already exists'
+        }
+      });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create employee with new fields
+    const result = await client.query(
+      `INSERT INTO users (
+        name, 
+        employee_number,
+        email, 
+        phone, 
+        password, 
+        role, 
+        department,
+        designation,
+        group_admin_id, 
+        can_submit_expenses_anytime
+      ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9)
+      RETURNING id, name, employee_number, email, phone, department, designation, created_at, can_submit_expenses_anytime`,
+      [
+        name,
+        employeeNumber,
+        email,
+        phone || null,
+        hashedPassword,
+        department,
+        designation || null,
+        req.user.id,
+        can_submit_expenses_anytime || false
+      ]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json(result.rows[0]);
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('Error creating employee:', error);
+    res.status(500).json({ error: 'Failed to create employee' });
+  } finally {
+    client.release();
+  }
+});
+
+// Bulk create employees from CSV
+app.post('/api/group-admin/employees/bulk', verifyToken, upload.single('file'), async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    await client.query('BEGIN');
+
+    const fileContent = req.file.buffer.toString();
+    const parsedRows: ParsedCSV = parse(fileContent, {
+      skip_empty_lines: true,
+      trim: true
+    });
+
+    if (parsedRows.length < 2) {
+      return res.status(400).json({ error: 'File is empty or missing headers' });
+    }
+
+    const headerRow = parsedRows[0];
+    const headers: CSVHeaders = {};
+    headerRow.forEach((header: string, index: number) => {
+      headers[header.toLowerCase()] = index;
+    });
+
+    const results = [];
+    const errors = [];
+
+    for (let i = 1; i < parsedRows.length; i++) {
+      const row = parsedRows[i];
+      try {
+        const employee: EmployeeData = {
+          name: row[headers['name']]?.trim() || '',
+          employeeNumber: row[headers['employee_number']]?.trim() || '',
+          email: row[headers['email']]?.trim() || '',
+          phone: row[headers['phone']]?.trim() || '',
+          password: row[headers['password']]?.trim() || '',
+          department: row[headers['department']]?.trim() || '',
+          designation: row[headers['designation']]?.trim() || '',
+          can_submit_expenses_anytime: row[headers['can_submit_expenses_anytime']]?.trim().toLowerCase() === 'true'
+        };
+
+        // Validate required fields
+        if (!employee.name || !employee.email || !employee.password || !employee.employeeNumber || !employee.department) {
+          errors.push({ row: i + 1, error: 'Missing required fields' });
+          continue;
+        }
+
+        // Check if email or employee number exists
+        const existingUser = await client.query(
+          'SELECT id FROM users WHERE email = $1 OR employee_number = $2',
+          [employee.email, employee.employeeNumber]
+        );
+
+        if (existingUser.rows.length > 0) {
+          errors.push({ row: i + 1, error: 'Email or Employee Number already exists' });
+          continue;
+        }
+
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(employee.password, salt);
+
+        // Create employee with new fields
+        const result = await client.query(
+          `INSERT INTO users (
+            name, 
+            employee_number,
+            email, 
+            phone, 
+            password, 
+            role, 
+            department,
+            designation,
+            group_admin_id, 
+            can_submit_expenses_anytime
+          ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9)
+          RETURNING id, name, employee_number, email, phone, department, designation`,
+          [
+            employee.name,
+            employee.employeeNumber,
+            employee.email,
+            employee.phone,
+            hashedPassword,
+            employee.department,
+            employee.designation,
+            req.user.id,
+            employee.can_submit_expenses_anytime || false
+          ]
+        );
+
+        results.push(result.rows[0]);
+      } catch (error) {
+        errors.push({ row: i + 1, error: 'Failed to create employee' });
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({ success: results, errors });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error in bulk create:', error);
+    res.status(500).json({ error: 'Failed to process bulk creation' });
+  } finally {
+    client.release();
+  }
+});
+
+// Update employee access permission
+app.patch('/api/group-admin/employees/:id/access', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const { id } = req.params;
+    const { can_submit_expenses_anytime } = req.body;
+
+    // Verify the employee belongs to this group admin
+    const result = await client.query(
+      `UPDATE users 
+       SET can_submit_expenses_anytime = $1
+       WHERE id = $2 AND group_admin_id = $3 AND role = 'employee'
+       RETURNING id, name, email, can_submit_expenses_anytime`,
+      [can_submit_expenses_anytime, id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating employee access:', error);
+    res.status(500).json({ error: 'Failed to update employee access' });
+  } finally {
+    client.release();
+  }
+});
+
+// Delete employee
+app.delete('/api/group-admin/employees/:id', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const { id } = req.params;
+
+    await client.query('BEGIN');
+
+    // Delete employee
+    const result = await client.query(
+      'DELETE FROM users WHERE id = $1 AND group_admin_id = $2 AND role = \'employee\' RETURNING id',
+      [id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Employee deleted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting employee:', error);
+    res.status(500).json({ error: 'Failed to delete employee' });
+  } finally {
+    client.release();
+  }
+});
+
+// Add this endpoint for checking expense submission access
+app.get('/api/expenses/check-access', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Get employee's permissions and company status
+    const result = await client.query(
+      `SELECT 
+        u.can_submit_expenses_anytime,
+        u.shift_status,
+        c.status as company_status
+       FROM users u
+       JOIN companies c ON u.company_id = c.id
+       WHERE u.id = $1`,
+      [req.user.id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const { can_submit_expenses_anytime, shift_status, company_status } = result.rows[0];
+
+    res.json({
+      canSubmit: company_status === 'active' && (can_submit_expenses_anytime || shift_status === 'active'),
+      companyActive: company_status === 'active',
+      shiftActive: shift_status === 'active',
+      canSubmitAnytime: can_submit_expenses_anytime
+    });
+  } catch (error) {
+    console.error('Access check error:', error);
+    res.status(500).json({ error: 'Failed to check access permissions' });
+  } finally {
+    client.release();
   }
 });
 

@@ -1,0 +1,268 @@
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
+import { Link, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import ThemeContext from '../../../context/ThemeContext';
+import AuthContext from '../../../context/AuthContext';
+import axios from 'axios';
+
+interface EmployeeFormData {
+  name: string;
+  employeeNumber: string;
+  email: string;
+  phone: string;
+  password: string;
+  department: string;
+  designation: string;
+  can_submit_expenses_anytime?: boolean;
+}
+
+interface ValidationErrors {
+  [key: string]: string;
+}
+
+export default function CreateEmployee() {
+  const { theme } = ThemeContext.useTheme();
+  const { token } = AuthContext.useAuth();
+  const router = useRouter();
+  const isDark = theme === 'dark';
+
+  const [formData, setFormData] = useState<EmployeeFormData>({
+    name: '',
+    employeeNumber: '',
+    email: '',
+    phone: '',
+    password: '',
+    department: '',
+    designation: '',
+    can_submit_expenses_anytime: false,
+  });
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const validateForm = () => {
+    const errors: ValidationErrors = {};
+    
+    // Name validation
+    if (!formData.name.trim()) {
+      errors.name = 'Name is required';
+    } else if (formData.name.length < 2) {
+      errors.name = 'Name must be at least 2 characters';
+    }
+
+    // Email validation
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Invalid email format';
+    }
+
+    // Password validation
+    if (!formData.password) {
+      errors.password = 'Password is required';
+    } else if (formData.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters';
+    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
+      errors.password = 'Password must contain uppercase, lowercase and numbers';
+    }
+
+    // Phone validation (optional)
+    if (formData.phone && !/^\+?[1-9]\d{9,11}$/.test(formData.phone)) {
+      errors.phone = 'Invalid phone number format';
+    }
+
+    return errors;
+  };
+
+  const handleSubmit = async () => {
+    try {
+      setIsSubmitting(true);
+      setValidationErrors({});
+      setApiError(null);
+
+      const errors = validateForm();
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        return;
+      }
+
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin/employees`,
+        formData,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          }
+        }
+      );
+
+      if (response.data) {
+        Alert.alert(
+          'Success',
+          'Employee created successfully',
+          [{
+            text: 'OK',
+            onPress: () => router.back()
+          }]
+        );
+      }
+    } catch (error: any) {
+      console.error('Error creating employee:', error.response?.data || error.message);
+      
+      if (error.response?.status === 409) {
+        setValidationErrors({ email: 'Email already exists' });
+      } else if (error.response?.status === 400) {
+        const serverErrors = error.response.data.errors;
+        if (serverErrors) {
+          setValidationErrors(serverErrors);
+        } else {
+          setApiError(error.response.data.error || 'Invalid input data');
+        }
+      } else {
+        setApiError('Failed to create employee. Please try again.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
+      {/* Header */}
+      <View className={`p-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.header}>
+        <View className="flex-row items-center justify-between">
+          <Link href=".." asChild>
+            <TouchableOpacity className="p-2">
+              <Ionicons 
+                name="arrow-back" 
+                size={24} 
+                color={isDark ? '#FFFFFF' : '#000000'} 
+              />
+            </TouchableOpacity>
+          </Link>
+          <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Create Employee
+          </Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </View>
+
+      <ScrollView className="flex-1 p-4">
+        {apiError && (
+          <View className="mb-4 p-4 bg-red-100 border border-red-400 rounded-lg">
+            <Text className="text-red-800">{apiError}</Text>
+          </View>
+        )}
+
+        <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.formCard}>
+          {[
+            { key: 'name', label: 'Full Name', placeholder: 'Enter full name' },
+            { key: 'employeeNumber', label: 'Employee Number', placeholder: 'Enter employee number' },
+            { key: 'email', label: 'Email Address', placeholder: 'Enter email address', keyboardType: 'email-address' },
+            { key: 'phone', label: 'Phone Number', placeholder: 'Enter phone number', keyboardType: 'phone-pad' },
+            { key: 'department', label: 'Department', placeholder: 'Enter department' },
+            { key: 'designation', label: 'Designation', placeholder: 'Enter designation' },
+            { key: 'password', label: 'Password', placeholder: 'Enter password', secure: true }
+          ].map((field) => (
+            <View key={field.key} className="mb-4">
+              <Text className={`mb-2 font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                {field.label}
+              </Text>
+              <TextInput
+                value={formData[field.key as keyof EmployeeFormData] as string}
+                onChangeText={(text) => {
+                  setFormData(prev => ({ ...prev, [field.key]: text }));
+                  if (validationErrors[field.key]) {
+                    setValidationErrors(prev => ({ ...prev, [field.key]: '' }));
+                  }
+                }}
+                placeholder={field.placeholder}
+                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                className={`p-4 rounded-lg ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-50 text-gray-900'}`}
+                style={[
+                  styles.input,
+                  validationErrors[field.key] ? styles.inputError : null
+                ]}
+                secureTextEntry={field.secure}
+                keyboardType={field.keyboardType as any || 'default'}
+                autoCapitalize={field.key === 'email' ? 'none' : 'words'}
+              />
+              {validationErrors[field.key] && (
+                <Text className="mt-1 text-red-500 text-sm">
+                  {validationErrors[field.key]}
+                </Text>
+              )}
+            </View>
+          ))}
+
+          <TouchableOpacity
+            onPress={() => setFormData(prev => ({
+              ...prev,
+              can_submit_expenses_anytime: !prev.can_submit_expenses_anytime
+            }))}
+            className={`flex-row items-center p-4 mb-6 rounded-lg ${
+              isDark ? 'bg-gray-700' : 'bg-gray-50'
+            }`}
+          >
+            <View className={`w-6 h-6 rounded-md mr-3 items-center justify-center ${
+              formData.can_submit_expenses_anytime
+                ? 'bg-green-500'
+                : isDark ? 'bg-gray-600' : 'bg-gray-300'
+            }`}>
+              {formData.can_submit_expenses_anytime && (
+                <Ionicons name="checkmark" size={18} color="white" />
+              )}
+            </View>
+            <Text className={isDark ? 'text-white' : 'text-gray-900'}>
+              Allow expense submission anytime
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleSubmit}
+            disabled={isSubmitting}
+            className={`p-4 rounded-lg bg-blue-500 ${isSubmitting ? 'opacity-50' : ''}`}
+            style={styles.submitButton}
+          >
+            <Text className="text-white text-center font-semibold text-lg">
+              {isSubmitting ? 'Creating...' : 'Create Employee'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  formCard: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  inputError: {
+    borderColor: '#EF4444',
+  },
+  submitButton: {
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  }
+}); 

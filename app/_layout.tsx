@@ -1,4 +1,4 @@
-import { Slot } from 'expo-router';
+import { Stack } from 'expo-router';
 import { View } from 'react-native';
 import '../global.css';
 import AuthContext from './context/AuthContext';
@@ -9,7 +9,31 @@ export default function RootLayout() {
     <ThemeContext.ThemeProvider>
       <AuthContext.AuthProvider>
         <View style={{ flex: 1 }}>
-          <Slot />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: 'fade',
+            }}
+          >
+            <Stack.Screen 
+              name="index"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen 
+              name="welcome"
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen 
+              name="(dashboard)" 
+              options={{ 
+                headerShown: false,
+              }} 
+            />
+          </Stack>
         </View>
       </AuthContext.AuthProvider>
     </ThemeContext.ThemeProvider>

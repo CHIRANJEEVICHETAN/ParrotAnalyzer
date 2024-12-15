@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
@@ -14,20 +14,20 @@ export default function ManagementDashboard() {
         { icon: 'home-outline', label: 'Home', href: '/(dashboard)/management' },
         { icon: 'analytics-outline', label: 'Analytics', href: '/(dashboard)/management/analytics' },
         { icon: 'checkmark-circle-outline', label: 'Approvals', href: '/(dashboard)/management/approvals' },
+        { icon: 'people-circle-outline', label: 'Group Admins', href: 'management/group-admin-management' },
         { icon: 'person-outline', label: 'Profile', href: '/(dashboard)/management/profile' },
     ];
-
     return (
-        <View className="flex-1" style={styles.container}>
+        <View className="flex-1" style={styles.container as ViewStyle}>
             {/* Enhanced Header with Gradient */}
             <LinearGradient
-                colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']} 
+                style={styles.header as ViewStyle}
             >
-                <View className="flex-row items-center justify-between px-6">
+                <View className="flex-row items-center justify-between px-6" style={{ paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }}>
                     <View>
                         <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}
-                              style={styles.headerTitle}>
+                              style={styles.headerTitle as TextStyle}>
                             Management Portal
                         </Text>
                         <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
@@ -37,7 +37,7 @@ export default function ManagementDashboard() {
                     <TouchableOpacity
                         onPress={() => router.push('/(dashboard)/management/settings')}
                         className="p-2 rounded-full"
-                        style={[styles.settingsButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
+                        style={[styles.settingsButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }] as unknown as ViewStyle}
                     >
                         <Ionicons
                             name="settings-outline"
@@ -59,11 +59,13 @@ export default function ManagementDashboard() {
                         {[
                             { label: 'Total Teams', value: '8', icon: 'people', trend: '+2' },
                             { label: 'Active Projects', value: '15', icon: 'briefcase', trend: '+3' },
-                            { label: 'Completion Rate', value: '87%', icon: 'trending-up', trend: '+5%' },
+                            { label: 'Group Admins', value: '12', icon: 'people-circle', trend: '+2', 
+                              onPress: () => router.push('/management/group-admin-management') },
                             { label: 'Pending Reviews', value: '12', icon: 'time', trend: '-3' },
                         ].map((metric) => (
-                            <View
+                            <TouchableOpacity
                                 key={metric.label}
+                                onPress={metric.onPress}
                                 className={`w-[48%] p-4 rounded-xl mb-4
                 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
                             >
@@ -91,7 +93,7 @@ export default function ManagementDashboard() {
                                 >
                                     {metric.label}
                                 </Text>
-                            </View>
+                            </TouchableOpacity>
                         ))}
                     </View>
                 </View>
@@ -105,7 +107,7 @@ export default function ManagementDashboard() {
                         horizontal 
                         showsHorizontalScrollIndicator={false} 
                         className="space-x-4"
-                        contentContainerStyle={styles.analyticsContainer}
+                        contentContainerStyle={styles.analyticsContainer as ViewStyle}
                     >
                         {[
                             { title: 'Team Performance', icon: 'trending-up', count: '12', trend: '+8%' },
@@ -125,7 +127,7 @@ export default function ManagementDashboard() {
                                     colors={theme === 'dark' ? 
                                         ['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)'] : 
                                         ['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.02)']}
-                                    style={styles.cardGradient}
+                                    style={styles.cardGradient as ViewStyle}
                                 />
                                 <View className="flex-row justify-between items-center mb-3">
                                     <View className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-800' : 'bg-blue-50'}`}>
@@ -157,7 +159,7 @@ export default function ManagementDashboard() {
                     <Text className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
                         Reports
                     </Text>
-                    <View className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} style={styles.reportSection}>
+                    <View className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} style={styles.reportSection as ViewStyle}>
                         {[
                             { label: 'Generate Performance Report', icon: 'document-text', format: 'PDF' },
                             { label: 'Export Attendance Data', icon: 'calendar', format: 'Excel' },
@@ -228,7 +230,7 @@ export default function ManagementDashboard() {
                                 className={`py-4 px-4 ${
                                     index !== 2 ? 'border-b' : ''
                                 } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}
-                                style={styles.approvalItem}
+                                style={styles.approvalItem as ViewStyle}
                             >
                                 <View className="flex-row justify-between items-start mb-2">
                                     <View className="flex-1 mr-3">
@@ -275,6 +277,25 @@ export default function ManagementDashboard() {
                 </View>
             </ScrollView>
 
+            <TouchableOpacity
+                onPress={() => router.push('/management/group-admin-management')}
+                className="absolute bottom-24 right-6 bg-blue-500 rounded-full p-4 shadow-lg"
+                style={{
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 3.84,
+                    elevation: 5,
+                }}
+            >
+                <View className="flex-row items-center">
+                    <Ionicons name="people-circle" size={24} color="white" />
+                    <Text className="text-white font-semibold ml-2">
+                        Manage Group Admins
+                    </Text>
+                </View>
+            </TouchableOpacity>
+
             <BottomNav items={navItems} />
         </View>
     );
@@ -304,11 +325,10 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     scrollView: {
-        bounces: true,
     },
     analyticsContainer: {
         paddingRight: 24,
-        paddingVertical: 8,
+        paddingVertical: 8
     },
     analyticsCard: {
         padding: 16,

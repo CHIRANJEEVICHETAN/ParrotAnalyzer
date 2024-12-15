@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import ThemeContext from '../context/ThemeContext';
 import AuthContext from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 
 export default function SignIn() {
     const { theme } = ThemeContext.useTheme();
@@ -60,20 +61,18 @@ export default function SignIn() {
         }
 
         try {
-            console.log('Attempting signin with:', { identifier });
             await login(identifier, password);
             console.log('Login successful');
         } catch (err: any) {
             console.error('Login error in signin:', err);
             let errorMessage = 'An error occurred during login';
             
-            // Handle specific error cases
-            if (err.response?.status === 401) {
+            if (err.response?.data?.error) {
+                errorMessage = err.response.data.error;
+            } else if (err.response?.status === 401) {
                 errorMessage = 'Invalid credentials. Please check your email/phone and password';
-            } else if (err.response?.status === 404) {
-                errorMessage = 'User not found. Please check your email/phone';
             } else if (err.response?.status === 403) {
-                errorMessage = 'Account is locked. Please contact support';
+                errorMessage = err.response?.data?.details || 'Account is locked. Please contact support';
             } else if (err.message) {
                 errorMessage = err.message;
             }
