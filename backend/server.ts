@@ -64,11 +64,16 @@ interface CSVHeaders {
   [key: string]: number;
 }
 
+// First, update the CSVRowData interface to include all required fields
 interface CSVRowData {
   name: string;
   email: string;
   phone: string;
   password: string;
+  employee_number: string;
+  department: string;
+  designation: string;
+  can_submit_expenses_anytime?: boolean;
 }
 
 interface EmployeeData {
@@ -1132,53 +1137,80 @@ app.post('/api/group-admins/bulk', verifyToken, upload.single('file'), async (re
     for (let i = 1; i < parsedRows.length; i++) {
       const row: string[] = parsedRows[i];
       try {
-        const admin: CSVRowData = {
+        const employee: CSVRowData = {
           name: row[headers['name']]?.trim() || '',
           email: row[headers['email']]?.trim() || '',
           phone: row[headers['phone']]?.trim() || '',
-          password: row[headers['password']]?.trim() || ''
+          password: row[headers['password']]?.trim() || '',
+          employee_number: row[headers['employee_number']]?.trim() || '',
+          department: row[headers['department']]?.trim() || '',
+          designation: row[headers['designation']]?.trim() || '',
+          can_submit_expenses_anytime: row[headers['can_submit_expenses_anytime']]?.trim().toLowerCase() === 'true'
         };
 
         // Validate required fields
-        if (!admin.name || !admin.email || !admin.password) {
+        if (!employee.name || !employee.email || !employee.password || !employee.employee_number || !employee.department) {
           errors.push({ row: i + 1, error: 'Missing required fields' });
           continue;
         }
 
-        // Check if email exists
+        // Check if email or employee number exists
         const existingUser = await client.query(
-          'SELECT id FROM users WHERE email = $1',
-          [admin.email]
+          'SELECT id FROM users WHERE email = $1 OR employee_number = $2',
+          [employee.email, employee.employee_number]
         );
 
         if (existingUser.rows.length > 0) {
-          errors.push({ row: i + 1, email: admin.email, error: 'Email already exists' });
+          errors.push({ row: i + 1, email: employee.email, error: 'Email or Employee Number already exists' });
           continue;
         }
 
         // Hash password
         const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(admin.password, salt);
+        const hashedPassword = await bcrypt.hash(employee.password, salt);
 
-        // Create group admin
+        if (!req.user?.id) {
+          throw new Error('User ID not found');
+        }
+
+        // Create employee with company_id
         const result = await client.query(
-          `INSERT INTO users (name, email, phone, password, role, company_id)
-           VALUES ($1, $2, $3, $4, 'group-admin', $5)
-           RETURNING id, name, email, phone`,
-          [admin.name, admin.email, admin.phone, hashedPassword, companyId]
+          `INSERT INTO users (
+            name, 
+            employee_number,
+            email, 
+            phone, 
+            password, 
+            role, 
+            department,
+            designation,
+            group_admin_id,
+            company_id, 
+            can_submit_expenses_anytime
+          ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9, $10)
+          RETURNING id, name, employee_number, email, phone, department, designation`,
+          [
+            employee.name,
+            employee.employee_number,
+            employee.email,
+            employee.phone,
+            hashedPassword,
+            employee.department,
+            employee.designation,
+            req.user.id,
+            companyId,
+            employee.can_submit_expenses_anytime || false
+          ]
         );
 
         results.push(result.rows[0]);
       } catch (error) {
-        errors.push({ row: i + 1, error: 'Failed to create user' });
+        errors.push({ row: i + 1, error: 'Failed to create employee' });
       }
     }
 
     await client.query('COMMIT');
-    res.status(201).json({
-      success: results,
-      errors: errors
-    });
+    res.status(201).json({ success: results, errors });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error in bulk create:', error);
@@ -1287,6 +1319,18 @@ app.post('/api/group-admin/employees', verifyToken, async (req: CustomRequest, r
 
     await client.query('BEGIN');
 
+    // Get group admin's company_id
+    const groupAdminResult = await client.query(
+      'SELECT company_id FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (!groupAdminResult.rows.length || !groupAdminResult.rows[0].company_id) {
+      throw new Error('Group admin company not found');
+    }
+
+    const company_id = groupAdminResult.rows[0].company_id;
+
     // Check if email or employee number exists
     const existingUser = await client.query(
       'SELECT id FROM users WHERE email = $1 OR employee_number = $2',
@@ -1307,7 +1351,7 @@ app.post('/api/group-admin/employees', verifyToken, async (req: CustomRequest, r
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create employee with new fields
+    // Create employee with company_id
     const result = await client.query(
       `INSERT INTO users (
         name, 
@@ -1318,9 +1362,10 @@ app.post('/api/group-admin/employees', verifyToken, async (req: CustomRequest, r
         role, 
         department,
         designation,
-        group_admin_id, 
+        group_admin_id,
+        company_id, 
         can_submit_expenses_anytime
-      ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9)
+      ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9, $10)
       RETURNING id, name, employee_number, email, phone, department, designation, created_at, can_submit_expenses_anytime`,
       [
         name,
@@ -1331,6 +1376,7 @@ app.post('/api/group-admin/employees', verifyToken, async (req: CustomRequest, r
         department,
         designation || null,
         req.user.id,
+        company_id,
         can_submit_expenses_anytime || false
       ]
     );
@@ -1360,6 +1406,19 @@ app.post('/api/group-admin/employees/bulk', verifyToken, upload.single('file'), 
 
     await client.query('BEGIN');
 
+    // Get group admin's company_id first
+    const groupAdminResult = await client.query(
+      'SELECT company_id FROM users WHERE id = $1',
+      [req.user?.id]
+    );
+
+    if (!groupAdminResult.rows.length || !groupAdminResult.rows[0].company_id) {
+      throw new Error('Group admin company not found');
+    }
+
+    const company_id = groupAdminResult.rows[0].company_id;
+
+    // Read and parse CSV file
     const fileContent = req.file.buffer.toString();
     const parsedRows: ParsedCSV = parse(fileContent, {
       skip_empty_lines: true,
@@ -1376,25 +1435,26 @@ app.post('/api/group-admin/employees/bulk', verifyToken, upload.single('file'), 
       headers[header.toLowerCase()] = index;
     });
 
-    const results = [];
-    const errors = [];
+    const results: any[] = [];
+    const errors: any[] = [];
 
+    // Process each row (skip header)
     for (let i = 1; i < parsedRows.length; i++) {
-      const row = parsedRows[i];
+      const row: string[] = parsedRows[i];
       try {
-        const employee: EmployeeData = {
+        const employee: CSVRowData = {
           name: row[headers['name']]?.trim() || '',
-          employeeNumber: row[headers['employee_number']]?.trim() || '',
           email: row[headers['email']]?.trim() || '',
           phone: row[headers['phone']]?.trim() || '',
           password: row[headers['password']]?.trim() || '',
+          employee_number: row[headers['employee_number']]?.trim() || '',
           department: row[headers['department']]?.trim() || '',
           designation: row[headers['designation']]?.trim() || '',
           can_submit_expenses_anytime: row[headers['can_submit_expenses_anytime']]?.trim().toLowerCase() === 'true'
         };
 
         // Validate required fields
-        if (!employee.name || !employee.email || !employee.password || !employee.employeeNumber || !employee.department) {
+        if (!employee.name || !employee.email || !employee.password || !employee.employee_number || !employee.department) {
           errors.push({ row: i + 1, error: 'Missing required fields' });
           continue;
         }
@@ -1402,11 +1462,11 @@ app.post('/api/group-admin/employees/bulk', verifyToken, upload.single('file'), 
         // Check if email or employee number exists
         const existingUser = await client.query(
           'SELECT id FROM users WHERE email = $1 OR employee_number = $2',
-          [employee.email, employee.employeeNumber]
+          [employee.email, employee.employee_number]
         );
 
         if (existingUser.rows.length > 0) {
-          errors.push({ row: i + 1, error: 'Email or Employee Number already exists' });
+          errors.push({ row: i + 1, email: employee.email, error: 'Email or Employee Number already exists' });
           continue;
         }
 
@@ -1414,7 +1474,11 @@ app.post('/api/group-admin/employees/bulk', verifyToken, upload.single('file'), 
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(employee.password, salt);
 
-        // Create employee with new fields
+        if (!req.user?.id) {
+          throw new Error('User ID not found');
+        }
+
+        // Create employee with company_id
         const result = await client.query(
           `INSERT INTO users (
             name, 
@@ -1425,19 +1489,21 @@ app.post('/api/group-admin/employees/bulk', verifyToken, upload.single('file'), 
             role, 
             department,
             designation,
-            group_admin_id, 
+            group_admin_id,
+            company_id, 
             can_submit_expenses_anytime
-          ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9)
+          ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9, $10)
           RETURNING id, name, employee_number, email, phone, department, designation`,
           [
             employee.name,
-            employee.employeeNumber,
+            employee.employee_number,
             employee.email,
             employee.phone,
             hashedPassword,
             employee.department,
             employee.designation,
             req.user.id,
+            company_id,
             employee.can_submit_expenses_anytime || false
           ]
         );
@@ -1561,6 +1627,43 @@ app.get('/api/expenses/check-access', verifyToken, async (req: CustomRequest, re
   } catch (error) {
     console.error('Access check error:', error);
     res.status(500).json({ error: 'Failed to check access permissions' });
+  } finally {
+    client.release();
+  }
+});
+
+// Update the employee details endpoint
+app.get('/api/employee/details', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    console.log('Fetching details for user:', req.user.id);
+
+    const result = await client.query(
+      `SELECT 
+        u.name,
+        u.employee_number,
+        u.department,
+        u.designation,
+        c.name as company_name
+       FROM users u
+       LEFT JOIN companies c ON u.company_id = c.id
+       WHERE u.id = $1`,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Employee details not found' });
+    }
+
+    console.log('Found employee details:', result.rows[0]);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to fetch employee details' });
   } finally {
     client.release();
   }

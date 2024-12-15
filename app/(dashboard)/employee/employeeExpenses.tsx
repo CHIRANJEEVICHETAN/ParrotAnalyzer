@@ -67,6 +67,14 @@ interface FormData {
   supportingDocs: any[];
 }
 
+interface EmployeeDetails {
+  name: string;
+  employee_number: string;
+  department: string;
+  designation: string;
+  company_name: string;
+}
+
 const EXPO_PUBLIC_API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 const calculateTravelTime = (startTime: string | Date, endTime: string | Date) => {
@@ -136,7 +144,6 @@ export default function EmployeeExpenses() {
   // UI state
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateType, setDateType] = useState<'date' | 'travelDate'>('date');
-  const [departments] = useState(['IT', 'HR', 'Finance', 'Operations', 'Marketing']);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
   const [savedExpenseDetails, setSavedExpenseDetails] = useState<ExpenseDetail[]>([]);
@@ -148,6 +155,7 @@ export default function EmployeeExpenses() {
     location: '',
   });
   const [savedTravelDetails, setSavedTravelDetails] = useState<TravelDetail[]>([]);
+  const [companyName, setCompanyName] = useState<string>('');
 
   // Calculated fields
   const totalExpenses = React.useMemo(() => {
@@ -219,7 +227,7 @@ export default function EmployeeExpenses() {
 
   // Modify the token verification useEffect
   useEffect(() => {
-    const checkAuth = async () => {
+    const checkAuthAndFetchDetails = async () => {
       try {
         const token = await AsyncStorage.getItem('auth_token');
         if (!token) {
@@ -228,19 +236,63 @@ export default function EmployeeExpenses() {
           return;
         }
 
-        // Use the existing /user/profile endpoint to verify token
-        const response = await axios.get(`${EXPO_PUBLIC_API_URL}/user/profile`, {
+        // First verify token
+        const profileResponse = await axios.get(`${EXPO_PUBLIC_API_URL}/user/profile`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
 
-        if (!response.data) {
+        if (!profileResponse.data) {
           throw new Error('Invalid token');
         }
 
+        console.log('Profile data:', profileResponse.data); // Debug log
+
+        // Then fetch employee details
+        try {
+          const employeeResponse = await axios.get<EmployeeDetails>(
+            `${EXPO_PUBLIC_API_URL}/api/employee/details`,
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          );
+
+          console.log('Employee details:', employeeResponse.data); // Debug log
+
+          // Update form data with employee details
+          setFormData(prev => ({
+            ...prev,
+            employeeName: employeeResponse.data.name || '',
+            employeeNumber: employeeResponse.data.employee_number || '',
+            department: employeeResponse.data.department || '',
+            designation: employeeResponse.data.designation || ''
+          }));
+
+          // Update company name
+          setCompanyName(employeeResponse.data.company_name || 'Company Not Assigned');
+
+          // Also update employeeDetails state
+          setEmployeeDetails(prev => ({
+            ...prev,
+            employeeName: employeeResponse.data.name || '',
+            employeeNumber: employeeResponse.data.employee_number || '',
+            department: employeeResponse.data.department || '',
+            designation: employeeResponse.data.designation || ''
+          }));
+
+        } catch (detailsError) {
+          console.error('Error fetching employee details:', detailsError);
+          Alert.alert(
+            'Error',
+            'Failed to fetch employee details. Please try again later.'
+          );
+        }
+
       } catch (error) {
-        console.error('Auth check error:', error);
+        console.error('Auth/Details check error:', error);
         if (axios.isAxiosError(error) && error.response?.status === 401) {
           await AsyncStorage.removeItem('auth_token');
           router.replace('/login' as any);
@@ -248,7 +300,7 @@ export default function EmployeeExpenses() {
       }
     };
 
-    checkAuth();
+    checkAuthAndFetchDetails();
   }, []);
 
   // Update handleSubmit to use auth_token instead of userToken
@@ -651,7 +703,7 @@ export default function EmployeeExpenses() {
         {/* Company Details */}
         <View style={[styles.section, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
           <Text style={[styles.companyName, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-            Ravindra Energy Limited
+            {companyName}
           </Text>
           <Text style={[styles.formCode, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
             Form Code: TP/TCF
@@ -666,7 +718,7 @@ export default function EmployeeExpenses() {
 
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-              Employee Name *
+              Employee Name
             </Text>
             <TextInput
               style={[
@@ -678,23 +730,15 @@ export default function EmployeeExpenses() {
                 }
               ]}
               value={formData.employeeName}
-              onChangeText={(text) => {
-                setFormData(prev => ({ ...prev, employeeName: text }));
-                if (errors.employeeName) {
-                  setErrors(prev => ({ ...prev, employeeName: '' }));
-                }
-              }}
-              placeholder="Enter employee name"
+              editable={false}
+              placeholder="Employee name"
               placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
             />
-            {errors.employeeName && (
-              <Text style={styles.errorText}>{errors.employeeName}</Text>
-            )}
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-              Employee Number *
+              Employee Number
             </Text>
             <TextInput
               style={[
@@ -706,39 +750,30 @@ export default function EmployeeExpenses() {
                 }
               ]}
               value={formData.employeeNumber}
-              onChangeText={(text) => {
-                handleEmployeeDetailsChange('employeeNumber', text);
-                if (errors.employeeNumber) {
-                  setErrors(prev => ({ ...prev, employeeNumber: '' }));
-                }
-              }}
-              placeholder="Enter employee number"
+              editable={false}
+              placeholder="Employee number"
               placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
             />
-            {errors.employeeNumber && (
-              <Text style={styles.errorText}>{errors.employeeNumber}</Text>
-            )}
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-              Department *
+              Department
             </Text>
-            <View style={[
-              styles.pickerContainer,
-              { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
-            ]}>
-              <Picker
-                selectedValue={formData.department}
-                onValueChange={(value) => handleEmployeeDetailsChange('department', value)}
-                style={{ color: theme === 'dark' ? '#FFFFFF' : '#111827' }}
-              >
-                <Picker.Item label="Select Department" value="" />
-                {departments.map((dept) => (
-                  <Picker.Item key={dept} label={dept} value={dept} />
-                ))}
-              </Picker>
-            </View>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
+                  color: theme === 'dark' ? '#FFFFFF' : '#111827',
+                  borderColor: errors.department ? '#EF4444' : '#E5E7EB'
+                }
+              ]}
+              value={formData.department}
+              editable={false}
+              placeholder="Department"
+              placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+            />
           </View>
 
           <View style={styles.inputGroup}>
@@ -750,12 +785,13 @@ export default function EmployeeExpenses() {
                 styles.input,
                 {
                   backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6',
-                  color: theme === 'dark' ? '#FFFFFF' : '#111827'
+                  color: theme === 'dark' ? '#FFFFFF' : '#111827',
+                  borderColor: errors.designation ? '#EF4444' : '#E5E7EB'
                 }
               ]}
               value={formData.designation}
-              onChangeText={(text) => handleEmployeeDetailsChange('designation', text)}
-              placeholder="Enter designation"
+              editable={false}
+              placeholder="Designation"
               placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
             />
           </View>
@@ -1370,12 +1406,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   input: {
+    height: 48,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderRadius: 8,
     paddingHorizontal: 16,
-    paddingVertical: 12,
     fontSize: 16,
+  },
+  readOnlyInput: {
+    opacity: 0.8, // Makes it look slightly disabled
   },
   textArea: {
     minHeight: 80,
