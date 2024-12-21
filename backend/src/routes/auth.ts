@@ -49,8 +49,14 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
 
     const isEmail = identifier.includes('@');
     const query = isEmail
-      ? 'SELECT * FROM users WHERE email = $1'
-      : 'SELECT * FROM users WHERE phone = $1';
+      ? `SELECT u.*, c.status as company_status 
+         FROM users u 
+         LEFT JOIN companies c ON u.company_id = c.id 
+         WHERE u.email = $1`
+      : `SELECT u.*, c.status as company_status 
+         FROM users u 
+         LEFT JOIN companies c ON u.company_id = c.id 
+         WHERE u.phone = $1`;
 
     const result = await client.query(query, [identifier]);
 
@@ -63,6 +69,14 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
 
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Check company status for all roles except super-admin
+    if (user.role !== 'super-admin' && user.company_status !== 'active') {
+      return res.status(403).json({ 
+        error: 'Company access disabled',
+        details: 'Your company account is currently inactive. Please contact the administrator.'
+      });
     }
 
     const token = jwt.sign(
@@ -81,7 +95,7 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
       [user.id]
     );
 
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, company_status: __, ...userWithoutPassword } = user;
     res.json({
       token,
       user: userWithoutPassword

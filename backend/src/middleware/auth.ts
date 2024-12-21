@@ -27,7 +27,10 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
       const client = await pool.connect();
       try {
         const result = await client.query(
-          'SELECT id, name, email, role, company_id FROM users WHERE id = $1',
+          `SELECT u.id, u.name, u.email, u.role, u.company_id, c.status as company_status
+           FROM users u
+           LEFT JOIN companies c ON u.company_id = c.id
+           WHERE u.id = $1`,
           [decoded.id]
         );
 
@@ -35,6 +38,16 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
           console.log('User not found in database');
           return res.status(401).json({ error: 'User not found' });
         }
+
+        const user = result.rows[0];
+
+        if (user.role !== 'super-admin' && user.company_status !== 'active') {
+          return res.status(403).json({ 
+            error: 'Company access disabled',
+            details: 'Your company account is currently inactive. Please contact the administrator.'
+          });
+        }
+
         // Check if token is about to expire (within 5 minutes)
         const expirationTime = (decoded.exp || 0) * 1000; // Convert to milliseconds
         const currentTime = Date.now();
@@ -57,7 +70,7 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
           res.setHeader('X-New-Token', newToken);
         }
 
-        req.user = result.rows[0];
+        req.user = user;
         next();
       } finally {
         client.release();
