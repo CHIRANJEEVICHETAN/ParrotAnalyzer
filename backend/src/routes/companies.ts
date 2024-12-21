@@ -154,17 +154,84 @@ router.patch('/:id/toggle-status', verifyToken, requireSuperAdmin, async (req: C
 router.delete('/:id', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
+    const { id } = req.params;
+
     await client.query('BEGIN');
-    
-    await client.query('DELETE FROM users WHERE company_id = $1', [req.params.id]);
-    await client.query('DELETE FROM companies WHERE id = $1', [req.params.id]);
-    
+
+    // First check if company exists
+    const companyCheck = await client.query(
+      'SELECT id FROM companies WHERE id = $1',
+      [id]
+    );
+
+    if (companyCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    // 1. First delete all expense documents
+    await client.query(`
+      DELETE FROM expense_documents 
+      WHERE expense_id IN (
+        SELECT e.id FROM expenses e
+        JOIN users u ON e.user_id = u.id
+        WHERE u.company_id = $1
+      )
+    `, [id]);
+
+    // 2. Delete all expenses
+    await client.query(`
+      DELETE FROM expenses 
+      WHERE user_id IN (
+        SELECT id FROM users WHERE company_id = $1
+      )
+    `, [id]);
+
+    // 3. Delete all schedule entries
+    await client.query(`
+      DELETE FROM schedule 
+      WHERE user_id IN (
+        SELECT id FROM users WHERE company_id = $1
+      )
+    `, [id]);
+
+    // 4. First update group_admin_id to null for all employees
+    await client.query(`
+      UPDATE users 
+      SET group_admin_id = NULL 
+      WHERE company_id = $1 AND role = 'employee'
+    `, [id]);
+
+    // 5. Now we can safely delete all users
+    await client.query(`
+      DELETE FROM users 
+      WHERE company_id = $1
+    `, [id]);
+
+    // 6. Finally delete the company
+    await client.query('DELETE FROM companies WHERE id = $1', [id]);
+
     await client.query('COMMIT');
-    res.json({ message: 'Company deleted successfully' });
+    
+    res.json({ 
+      success: true,
+      message: 'Company and all associated data deleted successfully' 
+    });
+
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error deleting company:', error);
-    res.status(500).json({ error: 'Failed to delete company' });
+    
+    // Send more detailed error information
+    let errorMessage = 'Failed to delete company';
+    if (error instanceof Error) {
+      errorMessage += `: ${error.message}`;
+    }
+    
+    res.status(500).json({ 
+      error: errorMessage,
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   } finally {
     client.release();
   }

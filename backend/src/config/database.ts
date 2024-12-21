@@ -93,15 +93,72 @@ export const initDB = async () => {
         phone VARCHAR(20),
         password VARCHAR(100) NOT NULL,
         role VARCHAR(20) NOT NULL CHECK (role IN ('employee', 'group-admin', 'management', 'super-admin')),
-        company_id INTEGER REFERENCES companies(id),
+        company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+        group_admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_login TIMESTAMP
       )
     `);
 
-    await initExpensesTable();
-    await initScheduleTable();
+    // Update expenses table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS expenses (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        employee_name VARCHAR(100) NOT NULL,
+        employee_number VARCHAR(50) NOT NULL,
+        department VARCHAR(100) NOT NULL,
+        designation VARCHAR(100),
+        location VARCHAR(100),
+        date TIMESTAMP NOT NULL,
+        vehicle_type VARCHAR(50),
+        vehicle_number VARCHAR(50),
+        total_kilometers DECIMAL,
+        start_time TIMESTAMP,
+        end_time TIMESTAMP,
+        route_taken TEXT,
+        lodging_expenses DECIMAL DEFAULT 0,
+        daily_allowance DECIMAL DEFAULT 0,
+        diesel DECIMAL DEFAULT 0,
+        toll_charges DECIMAL DEFAULT 0,
+        other_expenses DECIMAL DEFAULT 0,
+        advance_taken DECIMAL DEFAULT 0,
+        total_amount DECIMAL NOT NULL,
+        amount_payable DECIMAL NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Update schedule table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS schedule (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        location VARCHAR(255),
+        date DATE NOT NULL,
+        time TIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Update expense_documents table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS expense_documents (
+        id SERIAL PRIMARY KEY,
+        expense_id INTEGER REFERENCES expenses(id) ON DELETE CASCADE,
+        file_name VARCHAR(255) NOT NULL,
+        file_type VARCHAR(100) NOT NULL,
+        file_size INTEGER NOT NULL,
+        file_data BYTEA NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
