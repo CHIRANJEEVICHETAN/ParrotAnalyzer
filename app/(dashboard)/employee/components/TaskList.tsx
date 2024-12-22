@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { format } from 'date-fns';
 
 interface Task {
   id: number;
@@ -53,8 +52,16 @@ export default function TaskList({ tasks, isDark, onUpdateStatus, activeTaskType
   };
 
   const filteredTasks = tasks.filter(task => 
-    activeTaskType === 'All Tasks' || task.status.toLowerCase() === activeTaskType.toLowerCase()
+    activeTaskType === 'All Tasks' || 
+    task.status.toLowerCase().replace('_', ' ') === activeTaskType.toLowerCase()
   );
+
+  const taskTypes = [
+    { label: 'All Tasks', value: 'All Tasks' },
+    { label: 'Pending', value: 'pending' },
+    { label: 'In Progress', value: 'in progress' },
+    { label: 'Completed', value: 'completed' }
+  ];
 
   return (
     <View style={styles.container}>
@@ -64,20 +71,20 @@ export default function TaskList({ tasks, isDark, onUpdateStatus, activeTaskType
         showsHorizontalScrollIndicator={false}
         style={styles.taskTypeSelector}
       >
-        {['All Tasks', 'Pending', 'In Progress', 'Completed'].map((type) => (
+        {taskTypes.map((type) => (
           <TouchableOpacity
-            key={type}
-            onPress={() => onChangeTaskType(type)}
+            key={type.label}
+            onPress={() => onChangeTaskType(type.label)}
             style={[
               styles.taskTypeButton,
-              { backgroundColor: getTaskTypeColor(type, activeTaskType === type).bg }
+              { backgroundColor: getTaskTypeColor(type.label, activeTaskType === type.label).bg }
             ]}
           >
             <Text style={[
               styles.taskTypeText,
-              { color: getTaskTypeColor(type, activeTaskType === type).text }
+              { color: getTaskTypeColor(type.label, activeTaskType === type.label).text }
             ]}>
-              {type}
+              {type.label}
             </Text>
           </TouchableOpacity>
         ))}
@@ -87,12 +94,15 @@ export default function TaskList({ tasks, isDark, onUpdateStatus, activeTaskType
       {filteredTasks.length === 0 ? (
         <View style={[styles.emptyState, { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }]}>
           <Ionicons 
-            name="list-outline" 
+            name="calendar-outline" 
             size={48} 
             color={isDark ? '#4B5563' : '#9CA3AF'} 
           />
           <Text style={[styles.emptyText, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
-            No {activeTaskType.toLowerCase()} tasks found
+            No tasks for today
+          </Text>
+          <Text style={[styles.emptySubText, { color: isDark ? '#6B7280' : '#9CA3AF' }]}>
+            Check back later for new assignments
           </Text>
         </View>
       ) : (
@@ -240,5 +250,10 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     marginTop: 8,
+  },
+  emptySubText: {
+    fontSize: 14,
+    marginTop: 4,
+    textAlign: 'center',
   },
 }); 

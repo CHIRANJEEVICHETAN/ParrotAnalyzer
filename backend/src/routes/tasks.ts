@@ -83,6 +83,9 @@ router.patch('/:taskId/status', verifyToken, async (req: CustomRequest, res: Res
 router.get('/employee', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+
     const result = await client.query(
       `SELECT 
         t.*,
@@ -90,8 +93,15 @@ router.get('/employee', verifyToken, async (req: CustomRequest, res: Response) =
        FROM employee_tasks t
        LEFT JOIN users u ON t.assigned_by = u.id
        WHERE t.assigned_to = $1
-       ORDER BY t.created_at DESC`,
-      [req.user?.id]
+       AND DATE(t.due_date) = $2
+       ORDER BY 
+         CASE t.priority
+           WHEN 'high' THEN 1
+           WHEN 'medium' THEN 2
+           WHEN 'low' THEN 3
+         END,
+         t.created_at DESC`,
+      [req.user?.id, today]
     );
 
     res.json(result.rows);
