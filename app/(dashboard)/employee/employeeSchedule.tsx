@@ -19,6 +19,8 @@ import AuthContext from '../../context/AuthContext';
 import ThemeContext from '../../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import AddScheduleModal from './components/AddScheduleModal';
+import EditScheduleModal from './components/EditScheduleModal';
+import { CalendarTheme } from './types';
 
 // Remove the import of AddEventModal from components and define it inline
 interface AddEventModalProps {
@@ -54,6 +56,25 @@ interface CalendarDay {
   timestamp: number;
 }
 
+// Create a calendar theme object
+const calendarTheme: CalendarTheme = {
+  textDayFontSize: 16,
+  textDayFontWeight: '400',
+  textMonthFontSize: 18,
+  textMonthFontWeight: '600',
+  textDayHeaderFontSize: 14,
+  'stylesheet.calendar.header': {
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingLeft: 10,
+      paddingRight: 10,
+      marginTop: 8,
+      alignItems: 'center',
+    },
+  },
+};
+
 export default function EmployeeSchedule() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -64,6 +85,8 @@ export default function EmployeeSchedule() {
   const [schedule, setSchedule] = useState<{ [key: string]: ScheduleEvent[] }>({});
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
 
   // Fetch schedule data
   useEffect(() => {
@@ -72,37 +95,30 @@ export default function EmployeeSchedule() {
 
   const fetchSchedule = async () => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
-      if (!token) {
-        router.replace('/(auth)/signin' as any);
-        return;
-      }
-
-      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/schedule`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      console.log('Fetched schedule data:', response.data); // Debug log
-
-      // Transform the data into the required format with consistent date format
-      const formattedSchedule: { [key: string]: ScheduleEvent[] } = {};
-      response.data.forEach((event: ScheduleEvent) => {
-        // Format the date consistently
-        const formattedDate = format(new Date(event.date), 'yyyy-MM-dd');
-        
-        if (!formattedSchedule[formattedDate]) {
-          formattedSchedule[formattedDate] = [];
+      setIsLoading(true);
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/schedule`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
         }
-        formattedSchedule[formattedDate].push({
+      );
+
+      // Transform the data into a format grouped by date
+      const scheduleByDate: { [key: string]: ScheduleEvent[] } = {};
+      response.data.forEach((event: ScheduleEvent) => {
+        // Ensure date is in yyyy-MM-dd format
+        const dateKey = format(new Date(event.date), 'yyyy-MM-dd');
+        if (!scheduleByDate[dateKey]) {
+          scheduleByDate[dateKey] = [];
+        }
+        scheduleByDate[dateKey].push({
           ...event,
-          date: formattedDate // Ensure consistent date format
+          date: dateKey // Ensure consistent date format
         });
       });
 
-      console.log('Formatted schedule:', formattedSchedule); // Debug log
-      setSchedule(formattedSchedule);
+      console.log('Schedules by date:', scheduleByDate); // Debug log
+      setSchedule(scheduleByDate);
     } catch (error) {
       console.error('Error fetching schedule:', error);
       Alert.alert('Error', 'Failed to fetch schedule');
@@ -188,6 +204,70 @@ export default function EmployeeSchedule() {
     }
   };
 
+  const handleEditSchedule = (event: ScheduleEvent) => {
+    setSelectedEvent(event);
+    setEditModalVisible(true);
+  };
+
+  const handleDeleteSchedule = async (eventId: number) => {
+    Alert.alert(
+      'Delete Schedule',
+      'Are you sure you want to delete this schedule?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await axios.delete(
+                `${process.env.EXPO_PUBLIC_API_URL}/api/schedule/${eventId}`,
+                {
+                  headers: { Authorization: `Bearer ${token}` }
+                }
+              );
+              fetchSchedule(); // Refresh the schedule list
+              Alert.alert('Success', 'Schedule deleted successfully');
+            } catch (error) {
+              console.error('Error deleting schedule:', error);
+              Alert.alert('Error', 'Failed to delete schedule');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleUpdateSchedule = async (scheduleData: {
+    id: number;
+    title: string;
+    description: string;
+    location: string;
+    time: string;
+    date: string;
+  }) => {
+    try {
+      const response = await axios.patch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/schedule/${scheduleData.id}`,
+        scheduleData,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      fetchSchedule(); // Refresh the schedule list
+      setEditModalVisible(false);
+      setSelectedEvent(null);
+      Alert.alert('Success', 'Schedule updated successfully');
+    } catch (error) {
+      console.error('Error updating schedule:', error);
+      Alert.alert('Error', 'Failed to update schedule');
+    }
+  };
+
   const markedDates = React.useMemo(() => {
     const dates: any = {};
     Object.keys(schedule).forEach(date => {
@@ -201,35 +281,80 @@ export default function EmployeeSchedule() {
     return dates;
   }, [selectedDate, schedule]);
 
-  const renderScheduleItem = (item: ScheduleEvent) => (
-    <View 
-      key={item.id} 
+  const renderScheduleItem = (event: ScheduleEvent) => (
+    <TouchableOpacity 
+      key={event.id} 
       className={`mb-4 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+      style={styles.eventCard}
+      onPress={() => {
+        setSelectedEvent(event);
+        setEditModalVisible(true);
+      }}
     >
-      <View className="flex-row justify-between items-center mb-2">
-        <Text className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-          {item.time}
-        </Text>
-        <View className="flex-row items-center">
-          <Ionicons 
-            name="location-outline" 
-            size={16} 
-            color={isDark ? '#9CA3AF' : '#6B7280'} 
-          />
-          <Text className={`ml-1 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-            {item.location || 'No location'}
+      <View className="flex-row justify-between items-start">
+        <View className="flex-1">
+          <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            {event.title}
           </Text>
+          {event.description && (
+            <Text className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              {event.description}
+            </Text>
+          )}
+          <View className="flex-row items-center mt-2">
+            <Ionicons 
+              name="time-outline" 
+              size={16} 
+              color={isDark ? '#9CA3AF' : '#6B7280'} 
+            />
+            <Text className={`ml-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              {event.time}
+            </Text>
+            {event.location && (
+              <View className="flex-row items-center ml-4">
+                <Ionicons 
+                  name="location-outline" 
+                  size={16} 
+                  color={isDark ? '#9CA3AF' : '#6B7280'} 
+                />
+                <Text className={`ml-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {event.location}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+        
+        <View className="flex-row justify-end mt-2">
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              setSelectedEvent(event);
+              setEditModalVisible(true);
+            }}
+            className="mr-4"
+          >
+            <Ionicons 
+              name="pencil-outline" 
+              size={20} 
+              color={isDark ? '#60A5FA' : '#3B82F6'} 
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              handleDeleteSchedule(event.id);
+            }}
+          >
+            <Ionicons 
+              name="trash-outline" 
+              size={20} 
+              color={isDark ? '#EF4444' : '#DC2626'} 
+            />
+          </TouchableOpacity>
         </View>
       </View>
-      <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-        {item.title}
-      </Text>
-      {item.description && (
-        <Text className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-          {item.description}
-        </Text>
-      )}
-    </View>
+    </TouchableOpacity>
   );
 
   // Add a debug section to show current state (remove in production)
@@ -237,6 +362,13 @@ export default function EmployeeSchedule() {
     console.log('Selected date:', selectedDate);
     console.log('Events for selected date:', schedule[selectedDate]);
   }, [selectedDate, schedule]);
+
+  // Add this useEffect for debugging
+  useEffect(() => {
+    console.log('Current schedule state:', schedule);
+    console.log('Selected date:', selectedDate);
+    console.log('Events for selected date:', schedule[selectedDate]);
+  }, [schedule, selectedDate]);
 
   return (
     <View className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
@@ -268,7 +400,8 @@ export default function EmployeeSchedule() {
 
       <ScrollView className="flex-1">
         {/* Calendar with swipe gestures */}
-        <View className={`mx-4 mt-4 rounded-lg overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+        <View className={`mx-4 mt-4 rounded-lg overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-white'}`} 
+          style={styles.calendarContainer}>
           <Calendar
             current={selectedDate}
             onDayPress={(day: CalendarDay) => setSelectedDate(day.dateString)}
@@ -292,69 +425,152 @@ export default function EmployeeSchedule() {
               textDisabledColor: isDark ? '#4B5563' : '#D1D5DB',
               monthTextColor: isDark ? '#FFFFFF' : '#111827',
               arrowColor: '#3B82F6',
+              ...calendarTheme
             }}
           />
         </View>
 
         {/* Schedule List */}
         <View className="p-4">
-          <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            {format(new Date(selectedDate), 'MMMM d, yyyy')}
-          </Text>
+          <View className="flex-row justify-between items-center mb-4">
+            <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {format(new Date(selectedDate), 'MMMM d, yyyy')}
+            </Text>
+          </View>
           
           {isLoading ? (
-            <View className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <View className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.scheduleCard}>
               <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Loading...
+                Loading schedules...
               </Text>
             </View>
-          ) : schedule[selectedDate] && schedule[selectedDate].length > 0 ? (
+          ) : schedule[selectedDate]?.length > 0 ? (
             schedule[selectedDate].map((event) => (
-              <View 
+              <TouchableOpacity
                 key={event.id}
-                className={`p-4 rounded-lg mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+                onPress={() => {
+                  setSelectedEvent(event);
+                  setEditModalVisible(true);
+                }}
+                className={`mb-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+                style={styles.scheduleCard}
               >
-                <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  {event.title}
-                </Text>
-                <Text className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {event.description}
-                </Text>
-                <View className="flex-row justify-between mt-2">
-                  <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {event.time}
-                  </Text>
-                  <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {event.location}
-                  </Text>
+                <View className="p-4">
+                  <View className="flex-row justify-between items-start">
+                    <Text className={`text-lg font-semibold flex-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {event.title}
+                    </Text>
+                    <View className="flex-row space-x-2">
+                      <TouchableOpacity
+                        className={`p-2 rounded-full ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setSelectedEvent(event);
+                          setEditModalVisible(true);
+                        }}
+                      >
+                        <Ionicons 
+                          name="pencil-outline" 
+                          size={16} 
+                          color={isDark ? '#60A5FA' : '#3B82F6'} 
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        className={`p-2 rounded-full ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSchedule(event.id);
+                        }}
+                      >
+                        <Ionicons 
+                          name="trash-outline" 
+                          size={16} 
+                          color={isDark ? '#EF4444' : '#DC2626'} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View className="flex-row items-center mt-3">
+                    <Ionicons 
+                      name="time-outline" 
+                      size={16} 
+                      color={isDark ? '#9CA3AF' : '#6B7280'} 
+                    />
+                    <Text className={`ml-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {format(new Date(`2000-01-01T${event.time}`), 'hh:mm a')}
+                    </Text>
+                    {event.location && (
+                      <>
+                        <Text className={`mx-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>•</Text>
+                        <Ionicons 
+                          name="location-outline" 
+                          size={16} 
+                          color={isDark ? '#9CA3AF' : '#6B7280'} 
+                        />
+                        <Text className={`ml-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                          {event.location}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+
+                  {event.description && (
+                    <Text className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {event.description}
+                    </Text>
+                  )}
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           ) : (
-            <View className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <View 
+              className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              style={styles.scheduleCard}
+            >
               <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                No events scheduled for this day
+                No schedules for this day
               </Text>
             </View>
           )}
         </View>
       </ScrollView>
 
-      {/* Add Schedule FAB */}
-      <TouchableOpacity 
-        className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-blue-500 items-center justify-center shadow-lg"
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        className={`absolute bottom-6 right-6 flex-row items-center px-4 py-3 rounded-full ${
+          isDark ? 'bg-blue-500' : 'bg-blue-500'
+        }`}
         style={styles.fab}
         onPress={() => setIsAddModalVisible(true)}
       >
-        <Ionicons name="add" size={24} color="#FFFFFF" />
+        <Ionicons 
+          name="add" 
+          size={24} 
+          color="#FFFFFF"
+        />
+        <Text className="text-white font-medium ml-2">
+          Add Schedule
+        </Text>
       </TouchableOpacity>
 
-      {/* Add Schedule Modal */}
+      {/* Modals */}
       <AddScheduleModal
         visible={isAddModalVisible}
         onClose={() => setIsAddModalVisible(false)}
-        onSubmit={handleAddEvent}
+        onSubmit={handleAddSchedule}
         selectedDate={selectedDate}
+        isDark={isDark}
+      />
+      
+      <EditScheduleModal
+        visible={editModalVisible}
+        onClose={() => {
+          setEditModalVisible(false);
+          setSelectedEvent(null);
+        }}
+        onSubmit={handleUpdateSchedule}
+        schedule={selectedEvent}
         isDark={isDark}
       />
     </View>
@@ -376,5 +592,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4.65,
     elevation: 8,
-  }
+    zIndex: 1000,
+  },
+  calendarContainer: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+    marginBottom: 16,
+  },
+  eventCard: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  scheduleCard: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
 });
