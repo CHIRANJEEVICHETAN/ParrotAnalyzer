@@ -93,4 +93,21 @@ export const requireSuperAdmin = (req: CustomRequest, res: Response, next: NextF
     return res.status(403).json({ error: 'Access denied. Super admin only.' });
   }
   next();
+};
+
+export const requireGroupAdmin = async (req: CustomRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    if (req.user.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group Admin only.' });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Group Admin middleware error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 }; 

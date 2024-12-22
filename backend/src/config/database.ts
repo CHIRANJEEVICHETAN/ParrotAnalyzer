@@ -94,7 +94,7 @@ export const initDB = async () => {
         password VARCHAR(100) NOT NULL,
         role VARCHAR(20) NOT NULL CHECK (role IN ('employee', 'group-admin', 'management', 'super-admin')),
         company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
-        group_admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        profile_image BYTEA,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_login TIMESTAMP
@@ -156,6 +156,73 @@ export const initDB = async () => {
         file_size INTEGER NOT NULL,
         file_data BYTEA NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Add support_messages table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS support_messages (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        subject VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        user_email VARCHAR(100) NOT NULL,
+        user_name VARCHAR(100) NOT NULL,
+        user_role VARCHAR(20) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP
+      )
+    `);
+
+    // Add employee_shifts table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_shifts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP,
+        duration INTERVAL,
+        status VARCHAR(20) DEFAULT 'active',
+        total_kilometers DECIMAL DEFAULT 0,
+        total_expenses DECIMAL DEFAULT 0,
+        location_start POINT,
+        location_end POINT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Add employee_tasks table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_tasks (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        assigned_to INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        due_date TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_status_update TIMESTAMP,
+        status_history JSONB DEFAULT '[]'
+      )
+    `);
+
+    // Add employee_schedule table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_schedule (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        date DATE NOT NULL,
+        time TIME NOT NULL,
+        location VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 

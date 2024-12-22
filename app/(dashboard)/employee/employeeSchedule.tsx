@@ -4,19 +4,37 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  StatusBar,
   Alert,
+  StyleSheet,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import ThemeContext from '../../context/ThemeContext';
-import { Calendar, AgendaList, CalendarProvider } from 'react-native-calendars';
+import { Calendar } from 'react-native-calendars';
 import { format } from 'date-fns';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AuthContext from '../../context/AuthContext';
-import { AddEventModal } from './components/AddEventModal';
+import ThemeContext from '../../context/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import AddScheduleModal from './components/AddScheduleModal';
 
+// Remove the import of AddEventModal from components and define it inline
+interface AddEventModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (event: {
+    title: string;
+    description: string;
+    location: string;
+    time: string;
+    date: Date;
+  }) => void;
+  selectedDate: Date;
+}
+
+// Add proper interfaces
 interface ScheduleEvent {
   id: number;
   title: string;
@@ -27,24 +45,25 @@ interface ScheduleEvent {
   userId: number;
 }
 
-interface AddEventModalProps {
-  visible: boolean;
-  onClose: () => void;
-  onSubmit: (event: Partial<ScheduleEvent>) => void;
-  selectedDate: string;
+// Add interface for Calendar day
+interface CalendarDay {
+  dateString: string;
+  day: number;
+  month: number;
+  year: number;
+  timestamp: number;
 }
 
 export default function EmployeeSchedule() {
   const { theme } = ThemeContext.useTheme();
-  const { user } = AuthContext.useAuth();
+  const { token } = AuthContext.useAuth();
   const router = useRouter();
+  const isDark = theme === 'dark';
   
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [schedule, setSchedule] = useState<{ [key: string]: ScheduleEvent[] }>({});
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
-  const isDark = theme === 'dark';
 
   // Fetch schedule data
   useEffect(() => {
@@ -55,7 +74,7 @@ export default function EmployeeSchedule() {
     try {
       const token = await AsyncStorage.getItem('auth_token');
       if (!token) {
-        router.replace('/(auth)/login');
+        router.replace('/(auth)/signin' as any);
         return;
       }
 
@@ -96,7 +115,7 @@ export default function EmployeeSchedule() {
     try {
       const token = await AsyncStorage.getItem('auth_token');
       if (!token) {
-        router.replace('/(auth)/login');
+        router.replace('/(auth)/signin' as any);
         return;
       }
 
@@ -132,6 +151,40 @@ export default function EmployeeSchedule() {
     } catch (error) {
       console.error('Error adding event:', error);
       Alert.alert('Error', 'Failed to add event');
+    }
+  };
+
+  const handleAddSchedule = async (scheduleData: {
+    title: string;
+    description: string;
+    location: string;
+    time: string;
+    date: string;
+  }) => {
+    try {
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/schedule`,
+        scheduleData,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      // Update local state
+      const newEvent = response.data;
+      setSchedule(prev => ({
+        ...prev,
+        [scheduleData.date]: [
+          ...(prev[scheduleData.date] || []),
+          newEvent
+        ]
+      }));
+
+      setIsAddModalVisible(false);
+      Alert.alert('Success', 'Schedule added successfully');
+    } catch (error) {
+      console.error('Error adding schedule:', error);
+      Alert.alert('Error', 'Failed to add schedule');
     }
   };
 
@@ -192,34 +245,42 @@ export default function EmployeeSchedule() {
         barStyle={isDark ? 'light-content' : 'dark-content'}
       />
 
-      {/* Header */}
-      <View className={`flex-row items-center justify-between p-4 ${isDark ? 'bg-gray-800' : 'bg-white'} border-b border-gray-200`}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons 
-            name="arrow-back" 
-            size={24} 
-            color={isDark ? '#FFFFFF' : '#111827'} 
-          />
-        </TouchableOpacity>
-        <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-          Schedule
-        </Text>
-        <TouchableOpacity>
-          <Ionicons 
-            name="filter" 
-            size={24} 
-            color={isDark ? '#FFFFFF' : '#111827'} 
-          />
-        </TouchableOpacity>
-      </View>
+      {/* Updated Header with LinearGradient */}
+      <LinearGradient
+        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        className="pb-4"
+        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+      >
+        <View className="flex-row items-center justify-between px-6">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="mr-4 p-2 rounded-full"
+            style={{ backgroundColor: isDark ? '#374151' : '#F3F4F6' }}
+          >
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
+          </TouchableOpacity>
+          <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Schedule
+          </Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </LinearGradient>
 
       <ScrollView className="flex-1">
-        {/* Calendar */}
+        {/* Calendar with swipe gestures */}
         <View className={`mx-4 mt-4 rounded-lg overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
           <Calendar
             current={selectedDate}
-            onDayPress={(day) => setSelectedDate(day.dateString)}
-            markedDates={markedDates}
+            onDayPress={(day: CalendarDay) => setSelectedDate(day.dateString)}
+            onPressArrowLeft={(subtractMonth: () => void) => subtractMonth()}
+            onPressArrowRight={(addMonth: () => void) => addMonth()}
+            enableSwipeMonths={true}
+            markedDates={{
+              [selectedDate]: {
+                selected: true,
+                selectedColor: '#3B82F6'
+              }
+            }}
             theme={{
               backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
               calendarBackground: isDark ? '#1F2937' : '#FFFFFF',
@@ -248,7 +309,27 @@ export default function EmployeeSchedule() {
               </Text>
             </View>
           ) : schedule[selectedDate] && schedule[selectedDate].length > 0 ? (
-            schedule[selectedDate].map(renderScheduleItem)
+            schedule[selectedDate].map((event) => (
+              <View 
+                key={event.id}
+                className={`p-4 rounded-lg mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              >
+                <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  {event.title}
+                </Text>
+                <Text className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {event.description}
+                </Text>
+                <View className="flex-row justify-between mt-2">
+                  <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {event.time}
+                  </Text>
+                  <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {event.location}
+                  </Text>
+                </View>
+              </View>
+            ))
           ) : (
             <View className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
               <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -259,21 +340,41 @@ export default function EmployeeSchedule() {
         </View>
       </ScrollView>
 
-      {/* Add Event FAB */}
+      {/* Add Schedule FAB */}
       <TouchableOpacity 
-        className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-blue-500 items-center justify-center"
+        className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-blue-500 items-center justify-center shadow-lg"
+        style={styles.fab}
         onPress={() => setIsAddModalVisible(true)}
       >
         <Ionicons name="add" size={24} color="#FFFFFF" />
       </TouchableOpacity>
 
-      {/* Add Event Modal */}
-      <AddEventModal
+      {/* Add Schedule Modal */}
+      <AddScheduleModal
         visible={isAddModalVisible}
         onClose={() => setIsAddModalVisible(false)}
         onSubmit={handleAddEvent}
         selectedDate={selectedDate}
+        isDark={isDark}
       />
     </View>
   );
 }
+
+// Add to styles
+const styles = StyleSheet.create({
+  header: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  fab: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
+  }
+});

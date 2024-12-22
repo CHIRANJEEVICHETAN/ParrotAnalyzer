@@ -1,57 +1,51 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
-  Animated,
-  Modal,
   ScrollView,
-  Dimensions,
   StyleSheet,
   Image,
   Platform,
   KeyboardAvoidingView,
   StatusBar,
+  Alert,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AuthContext from '../../context/AuthContext';
 import ThemeContext from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIsFocused } from '@react-navigation/native';
-import { differenceInSeconds } from 'date-fns';
+import { format, differenceInSeconds } from 'date-fns';
+import axios from 'axios';
+import TaskList from './components/TaskList';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+// Add Task interface
+interface Task {
+  id: number;
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  priority: 'low' | 'medium' | 'high';
+  due_date: string;
+  assigned_by_name: string;
+}
 
 export default function EmployeeDashboard() {
   const { theme } = ThemeContext.useTheme();
-  const { user, logout } = AuthContext.useAuth();
+  const { user, token } = AuthContext.useAuth();
   const router = useRouter();
 
   // State management
   const [activeTab, setActiveTab] = useState('home');
-  const [taskDetails, setTaskDetails] = useState('');
-  const [shiftType, setShiftType] = useState('');
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [greeting, setGreeting] = useState('');
-  const [notifications, setNotifications] = useState([
-    { id: 1, message: 'Your shift starts in 30 minutes', time: '10 mins ago' },
-    { id: 2, message: 'New task assigned by admin', time: '1 hour ago' },
-  ]);
-  const [taskProgress, setTaskProgress] = useState(65);
-  const [characterCount, setCharacterCount] = useState(0);
   const [lastLogin, setLastLogin] = useState('');
   const [shiftStatus, setShiftStatus] = useState('No Active Shift');
   const [attendanceStatus, setAttendanceStatus] = useState('Not Marked');
   const [activeTaskType, setActiveTaskType] = useState('All Tasks');
   const [taskPriority, setTaskPriority] = useState('Medium');
-  const [tasks, setTasks] = useState([
-    { id: 1, title: 'Complete daily report', status: 'Pending', priority: 'High' },
-    { id: 2, title: 'Team meeting', status: 'In Progress', priority: 'Medium' },
-    { id: 3, title: 'Update documentation', status: 'Completed', priority: 'Low' },
-  ]);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
   // Add new state for quick actions
   const [quickActions] = useState([
@@ -85,9 +79,6 @@ export default function EmployeeDashboard() {
     },
   ]);
 
-  // Animations
-  const progressAnimation = useRef(new Animated.Value(0)).current;
-
   // Add isFocused hook
   const isFocused = useIsFocused();
 
@@ -104,13 +95,6 @@ export default function EmployeeDashboard() {
 
     // Simulate fetching last login
     setLastLogin(new Date().toLocaleString());
-
-    // Animate progress bar
-    Animated.timing(progressAnimation, {
-      toValue: taskProgress,
-      duration: 1000,
-      useNativeDriver: false,
-    }).start();
   }, []);
 
   // Add effect for real-time updates
@@ -169,42 +153,6 @@ export default function EmployeeDashboard() {
     };
   }, [isFocused]);
 
-  // Handle form submission
-  const handleSubmit = async () => {
-    if (!taskDetails.trim() || !shiftType) {
-      alert('Please fill in all fields');
-      return;
-    }
-
-    try {
-      // Save to AsyncStorage for offline support
-      const offlineData = {
-        taskDetails,
-        shiftType,
-        timestamp: new Date().toISOString(),
-      };
-      await AsyncStorage.setItem('offlineTask', JSON.stringify(offlineData));
-
-      // TODO: Implement API call to save data to PostgreSQL
-      setShowSuccessModal(true);
-      setTimeout(() => setShowSuccessModal(false), 2000);
-      setTaskDetails('');
-      setShiftType('');
-    } catch (error) {
-      console.error('Error submitting form:', error);
-      alert('Failed to submit task. Data saved offline.');
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      router.replace('/');
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
-  };
-
   // Add this helper function
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -222,8 +170,46 @@ export default function EmployeeDashboard() {
   // Add this function to filter tasks
   const getFilteredTasks = () => {
     if (activeTaskType === 'All Tasks') return tasks;
-    return tasks.filter(task => task.status === activeTaskType);
+    return tasks.filter(task => task.status.toLowerCase() === activeTaskType.toLowerCase());
   };
+
+  const fetchTasks = async () => {
+    try {
+      const response = await axios.get<Task[]>(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/employee`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      setTasks(response.data);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+    }
+  };
+
+  const updateTaskStatus = async (taskId: number, newStatus: string) => {
+    try {
+      await axios.patch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/${taskId}/status`,
+        { status: newStatus },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      fetchTasks(); // Refresh tasks
+    } catch (error) {
+      console.error('Error updating task:', error);
+      Alert.alert('Error', 'Failed to update task status');
+    }
+  };
+
+  const filteredTasks = tasks.filter(task => 
+    activeTaskType === 'All Tasks' || task.status.toLowerCase() === activeTaskType.toLowerCase()
+  );
+
+  useEffect(() => {
+    fetchTasks();
+  }, []);
 
   return (
     <View className="flex-1">
@@ -276,228 +262,106 @@ export default function EmployeeDashboard() {
                 onPress={action.action}
               >
                 <View style={[styles.iconCircle, { backgroundColor: `${action.color}20` }]}>
-                  <Ionicons name={action.icon} size={24} color={action.color} />
+                  <Ionicons name={action.icon as any} size={24} color={action.color} />
                 </View>
-                <Text style={[
-                  styles.quickActionText,
-                  { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
-                ]}>
+                <Text style={[styles.quickActionText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
                   {action.title}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          {/* Status Card with enhanced UI */}
-          <View style={[styles.card, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={[styles.cardTitle, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+          {/* Status and Tasks Container */}
+          <View style={[
+            styles.mainContainer,
+            { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+          ]}>
+            {/* Today's Status */}
+            <View style={styles.statusSection}>
+              <Text style={[
+                styles.sectionTitle,
+                { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+              ]}>
                 Today's Status
               </Text>
-              {shiftStatus === 'Active Shift' && (
-                <View style={[styles.activeShiftIndicator, { backgroundColor: '#10B981' }]}>
-                  <Text style={styles.activeShiftText}>Live</Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.enhancedStatusRow}>
-              <View style={styles.statusItem}>
-                <View style={[styles.statusIconCircle, { 
-                  backgroundColor: shiftStatus === 'Active Shift' ? '#10B98120' : '#EF444420' 
-                }]}>
-                  <Ionicons 
-                    name="time-outline" 
-                    size={20} 
-                    color={shiftStatus === 'Active Shift' ? '#10B981' : '#EF4444'} 
-                  />
-                </View>
-                <View>
-                  <Text style={[styles.statusLabel, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-                    Shift Status
-                  </Text>
-                  <Text style={[
-                    styles.statusValue, 
-                    { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+              <View style={styles.enhancedStatusRow}>
+                <View style={styles.statusItem}>
+                  <View style={[
+                    styles.statusIconCircle,
+                    { backgroundColor: shiftStatus === 'Active Shift' ? '#10B98120' : '#9CA3AF20' }
                   ]}>
-                    {shiftStatus}
-                  </Text>
-                  {currentShiftDuration && shiftStatus === 'Active Shift' && (
-                    <Text style={[
-                      styles.statusSubValue, 
-                      { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
-                    ]}>
-                      Duration: {currentShiftDuration}
+                    <Ionicons
+                      name="time-outline"
+                      size={20}
+                      color={shiftStatus === 'Active Shift' ? '#10B981' : '#9CA3AF'}
+                    />
+                  </View>
+                  <View>
+                    <Text style={[styles.statusLabel, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
+                      Shift Status
                     </Text>
-                  )}
+                    <Text style={[styles.statusValue, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+                      {shiftStatus}
+                    </Text>
+                    {currentShiftDuration && (
+                      <Text style={[styles.statusSubValue, { color: theme === 'dark' ? '#60A5FA' : '#3B82F6' }]}>
+                        Duration: {currentShiftDuration}
+                      </Text>
+                    )}
+                  </View>
                 </View>
-              </View>
-              <View style={styles.statusItem}>
-                <View style={[styles.statusIconCircle, { 
-                  backgroundColor: attendanceStatus === 'Present' ? '#10B98120' : '#9CA3AF20' 
-                }]}>
-                  <Ionicons 
-                    name="calendar-outline" 
-                    size={20} 
-                    color={attendanceStatus === 'Present' ? '#10B981' : '#9CA3AF'} 
-                  />
-                </View>
-                <View>
-                  <Text style={[styles.statusLabel, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-                    Attendance
-                  </Text>
-                  <Text style={[
-                    styles.statusValue, 
-                    { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+
+                <View style={styles.statusItem}>
+                  <View style={[
+                    styles.statusIconCircle,
+                    { backgroundColor: attendanceStatus === 'Present' ? '#10B98120' : '#9CA3AF20' }
                   ]}>
-                    {attendanceStatus}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Task Form */}
-          <View style={[styles.card, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={[styles.cardTitle, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-                Task Details
-              </Text>
-              <TouchableOpacity 
-                style={styles.refreshButton}
-                onPress={() => {/* Refresh tasks */}}
-              >
-                <Ionicons name="refresh-outline" size={20} color="#3B82F6" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.taskTypeSelector}>
-              {['All Tasks', 'Pending', 'In Progress', 'Completed'].map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.taskTypeButton,
-                    activeTaskType === type && styles.activeTaskType
-                  ]}
-                  onPress={() => setActiveTaskType(type)}
-                >
-                  <Text style={[
-                    styles.taskTypeText,
-                    activeTaskType === type && styles.activeTaskTypeText
-                  ]}>
-                    {type}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TextInput
-              style={[styles.input, { 
-                color: theme === 'dark' ? '#FFFFFF' : '#111827',
-                backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6'
-              }]}
-              placeholder="Enter task details or shift comments"
-              placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-              value={taskDetails}
-              onChangeText={(text) => {
-                if (text.length <= 300) {
-                  setTaskDetails(text);
-                  setCharacterCount(text.length);
-                }
-              }}
-              multiline
-              maxLength={300}
-            />
-            
-            <View style={styles.taskMetaInputs}>
-              <View style={styles.taskMetaRow}>
-                <View style={styles.prioritySelector}>
-                  <Text style={[styles.metaLabel, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-                    Priority
-                  </Text>
-                  <View style={styles.priorityButtons}>
-                    {['Low', 'Medium', 'High'].map((priority) => (
-                      <TouchableOpacity
-                        key={priority}
-                        style={[
-                          styles.priorityButton,
-                          taskPriority === priority && styles.activePriority,
-                          { backgroundColor: getPriorityColor(priority) }
-                        ]}
-                        onPress={() => setTaskPriority(priority)}
-                      >
-                        <Text style={styles.priorityText}>{priority}</Text>
-                      </TouchableOpacity>
-                    ))}
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color={attendanceStatus === 'Present' ? '#10B981' : '#9CA3AF'}
+                    />
+                  </View>
+                  <View>
+                    <Text style={[styles.statusLabel, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
+                      Attendance
+                    </Text>
+                    <Text style={[styles.statusValue, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+                      {attendanceStatus}
+                    </Text>
                   </View>
                 </View>
               </View>
-
-              <View style={[styles.pickerContainer, { 
-                backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' 
-              }]}>
-                <Picker
-                  selectedValue={shiftType}
-                  onValueChange={(value) => setShiftType(value)}
-                  style={{ color: theme === 'dark' ? '#FFFFFF' : '#111827' }}
-                >
-                  <Picker.Item label="Select Shift Type" value="" />
-                  <Picker.Item label="Morning Shift" value="morning" />
-                  <Picker.Item label="Evening Shift" value="evening" />
-                  <Picker.Item label="Night Shift" value="night" />
-                  <Picker.Item label="Custom Shift" value="custom" />
-                </Picker>
-              </View>
             </View>
 
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={handleSubmit}
-            >
-              <Text style={styles.submitButtonText}>Submit Task</Text>
-            </TouchableOpacity>
-          </View>
+            {/* Divider */}
+            <View style={[
+              styles.divider,
+              { backgroundColor: theme === 'dark' ? '#374151' : '#E5E7EB' }
+            ]} />
 
-          {/* Progress Card */}
-          <View style={[styles.card, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
-            <Text style={[styles.cardTitle, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-              Today's Progress
-            </Text>
-            <View style={styles.progressContainer}>
-              <Animated.View 
-                style={[
-                  styles.progressBar,
-                  {
-                    width: progressAnimation.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: ['0%', '100%']
-                    })
-                  }
-                ]} 
-              />
-            </View>
-            <Text style={[styles.progressText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-              {taskProgress}% Tasks Completed
-            </Text>
-          </View>
-
-          {/* Notifications */}
-          <View style={[styles.card, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
-            <Text style={[styles.cardTitle, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-              Recent Notifications
-            </Text>
-            {notifications.map((notification) => (
-              <View key={notification.id} style={styles.notification}>
-                <Ionicons name="notifications-outline" size={20} color="#3B82F6" />
-                <View style={styles.notificationContent}>
-                  <Text style={[styles.notificationText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-                    {notification.message}
-                  </Text>
-                  <Text style={[styles.notificationTime, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-                    {notification.time}
+            {/* My Tasks Section */}
+            <View style={styles.tasksSection}>
+              <View style={styles.taskHeader}>
+                <Text style={[styles.sectionTitle, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+                  My Tasks
+                </Text>
+                <View style={styles.taskCount}>
+                  <View style={[styles.dot, { backgroundColor: theme === 'dark' ? '#60A5FA' : '#3B82F6' }]} />
+                  <Text style={[styles.taskCountText, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
+                    {tasks.length} {tasks.length === 1 ? 'Task' : 'Tasks'}
                   </Text>
                 </View>
               </View>
-            ))}
+
+              <TaskList
+                tasks={tasks}
+                isDark={theme === 'dark'}
+                onUpdateStatus={updateTaskStatus}
+                activeTaskType={activeTaskType}
+                onChangeTaskType={setActiveTaskType}
+              />
+            </View>
           </View>
         </ScrollView>
 
@@ -549,7 +413,7 @@ export default function EmployeeDashboard() {
 
           <TouchableOpacity 
             className="items-center px-4 py-2"
-            onPress={() => router.push('/(dashboard)/notifications')}
+            onPress={() => router.push('/(dashboard)/employee/notifications')}
           >
             <Ionicons
               name={activeTab === 'notifications' ? 'notifications' : 'notifications-outline'}
@@ -570,7 +434,7 @@ export default function EmployeeDashboard() {
 
           <TouchableOpacity 
             className="items-center px-4 py-2"
-            onPress={() => router.push('/(dashboard)/profile')}
+            onPress={() => router.push('/(dashboard)/employee/profile')}
           >
             <Ionicons
               name={activeTab === 'profile' ? 'person' : 'person-outline'}
@@ -590,22 +454,6 @@ export default function EmployeeDashboard() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-
-      {/* Success Modal */}
-      <Modal
-        transparent
-        visible={showSuccessModal}
-        animationType="fade"
-      >
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
-            <Ionicons name="checkmark-circle" size={48} color="#10B981" />
-            <Text style={[styles.modalText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-              Task submitted successfully!
-            </Text>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -638,7 +486,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 16,
   },
   card: {
     padding: 16,
@@ -741,41 +588,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    padding: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    width: '80%',
-  },
-  modalText: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 16,
-    textAlign: 'center',
-  },
   quickActionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    padding: 16,
+    gap: 12,
   },
   quickActionCard: {
     width: '48%',
     padding: 16,
     borderRadius: 12,
-    marginBottom: 16,
-    alignItems: 'center',
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
   iconCircle: {
     width: 48,
@@ -888,5 +715,52 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
+  },
+  section: {
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  mainContainer: {
+    margin: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  statusSection: {
+    padding: 16,
+  },
+  divider: {
+    height: 1,
+    width: '100%',
+  },
+  tasksSection: {
+    padding: 16,
+  },
+  taskHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  taskCount: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  taskCountText: {
+    fontSize: 14,
   },
 });

@@ -16,11 +16,11 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (identifier: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  refreshToken: () => Promise<string | null>;
   isLoading: boolean;
-  isInitialized: boolean;
+  login: (identifier: string, password: string) => Promise<void>;
+  logout: () => void;
+  refreshToken: () => Promise<string | null>;
+  updateUser: (userData: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,8 +30,11 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const updateUser = (userData: Partial<User>) => {
+    setUser(prev => prev ? { ...prev, ...userData } : null);
+  };
 
   // Initialize auth state
   useEffect(() => {
@@ -53,7 +56,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Auth initialization error:', error);
       } finally {
-        setIsInitialized(true);
         setIsLoading(false);
       }
     };
@@ -200,7 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         refreshToken,
         isLoading,
-        isInitialized
+        updateUser
       }}
     >
       {children}

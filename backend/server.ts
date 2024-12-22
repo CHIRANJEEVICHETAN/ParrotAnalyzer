@@ -10,6 +10,7 @@ import groupAdminRoutes from './src/routes/group-admin';
 import userRoutes from './src/routes/users';
 import employeeRoutes from './src/routes/employee';
 import groupAdminsRoutes from './src/routes/group-admins';
+import tasksRoutes from './src/routes/tasks';
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ app.use('/api/group-admin', groupAdminRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/employee', employeeRoutes);
 app.use('/api/group-admins', groupAdminsRoutes);
+app.use('/api/tasks', tasksRoutes);
 
 const PORT = process.env.PORT || 3000;
 
