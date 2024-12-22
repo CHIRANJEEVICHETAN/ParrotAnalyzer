@@ -220,7 +220,7 @@ export default function AddCompany() {
                 { label: 'Full Name', key: 'managementName' },
                 { label: 'Email', key: 'managementEmail', keyboardType: 'email-address' },
                 { label: 'Phone', key: 'managementPhone', keyboardType: 'phone-pad' },
-                { label: 'Password', key: 'managementPassword', secure: true }
+                { label: 'Password', key: 'managementPassword', secure: false }
               ].map((field) => (
                 <View key={field.key}>
                   <Text className={`mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,18 @@ import {
   Modal,
   Animated,
   Easing,
+  Alert,
+  InteractionManager,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format, differenceInSeconds } from 'date-fns';
+import axios from 'axios';
+import AuthContext from '../../context/AuthContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface ShiftData {
   date: string;
@@ -29,6 +35,7 @@ interface ShiftStatus {
 
 export default function EmployeeShiftTracker() {
   const { theme } = ThemeContext.useTheme();
+  const { token } = AuthContext.useAuth();
   const router = useRouter();
   const isDark = theme === 'dark';
 
@@ -58,7 +65,7 @@ export default function EmployeeShiftTracker() {
   // Load persistent state
   useEffect(() => {
     loadShiftStatus();
-    loadShiftHistory();
+    loadShiftHistoryFromBackend();
   }, []);
 
   // Animation effects
@@ -123,12 +130,40 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  const loadShiftHistory = async () => {
+  const loadShiftHistoryFromBackend = async () => {
     try {
-      const history = await AsyncStorage.getItem('shiftHistory');
-      if (history) {
-        setShiftHistory(JSON.parse(history));
-      }
+      const currentMonth = format(new Date(), 'yyyy-MM');
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/attendance/${currentMonth}`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      // Add safe date parsing
+      const convertedHistory: ShiftData[] = response.data.map((shift: any) => {
+        try {
+          return {
+            date: format(new Date(shift.date), 'yyyy-MM-dd'),
+            startTime: shift.shifts[0]?.shift_start 
+              ? format(new Date(shift.shifts[0].shift_start), 'HH:mm:ss')
+              : '',
+            endTime: shift.shifts[0]?.shift_end 
+              ? format(new Date(shift.shifts[0].shift_end), 'HH:mm:ss')
+              : null,
+            duration: shift.total_hours 
+              ? formatElapsedTime(parseFloat(shift.total_hours.toString()) * 3600)
+              : null,
+          };
+        } catch (err) {
+          console.error('Error parsing shift data:', err, shift);
+          return null;
+        }
+      }).filter(Boolean); // Remove any null entries from failed parsing
+
+      console.log('Converted history:', convertedHistory);
+      setShiftHistory(convertedHistory);
+      await AsyncStorage.setItem('shiftHistory', JSON.stringify(convertedHistory));
     } catch (error) {
       console.error('Error loading shift history:', error);
     }
@@ -151,65 +186,177 @@ export default function EmployeeShiftTracker() {
   const formatElapsedTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Optimize animations with useCallback
+  const startAnimations = useCallback(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.2,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 3000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [pulseAnim, rotateAnim]);
+
+  // Add this helper function at the top
+  const formatDateForBackend = (date: Date) => {
+    // Get timezone offset in minutes
+    const tzOffset = date.getTimezoneOffset();
+    // Create new date with timezone offset applied
+    const localDate = new Date(date.getTime() - (tzOffset * 60000));
+    return localDate.toISOString().replace('Z', '+05:30'); // Replace with your timezone offset
+  };
+
+  // Optimize shift start
   const handleStartShift = async () => {
     const now = new Date();
+    
+    // Update UI immediately
     setShiftStart(now);
     setIsShiftActive(true);
     setElapsedTime(0);
+    startAnimations();
 
-    try {
-      await AsyncStorage.setItem('shiftStatus', JSON.stringify({
-        isActive: true,
-        startTime: now.toISOString(),
-      }));
-      
-      setModalData({
-        title: 'Shift Started',
-        message: `Your shift has started at ${format(now, 'hh:mm a')}. The timer will continue running even if you close the app.`,
-        type: 'success',
-        showCancel: false
-      });
-      setShowModal(true);
-    } catch (error) {
-      console.error('Error saving shift status:', error);
-    }
+    // Show feedback immediately
+    setModalData({
+      title: 'Starting Shift',
+      message: `Your shift is starting at ${format(now, 'hh:mm a')}...`,
+      type: 'success',
+      showCancel: false
+    });
+    setShowModal(true);
+
+    // Perform API call and storage updates in background
+    InteractionManager.runAfterInteractions(async () => {
+      try {
+        await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/start`,
+          {
+            startTime: formatDateForBackend(now)  // Send ISO string with timezone
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+
+        await AsyncStorage.setItem('shiftStatus', JSON.stringify({
+          isActive: true,
+          startTime: now.toISOString(),
+        }));
+
+        // Update modal with success message
+        setModalData({
+          title: 'Shift Started',
+          message: `Your shift has started at ${format(now, 'hh:mm a')}. The timer will continue running even if you close the app.`,
+          type: 'success',
+          showCancel: false
+        });
+      } catch (error: any) {
+        // Revert UI state on error
+        setShiftStart(null);
+        setIsShiftActive(false);
+        setElapsedTime(0);
+        pulseAnim.setValue(1);
+        rotateAnim.setValue(0);
+
+        Alert.alert(
+          'Error',
+          error.response?.data?.error || 'Failed to start shift. Please try again.'
+        );
+      }
+    });
   };
 
+  // Optimize shift end
   const confirmEndShift = async () => {
     const now = new Date();
-    if (shiftStart) {
-      const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
-      const newShiftData: ShiftData = {
-        date: format(shiftStart, 'yyyy-MM-dd'),
-        startTime: format(shiftStart, 'HH:mm:ss'),
-        endTime: format(now, 'HH:mm:ss'),
-        duration,
-      };
+    if (!shiftStart) return;
 
+    // Update UI immediately
+    const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
+    setShowModal(false);
+    setIsShiftActive(false);
+    pulseAnim.setValue(1);
+    rotateAnim.setValue(0);
+
+    // Show intermediate feedback
+    setModalData({
+      title: 'Ending Shift',
+      message: 'Processing...',
+      type: 'info',
+      showCancel: false
+    });
+    setShowModal(true);
+
+    // Perform API call and storage updates in background
+    InteractionManager.runAfterInteractions(async () => {
       try {
-        const updatedHistory = [newShiftData, ...shiftHistory];
-        await AsyncStorage.setItem('shiftHistory', JSON.stringify(updatedHistory));
-        await AsyncStorage.removeItem('shiftStatus');
-        
-        setShiftHistory(updatedHistory);
-        setIsShiftActive(false);
+        const response = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/end`,
+          {
+            endTime: formatDateForBackend(now)  // Send ISO string with timezone
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+
+        const newShiftData: ShiftData = {
+          date: format(shiftStart, 'yyyy-MM-dd'),
+          startTime: format(shiftStart, 'HH:mm:ss'),
+          endTime: format(now, 'HH:mm:ss'),
+          duration,
+        };
+
+        // Batch storage updates
+        await Promise.all([
+          AsyncStorage.setItem('shiftHistory', JSON.stringify([newShiftData, ...shiftHistory])),
+          AsyncStorage.removeItem('shiftStatus')
+        ]);
+
+        // Refresh shift history from backend to ensure we have latest data
+        await loadShiftHistoryFromBackend();
         setShiftStart(null);
 
+        // Show final success message
         setModalData({
           title: 'Shift Completed',
           message: `Total Duration: ${duration}\nStart: ${format(shiftStart, 'hh:mm a')}\nEnd: ${format(now, 'hh:mm a')}`,
           type: 'info',
           showCancel: false
         });
-        setShowModal(true);
-      } catch (error) {
-        console.error('Error ending shift:', error);
+      } catch (error: any) {
+        // Revert UI state on error
+        setIsShiftActive(true);
+        startAnimations();
+        
+        Alert.alert(
+          'Error',
+          error.response?.data?.error || 'Failed to end shift. Please try again.'
+        );
       }
-    }
+    });
   };
 
   const handleEndShift = () => {
@@ -234,20 +381,26 @@ export default function EmployeeShiftTracker() {
         barStyle={isDark ? 'light-content' : 'dark-content'}
       />
 
-      {/* Header */}
-      <View className={`flex-row items-center justify-between p-4 ${isDark ? 'bg-gray-800' : 'bg-white'} border-b border-gray-200`}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons 
-            name="arrow-back" 
-            size={24} 
-            color={isDark ? '#FFFFFF' : '#111827'} 
-          />
-        </TouchableOpacity>
-        <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-          Shift Tracker
-        </Text>
-        <View style={{ width: 24 }} />
-      </View>
+      {/* Updated Header */}
+      <LinearGradient
+        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        className="pb-4"
+        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+      >
+        <View className="flex-row items-center justify-between px-6">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="mr-4 p-2 rounded-full"
+            style={{ backgroundColor: isDark ? '#374151' : '#F3F4F6' }}
+          >
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
+          </TouchableOpacity>
+          <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Shift Tracker
+          </Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </LinearGradient>
 
       <ScrollView className="flex-1 p-4">
         {/* Enhanced Time Display */}
@@ -296,12 +449,23 @@ export default function EmployeeShiftTracker() {
           )}
         </View>
 
-        {/* Shift History */}
+        {/* Recent Shifts */}
         <View className={`rounded-lg p-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-          <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Recent Shifts
-          </Text>
-          {shiftHistory.map((shift, index) => (
+          <View className="flex-row justify-between items-center mb-4 px-1">
+            <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Recent Shifts
+            </Text>
+            <TouchableOpacity 
+              onPress={() => router.push('/(dashboard)/employee/attendanceManagement')}
+              className="px-2"
+            >
+              <Text className={`text-sm ${isDark ? 'text-blue-400' : 'text-blue-500'}`}>
+                View All
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
+          {shiftHistory.slice(0, 3).map((shift, index) => (
             <View 
               key={index} 
               className={`p-4 rounded-lg mb-2 ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}
@@ -323,6 +487,20 @@ export default function EmployeeShiftTracker() {
             </View>
           ))}
         </View>
+
+        {/* Attendance Management Button */}
+        <TouchableOpacity
+          onPress={() => router.push('/(dashboard)/employee/attendanceManagement')}
+          className={`mx-4 my-6 p-4 rounded-xl flex-row items-center justify-center ${
+            isDark ? 'bg-blue-900' : 'bg-blue-500'
+          }`}
+          style={styles.attendanceButton}
+        >
+          <Ionicons name="calendar-outline" size={24} color="white" />
+          <Text className="text-white font-semibold text-lg ml-2">
+            Attendance Management
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Custom Modal */}
@@ -372,3 +550,20 @@ export default function EmployeeShiftTracker() {
     </View>
   );
 }
+
+const styles = {
+  header: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  attendanceButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+};

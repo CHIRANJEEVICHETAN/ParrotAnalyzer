@@ -7,11 +7,25 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  Alert,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
 
-export function AddEventModal({ visible, onClose, onSubmit, selectedDate }: AddEventModalProps) {
+interface AddEventModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (event: {
+    title: string;
+    description: string;
+    location: string;
+    time: string;
+    date: Date;
+  }) => void;
+  selectedDate: Date;
+}
+
+export default function AddEventModal({ visible, onClose, onSubmit, selectedDate }: AddEventModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
