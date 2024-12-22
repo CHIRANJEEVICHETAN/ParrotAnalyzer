@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, Animated, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, Animated, Keyboard, Image, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../context/ThemeContext';
 import AuthContext from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function SignIn() {
     const { theme } = ThemeContext.useTheme();
@@ -117,209 +118,246 @@ export default function SignIn() {
     });
 
     return (
-        <TouchableOpacity 
-            activeOpacity={1} 
-            onPress={Keyboard.dismiss}
-            style={{
-                flex: 1,
-                backgroundColor: theme === 'dark' ? '#111827' : '#ffffff',
-            }}
-        >
-            <Animated.View
+        <>
+            <StatusBar 
+                barStyle={theme === 'dark' ? "light-content" : "dark-content"}
+                backgroundColor={theme === 'dark' ? '#1E293B' : '#EEF2FF'}
+            />
+            <TouchableOpacity 
+                activeOpacity={1} 
+                onPress={Keyboard.dismiss}
                 style={{
                     flex: 1,
-                    padding: 24,
-                    opacity: fadeAnim,
-                    transform: [{ translateY: slideAnim }],
+                    backgroundColor: theme === 'dark' ? '#1E293B' : '#EEF2FF',
                 }}
             >
-                {/* Logo Section */}
-                <View style={{
-                    alignItems: 'center',
-                    marginTop: 60,
-                    marginBottom: 40,
-                }}>
-                    <View style={{
-                        width: 80,
-                        height: 80,
-                        backgroundColor: '#3B82F6',
-                        borderRadius: 40,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginBottom: 16,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.25,
-                        shadowRadius: 3.84,
-                        elevation: 5,
-                    }}>
-                        <Text style={{ fontSize: 40 }}>🦜</Text>
-                    </View>
-                    <Text style={{
-                        fontSize: 24,
-                        fontWeight: 'bold',
-                        color: theme === 'dark' ? '#ffffff' : '#1F2937',
-                        marginBottom: 8,
-                    }}>
-                        Welcome Back
-                    </Text>
-                    <Text style={{
-                        fontSize: 16,
-                        color: theme === 'dark' ? '#9CA3AF' : '#6B7280',
-                        textAlign: 'center',
-                    }}>
-                        Sign in to continue to Parrot Analyzer
-                    </Text>
-                </View>
-
-                {/* Form Section */}
-                <Animated.View style={{
-                    transform: [{ translateX: inputFocusAnim }]
-                }}>
-                    <View style={{ marginBottom: 16 }}>
-                        <Text style={{
-                            marginBottom: 8,
-                            color: theme === 'dark' ? '#D1D5DB' : '#4B5563',
-                            fontSize: 14,
-                        }}>
-                            Email or Phone Number
-                        </Text>
-                        <TextInput
-                            value={identifier}
-                            onChangeText={handleIdentifierChange}
-                            keyboardType={identifierType === 'phone' ? 'phone-pad' : 'email-address'}
-                            autoCapitalize="none"
-                            style={{
-                                backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6',
-                                padding: 16,
-                                borderRadius: 12,
-                                color: theme === 'dark' ? '#ffffff' : '#1F2937',
-                                borderWidth: 2,
-                                borderColor: isValidIdentifier 
-                                    ? '#10B981' 
-                                    : identifier 
-                                        ? '#EF4444' 
-                                        : theme === 'dark' ? '#374151' : '#E5E7EB',
-                            }}
-                            placeholderTextColor={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
-                            placeholder="Enter your email or phone"
-                        />
-                        {identifier && (
-                            <Text style={{
-                                marginTop: 4,
-                                fontSize: 12,
-                                color: isValidIdentifier ? '#10B981' : '#EF4444',
-                            }}>
-                                {isValidIdentifier 
-                                    ? `Valid ${identifierType}` 
-                                    : `Invalid ${identifierType}`}
-                            </Text>
-                        )}
-                    </View>
-
-                    <View style={{ marginBottom: 16 }}>
-                        <Text style={{
-                            marginBottom: 8,
-                            color: theme === 'dark' ? '#D1D5DB' : '#4B5563',
-                            fontSize: 14,
-                        }}>
-                            Password
-                        </Text>
-                        <View style={{ position: 'relative' }}>
-                            <TextInput
-                                value={password}
-                                onChangeText={setPassword}
-                                secureTextEntry={!showPassword}
-                                style={{
-                                    backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6',
-                                    padding: 16,
-                                    paddingRight: 48,
-                                    borderRadius: 12,
-                                    color: theme === 'dark' ? '#ffffff' : '#1F2937',
-                                    borderWidth: 2,
-                                    borderColor: theme === 'dark' ? '#374151' : '#E5E7EB',
-                                }}
-                                placeholderTextColor={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
-                                placeholder="Enter your password"
-                            />
-                            <TouchableOpacity
-                                onPress={() => setShowPassword(!showPassword)}
-                                style={{
-                                    position: 'absolute',
-                                    right: 16,
-                                    top: 16,
-                                }}
-                            >
-                                <Ionicons
-                                    name={showPassword ? 'eye-off' : 'eye'}
-                                    size={24}
-                                    color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                                />
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    <TouchableOpacity
-                        onPress={() => router.push('/(auth)/forgot-password')}
-                        style={{ alignSelf: 'flex-end', marginBottom: 24 }}
-                    >
-                        <Text style={{
-                            color: '#3B82F6',
-                            fontSize: 14,
-                        }}>
-                            Forgot Password?
-                        </Text>
-                    </TouchableOpacity>
-
-                    {error ? (
-                        <Animated.View 
-                            style={{
-                                transform: [{ translateX: inputFocusAnim }],
-                                backgroundColor: theme === 'dark' ? '#991B1B' : '#FEE2E2',
-                                padding: 12,
-                                borderRadius: 8,
-                                marginBottom: 16,
-                            }}
-                        >
-                            <Text style={{
-                                color: theme === 'dark' ? '#FCA5A5' : '#991B1B',
-                                textAlign: 'center',
-                            }}>
-                                {error}
-                            </Text>
-                        </Animated.View>
-                    ) : null}
-
-                    <TouchableOpacity
-                        onPress={handleSignIn}
-                        disabled={isLoading}
+                <LinearGradient
+                    colors={theme === 'dark' ? 
+                        ['#1E293B', '#0F172A'] : 
+                        ['#EEF2FF', '#E0E7FF']}
+                    style={{ flex: 1 }}
+                >
+                    <Animated.View
                         style={{
-                            backgroundColor: '#3B82F6',
-                            padding: 16,
-                            borderRadius: 12,
-                            opacity: isLoading ? 0.7 : 1,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.25,
-                            shadowRadius: 3.84,
-                            elevation: 5,
+                            flex: 1,
+                            padding: 24,
+                            opacity: fadeAnim,
+                            transform: [{ translateY: slideAnim }],
                         }}
                     >
-                        {isLoading ? (
-                            <ActivityIndicator color="white" />
-                        ) : (
-                            <Text style={{
-                                color: '#ffffff',
-                                textAlign: 'center',
-                                fontSize: 16,
-                                fontWeight: 'bold',
+                        {/* Logo Section */}
+                        <View style={{
+                            alignItems: 'center',
+                            marginTop: 60,
+                            marginBottom: 40,
+                        }}>
+                            <View style={{
+                                width: 120,
+                                height: 120,
+                                borderRadius: 60,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginBottom: 24,
+                                padding: 3,
+                                backgroundColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(99, 102, 241, 0.1)',
+                                borderWidth: 2,
+                                borderColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(99, 102, 241, 0.3)',
+                                shadowColor: theme === 'dark' ? '#3B82F6' : '#6366F1',
+                                shadowOffset: { width: 0, height: 4 },
+                                shadowOpacity: 0.2,
+                                shadowRadius: 8,
+                                elevation: 8,
                             }}>
-                                Sign In
+                                <View style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    borderRadius: 60,
+                                    overflow: 'hidden',
+                                    backgroundColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(99, 102, 241, 0.05)',
+                                }}>
+                                    <Image 
+                                        source={require('../../assets/images/icon.png')}
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                        }}
+                                        resizeMode="cover"
+                                    />
+                                </View>
+                            </View>
+                            <Text style={{
+                                fontSize: 28,
+                                fontWeight: 'bold',
+                                color: theme === 'dark' ? '#ffffff' : '#1F2937',
+                                marginBottom: 8,
+                                textShadowColor: 'rgba(0, 0, 0, 0.1)',
+                                textShadowOffset: { width: 0, height: 2 },
+                                textShadowRadius: 4
+                            }}>
+                                Welcome Back
                             </Text>
-                        )}
-                    </TouchableOpacity>
-                </Animated.View>
-            </Animated.View>
-        </TouchableOpacity>
+                            <Text style={{
+                                fontSize: 16,
+                                color: theme === 'dark' ? '#D1D5DB' : '#4B5563',
+                                textAlign: 'center',
+                                letterSpacing: 0.5,
+                            }}>
+                                Sign in to continue to Parrot Analyzer
+                            </Text>
+                        </View>
+
+                        {/* Form Section */}
+                        <Animated.View style={{
+                            transform: [{ translateX: inputFocusAnim }]
+                        }}>
+                            <View style={{ marginBottom: 16 }}>
+                                <Text style={{
+                                    marginBottom: 8,
+                                    color: theme === 'dark' ? '#D1D5DB' : '#4B5563',
+                                    fontSize: 14,
+                                }}>
+                                    Email or Phone Number
+                                </Text>
+                                <TextInput
+                                    value={identifier}
+                                    onChangeText={handleIdentifierChange}
+                                    keyboardType={identifierType === 'phone' ? 'phone-pad' : 'email-address'}
+                                    autoCapitalize="none"
+                                    style={{
+                                        backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6',
+                                        padding: 16,
+                                        borderRadius: 12,
+                                        color: theme === 'dark' ? '#ffffff' : '#1F2937',
+                                        borderWidth: 2,
+                                        borderColor: isValidIdentifier 
+                                            ? '#10B981' 
+                                            : identifier 
+                                                ? '#EF4444' 
+                                                : theme === 'dark' ? '#374151' : '#E5E7EB',
+                                    }}
+                                    placeholderTextColor={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
+                                    placeholder="Enter your email or phone"
+                                />
+                                {identifier && (
+                                    <Text style={{
+                                        marginTop: 4,
+                                        fontSize: 12,
+                                        color: isValidIdentifier ? '#10B981' : '#EF4444',
+                                    }}>
+                                        {isValidIdentifier 
+                                            ? `Valid ${identifierType}` 
+                                            : `Invalid ${identifierType}`}
+                                    </Text>
+                                )}
+                            </View>
+
+                            <View style={{ marginBottom: 16 }}>
+                                <Text style={{
+                                    marginBottom: 8,
+                                    color: theme === 'dark' ? '#D1D5DB' : '#4B5563',
+                                    fontSize: 14,
+                                }}>
+                                    Password
+                                </Text>
+                                <View style={{ position: 'relative' }}>
+                                    <TextInput
+                                        value={password}
+                                        onChangeText={setPassword}
+                                        secureTextEntry={!showPassword}
+                                        style={{
+                                            backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6',
+                                            padding: 16,
+                                            paddingRight: 48,
+                                            borderRadius: 12,
+                                            color: theme === 'dark' ? '#ffffff' : '#1F2937',
+                                            borderWidth: 2,
+                                            borderColor: theme === 'dark' ? '#374151' : '#E5E7EB',
+                                        }}
+                                        placeholderTextColor={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
+                                        placeholder="Enter your password"
+                                    />
+                                    <TouchableOpacity
+                                        onPress={() => setShowPassword(!showPassword)}
+                                        style={{
+                                            position: 'absolute',
+                                            right: 16,
+                                            top: 16,
+                                        }}
+                                    >
+                                        <Ionicons
+                                            name={showPassword ? 'eye-off' : 'eye'}
+                                            size={24}
+                                            color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+
+                            <TouchableOpacity
+                                onPress={() => router.push('/(auth)/forgot-password')}
+                                style={{ alignSelf: 'flex-end', marginBottom: 24 }}
+                            >
+                                <Text style={{
+                                    color: '#3B82F6',
+                                    fontSize: 14,
+                                }}>
+                                    Forgot Password?
+                                </Text>
+                            </TouchableOpacity>
+
+                            {error ? (
+                                <Animated.View 
+                                    style={{
+                                        transform: [{ translateX: inputFocusAnim }],
+                                        backgroundColor: theme === 'dark' ? '#991B1B' : '#FEE2E2',
+                                        padding: 12,
+                                        borderRadius: 8,
+                                        marginBottom: 16,
+                                    }}
+                                >
+                                    <Text style={{
+                                        color: theme === 'dark' ? '#FCA5A5' : '#991B1B',
+                                        textAlign: 'center',
+                                    }}>
+                                        {error}
+                                    </Text>
+                                </Animated.View>
+                            ) : null}
+
+                            <TouchableOpacity
+                                onPress={handleSignIn}
+                                disabled={isLoading}
+                                style={{
+                                    backgroundColor: theme === 'dark' ? '#3B82F6' : '#6366F1',
+                                    paddingVertical: 16,
+                                    paddingHorizontal: 32,
+                                    borderRadius: 16,
+                                    opacity: isLoading ? 0.7 : 1,
+                                    shadowColor: theme === 'dark' ? '#3B82F6' : '#6366F1',
+                                    shadowOffset: { width: 0, height: 4 },
+                                    shadowOpacity: 0.3,
+                                    shadowRadius: 8,
+                                    elevation: 8,
+                                }}
+                            >
+                                {isLoading ? (
+                                    <ActivityIndicator color="white" />
+                                ) : (
+                                    <Text style={{
+                                        color: '#ffffff',
+                                        textAlign: 'center',
+                                        fontSize: 18,
+                                        fontWeight: 'bold',
+                                        letterSpacing: 0.5,
+                                    }}>
+                                        Sign In
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        </Animated.View>
+                    </Animated.View>
+                </LinearGradient>
+            </TouchableOpacity>
+        </>
     );
 }

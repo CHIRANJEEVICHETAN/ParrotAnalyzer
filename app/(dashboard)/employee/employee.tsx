@@ -173,6 +173,13 @@ export default function EmployeeDashboard() {
     return tasks.filter(task => task.status.toLowerCase() === activeTaskType.toLowerCase());
   };
 
+  // Add this function to check if a task is from today
+  const isToday = (dateString: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    return dateString.split('T')[0] === today;
+  };
+
+  // Update the fetchTasks function
   const fetchTasks = async () => {
     try {
       const response = await axios.get<Task[]>(
@@ -181,11 +188,33 @@ export default function EmployeeDashboard() {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
+      
+      // Tasks are already filtered by date on the backend
       setTasks(response.data);
     } catch (error) {
       console.error('Error fetching tasks:', error);
+      Alert.alert('Error', 'Failed to fetch tasks');
     }
   };
+
+  // Add an effect to refresh tasks at midnight
+  useEffect(() => {
+    fetchTasks();
+
+    // Calculate time until next midnight
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    const timeUntilMidnight = tomorrow.getTime() - now.getTime();
+
+    // Set up timer to refresh tasks at midnight
+    const timer = setTimeout(() => {
+      fetchTasks();
+    }, timeUntilMidnight);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const updateTaskStatus = async (taskId: number, newStatus: string) => {
     try {
@@ -349,7 +378,7 @@ export default function EmployeeDashboard() {
                 <View style={styles.taskCount}>
                   <View style={[styles.dot, { backgroundColor: theme === 'dark' ? '#60A5FA' : '#3B82F6' }]} />
                   <Text style={[styles.taskCountText, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-                    {tasks.length} {tasks.length === 1 ? 'Task' : 'Tasks'}
+                    {tasks.length} {tasks.length === 1 ? 'Task' : 'Tasks'} for Today
                   </Text>
                 </View>
               </View>
@@ -473,8 +502,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   logo: {
-    width: 40,
-    height: 40,
+    width: 50,
+    height: 50,
+    borderRadius: 100,
   },
   welcomeText: {
     fontSize: 18,
