@@ -14,9 +14,10 @@ router.get('/', verifyToken, async (req: CustomRequest, res: Response) => {
         id,
         title,
         description,
-        date,
-        time,
+        TO_CHAR(date, 'YYYY-MM-DD') as date,
+        TO_CHAR(time, 'HH24:MI') as time,
         location,
+        user_id,
         created_at
        FROM employee_schedule
        WHERE user_id = $1
@@ -24,6 +25,7 @@ router.get('/', verifyToken, async (req: CustomRequest, res: Response) => {
       [req.user?.id]
     );
 
+    console.log('Schedule data from DB:', result.rows); // Debug log
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching schedules:', error);

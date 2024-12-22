@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
@@ -39,26 +40,35 @@ export default function AddScheduleModal({
   const [location, setLocation] = useState('');
   const [time, setTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!title.trim()) {
-      Alert.alert('Error', 'Please enter a title');
+      Alert.alert('Error', 'Title is required');
       return;
     }
 
-    onSubmit({
-      title,
-      description,
-      location,
-      time: format(time, 'HH:mm'),
-      date: selectedDate,
-    });
-
-    // Reset form
-    setTitle('');
-    setDescription('');
-    setLocation('');
-    setTime(new Date());
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        title,
+        description,
+        location,
+        time: format(time, 'HH:mm'),
+        date: selectedDate,
+      });
+      
+      // Reset form (will only execute if submission was successful)
+      setTitle('');
+      setDescription('');
+      setLocation('');
+      setTime(new Date());
+    } catch (error) {
+      console.error('Error submitting schedule:', error);
+      Alert.alert('Error', 'Failed to add schedule');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -165,14 +175,29 @@ export default function AddScheduleModal({
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
               onPress={onClose}
+              disabled={isSubmitting}
             >
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.button, styles.submitButton]}
+              style={[
+                styles.button, 
+                styles.submitButton,
+                isSubmitting && styles.buttonDisabled
+              ]}
               onPress={handleSubmit}
+              disabled={isSubmitting}
             >
-              <Text style={styles.buttonText}>Add Schedule</Text>
+              <View style={styles.buttonContent}>
+                {isSubmitting ? (
+                  <>
+                    <ActivityIndicator size="small" color="#FFFFFF" style={styles.spinner} />
+                    <Text style={styles.buttonText}>Adding...</Text>
+                  </>
+                ) : (
+                  <Text style={styles.buttonText}>Add Schedule</Text>
+                )}
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -244,5 +269,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spinner: {
+    marginRight: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
 }); 
