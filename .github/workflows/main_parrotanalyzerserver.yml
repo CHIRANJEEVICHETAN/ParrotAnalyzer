@@ -1,4 +1,4 @@
-name: Build and Deploy Node.js App to Azure Web App - ParrotAnalyzerServer
+name: Build and deploy Node.js app to Azure Web App - ParrotAnalyzerServer
 
 on:
   push:
@@ -11,35 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout the code
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2. Set up Node.js
       - name: Set up Node.js version
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
 
-      # 3. Install dependencies and build (Backend folder)
-      - name: Install dependencies and build
-        working-directory: ./backend
+      - name: npm install, build, and test
         run: |
           npm install
-          npx tsc
+          npm run build --if-present
+          npm run test --if-present
 
-      # 4. Zip the 'dist' folder for deployment
-      - name: Zip dist folder
+      - name: Zip backend folder for deployment
         run: |
-          cd backend/dist
-          zip -r ../../dist-release.zip ./*
+          cd backend
+          zip -r backend-release.zip ./*
 
-      # 5. Upload artifact for deployment job
-      - name: Upload artifact for deployment
+      - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
-          name: dist-artifact
-          path: dist-release.zip
+          name: backend-artifact
+          path: backend/backend-release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -48,32 +42,29 @@ jobs:
       name: 'Production'
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
     permissions:
-      id-token: write # Required for requesting the JWT
+      id-token: write # This is required for requesting the JWT
 
     steps:
-      # 1. Download the build artifact
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: dist-artifact
+          name: backend-artifact
 
-      # 2. Unzip the artifact for deployment
-      - name: Unzip artifact
-        run: unzip dist-release.zip
+      - name: Unzip artifact for deployment
+        run: |
+          unzip backend-release.zip -d backend
 
-      # 3. Login to Azure
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_01BEBB688B0547B6BB354AE4EAAD297E }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_4134AF8F2B6545C6A2633320D4A28A84 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E1295A4C182D403490FF55C343F6F56E }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9D288FF0D914403B8EC631F3EE9FBD6A }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_50F42C5A2CCE4945AB19D9936E2775FE }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_203C86546A024DF9AF09956E13457360 }}
 
-      # 4. Deploy the application to Azure Web App
-      - name: Deploy to Azure Web App
+      - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'ParrotAnalyzerServer'
           slot-name: 'Production'
-          package: .
+          package: ./backend
