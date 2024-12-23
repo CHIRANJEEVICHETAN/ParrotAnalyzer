@@ -21,25 +21,17 @@ jobs:
         with:
           node-version: '20.x'
 
-      # 3. Install dependencies and compile TypeScript (Backend folder)
-      - name: Install dependencies and compile TypeScript
+      # 3. Install dependencies (Backend folder)
+      - name: Install dependencies
         working-directory: ./backend
-        run: |
-          npm install
-          npx tsc --build
+        run: npm install
 
-      # 4. Zip the 'dist' folder for deployment
-      - name: Zip dist folder
-        run: |
-          cd backend/dist
-          zip -r ../../dist-release.zip ./*
-
-      # 5. Upload artifact for deployment job
+      # 4. Upload the entire backend folder as an artifact for deployment
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: dist-artifact
-          path: dist-release.zip
+          name: backend-artifact
+          path: ./backend
 
   deploy:
     runs-on: ubuntu-latest
@@ -55,13 +47,9 @@ jobs:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: dist-artifact
+          name: backend-artifact
 
-      # 2. Unzip the artifact for deployment
-      - name: Unzip artifact
-        run: unzip dist-release.zip
-
-      # 3. Login to Azure
+      # 2. Login to Azure
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -69,7 +57,7 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_4134AF8F2B6545C6A2633320D4A28A84 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E1295A4C182D403490FF55C343F6F56E }}
 
-      # 4. Deploy the application to Azure Web App
+      # 3. Deploy the application to Azure Web App
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
@@ -77,3 +65,4 @@ jobs:
           app-name: 'ParrotAnalyzerServer'
           slot-name: 'Production'
           package: .
+          startup-command: "npx ts-node server.ts"
