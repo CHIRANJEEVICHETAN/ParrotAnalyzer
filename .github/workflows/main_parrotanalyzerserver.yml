@@ -21,12 +21,12 @@ jobs:
         with:
           node-version: '20.x'
 
-      # 3. Install dependencies and build (Backend folder)
-      - name: Install dependencies and build
+      # 3. Install dependencies and compile TypeScript (Backend folder)
+      - name: Install dependencies and compile TypeScript
         working-directory: ./backend
         run: |
           npm install
-          npm run build
+          npx tsc --build
 
       # 4. Zip the 'dist' folder for deployment
       - name: Zip dist folder
