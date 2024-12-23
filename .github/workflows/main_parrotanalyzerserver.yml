@@ -21,23 +21,20 @@ jobs:
         with:
           node-version: '20.x'
 
-      # 3. Install dependencies
-      - name: Install dependencies
+      # 3. Install dependencies and build (Backend folder)
+      - name: Install dependencies and build
         working-directory: ./backend
-        run: npm install
+        run: |
+          npm install
+          npx tsc
 
-      # 4. Compile TypeScript files using npx tsc
-      - name: Compile TypeScript files
-        working-directory: ./backend
-        run: npx tsc
-
-      # 5. Zip the dist folder for deployment
+      # 4. Zip the 'dist' folder for deployment
       - name: Zip dist folder
         run: |
           cd backend/dist
           zip -r ../../dist-release.zip ./*
 
-      # 6. Upload artifact for deployment job
+      # 5. Upload artifact for deployment job
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
@@ -51,7 +48,7 @@ jobs:
       name: 'Production'
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
     permissions:
-      id-token: write  # Required for requesting the JWT
+      id-token: write # Required for requesting the JWT
 
     steps:
       # 1. Download the build artifact
@@ -62,7 +59,7 @@ jobs:
 
       # 2. Unzip the artifact for deployment
       - name: Unzip artifact
-        run: unzip dist-release.zip -d ./backend
+        run: unzip dist-release.zip
 
       # 3. Login to Azure
       - name: Login to Azure
@@ -79,4 +76,4 @@ jobs:
         with:
           app-name: 'ParrotAnalyzerServer'
           slot-name: 'Production'
-          package: ./backend/dist
+          package: .
