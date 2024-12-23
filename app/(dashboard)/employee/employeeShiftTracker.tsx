@@ -33,6 +33,15 @@ interface ShiftStatus {
   startTime: string | null;
 }
 
+interface RecentShift {
+  id: number;
+  start_time: string;
+  end_time: string | null;
+  duration: string;
+  total_kilometers: number;
+  total_expenses: number;
+}
+
 export default function EmployeeShiftTracker() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -61,6 +70,7 @@ export default function EmployeeShiftTracker() {
     type: 'info',
     showCancel: false
   });
+  const [recentShifts, setRecentShifts] = useState<RecentShift[]>([]);
 
   // Load persistent state
   useEffect(() => {
@@ -140,17 +150,15 @@ export default function EmployeeShiftTracker() {
         }
       );
 
-      // Add safe date parsing
       const convertedHistory: ShiftData[] = response.data.map((shift: any) => {
         try {
+          const startTime = new Date(shift.shifts[0]?.shift_start);
+          const endTime = shift.shifts[0]?.shift_end ? new Date(shift.shifts[0].shift_end) : null;
+
           return {
-            date: format(new Date(shift.date), 'yyyy-MM-dd'),
-            startTime: shift.shifts[0]?.shift_start 
-              ? format(new Date(shift.shifts[0].shift_start), 'HH:mm:ss')
-              : '',
-            endTime: shift.shifts[0]?.shift_end 
-              ? format(new Date(shift.shifts[0].shift_end), 'HH:mm:ss')
-              : null,
+            date: format(startTime, 'yyyy-MM-dd'),
+            startTime: format(startTime, 'HH:mm:ss'),
+            endTime: endTime ? format(endTime, 'HH:mm:ss') : null,
             duration: shift.total_hours 
               ? formatElapsedTime(parseFloat(shift.total_hours.toString()) * 3600)
               : null,
@@ -159,11 +167,10 @@ export default function EmployeeShiftTracker() {
           console.error('Error parsing shift data:', err, shift);
           return null;
         }
-      }).filter(Boolean); // Remove any null entries from failed parsing
+      }).filter(Boolean);
 
       console.log('Converted history:', convertedHistory);
       setShiftHistory(convertedHistory);
-      await AsyncStorage.setItem('shiftHistory', JSON.stringify(convertedHistory));
     } catch (error) {
       console.error('Error loading shift history:', error);
     }
@@ -221,11 +228,8 @@ export default function EmployeeShiftTracker() {
 
   // Add this helper function at the top
   const formatDateForBackend = (date: Date) => {
-    // Get timezone offset in minutes
-    const tzOffset = date.getTimezoneOffset();
-    // Create new date with timezone offset applied
-    const localDate = new Date(date.getTime() - (tzOffset * 60000));
-    return localDate.toISOString().replace('Z', '+05:30'); // Replace with your timezone offset
+    // Format date in local timezone without any conversion
+    return format(date, "yyyy-MM-dd'T'HH:mm:ss.SSS");
   };
 
   // Optimize shift start
@@ -374,6 +378,33 @@ export default function EmployeeShiftTracker() {
     outputRange: ['0deg', '360deg'],
   });
 
+  const fetchRecentShifts = async () => {
+    try {
+      const response = await axios.get<RecentShift[]>(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shifts/recent`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      // Process and set the recent shifts
+      const formattedShifts = response.data.map((shift: RecentShift) => ({
+        ...shift,
+        start_time: format(new Date(shift.start_time), 'hh:mm a'),
+        end_time: shift.end_time ? format(new Date(shift.end_time), 'hh:mm a') : 'Ongoing',
+        duration: shift.duration ? parseFloat(shift.duration).toFixed(1) : '0.0'
+      }));
+      
+      setRecentShifts(formattedShifts);
+    } catch (error) {
+      console.error('Error fetching recent shifts:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecentShifts();
+  }, []);
+
   return (
     <View className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
       <StatusBar
@@ -450,42 +481,42 @@ export default function EmployeeShiftTracker() {
         </View>
 
         {/* Recent Shifts */}
-        <View className={`rounded-lg p-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-          <View className="flex-row justify-between items-center mb-4 px-1">
-            <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Recent Shifts
-            </Text>
-            <TouchableOpacity 
-              onPress={() => router.push('/(dashboard)/employee/attendanceManagement')}
-              className="px-2"
-            >
-              <Text className={`text-sm ${isDark ? 'text-blue-400' : 'text-blue-500'}`}>
-                View All
-              </Text>
-            </TouchableOpacity>
-          </View>
-          
-          {shiftHistory.slice(0, 3).map((shift, index) => (
-            <View 
-              key={index} 
-              className={`p-4 rounded-lg mb-2 ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}
-            >
-              <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Date: {format(new Date(shift.date), 'MMM dd, yyyy')}
-              </Text>
-              <View className="flex-row justify-between mt-2">
-                <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Start: {format(new Date(`${shift.date} ${shift.startTime}`), 'hh:mm a')}
-                </Text>
-                <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  End: {shift.endTime ? format(new Date(`${shift.date} ${shift.endTime}`), 'hh:mm a') : '--:--'}
-                </Text>
+        <View className="mt-4">
+          <Text className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Recent Shifts
+          </Text>
+          {recentShifts.length > 0 ? (
+            recentShifts.map((shift: RecentShift, index: number) => (
+              <View 
+                key={index} 
+                className={`mb-3 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+                style={styles.shiftCard}
+              >
+                <View className="flex-row justify-between items-center">
+                  <View>
+                    <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Shift Time
+                    </Text>
+                    <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {shift.start_time} - {shift.end_time}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Duration
+                    </Text>
+                    <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {shift.duration} hrs
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <Text className={`mt-2 font-semibold ${isDark ? 'text-blue-400' : 'text-blue-500'}`}>
-                Duration: {shift.duration}
-              </Text>
-            </View>
-          ))}
+            ))
+          ) : (
+            <Text className={`text-center py-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              No recent shifts found
+            </Text>
+          )}
         </View>
 
         {/* Attendance Management Button */}
@@ -560,6 +591,13 @@ const styles = {
     elevation: 3,
   },
   attendanceButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  shiftCard: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,

@@ -22,7 +22,10 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-      console.log('Token verified successfully');
+      console.log('Token verified successfully, decoded payload:', {
+        id: decoded.id,
+        role: decoded.role
+      });
 
       const client = await pool.connect();
       try {
@@ -40,35 +43,10 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
         }
 
         const user = result.rows[0];
-
-        if (user.role !== 'super-admin' && user.company_status !== 'active') {
-          return res.status(403).json({ 
-            error: 'Company access disabled',
-            details: 'Your company account is currently inactive. Please contact the administrator.'
-          });
-        }
-
-        // Check if token is about to expire (within 5 minutes)
-        const expirationTime = (decoded.exp || 0) * 1000; // Convert to milliseconds
-        const currentTime = Date.now();
-        const timeUntilExpiration = expirationTime - currentTime;
-        const fiveMinutes = 5 * 60 * 1000;
-
-        if (timeUntilExpiration < fiveMinutes) {
-          // Generate new token with extended expiration
-          const newToken = jwt.sign(
-            { 
-              id: decoded.id, 
-              role: decoded.role,
-              company_id: decoded.company_id 
-            },
-            JWT_SECRET,
-            { expiresIn: '24h' } // 24 hours
-          );
-          
-          // Send new token in response header
-          res.setHeader('X-New-Token', newToken);
-        }
+        console.log('User found in database:', {
+          id: user.id,
+          role: user.role
+        });
 
         req.user = user;
         next();

@@ -47,16 +47,12 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
   try {
     const { identifier, password } = req.body;
 
+    console.log('Login attempt:', { identifier });
+
     const isEmail = identifier.includes('@');
     const query = isEmail
-      ? `SELECT u.*, c.status as company_status 
-         FROM users u 
-         LEFT JOIN companies c ON u.company_id = c.id 
-         WHERE u.email = $1`
-      : `SELECT u.*, c.status as company_status 
-         FROM users u 
-         LEFT JOIN companies c ON u.company_id = c.id 
-         WHERE u.phone = $1`;
+      ? 'SELECT * FROM users WHERE email = $1'
+      : 'SELECT * FROM users WHERE phone = $1';
 
     const result = await client.query(query, [identifier]);
 
@@ -65,18 +61,16 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
     }
 
     const user = result.rows[0];
-    const validPassword = await bcrypt.compare(password, user.password);
+    
+    console.log('User found:', { 
+      id: user.id,
+      role: user.role,
+      name: user.name 
+    });
 
+    const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Check company status for all roles except super-admin
-    if (user.role !== 'super-admin' && user.company_status !== 'active') {
-      return res.status(403).json({ 
-        error: 'Company access disabled',
-        details: 'Your company account is currently inactive. Please contact the administrator.'
-      });
     }
 
     const token = jwt.sign(
@@ -89,20 +83,26 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
       { expiresIn: '24h' }
     );
 
-    // Update last login timestamp
-    await client.query(
-      'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-      [user.id]
-    );
+    console.log('Generated token payload:', {
+      id: user.id,
+      role: user.role,
+      company_id: user.company_id
+    });
 
-    const { password: _, company_status: __, ...userWithoutPassword } = user;
     res.json({
       token,
-      user: userWithoutPassword
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        company_id: user.company_id
+      }
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Failed to login' });
   } finally {
     client.release();
   }
@@ -238,6 +238,28 @@ router.post('/refresh', verifyToken, async (req: CustomRequest, res: Response) =
   } catch (error) {
     console.error('Token refresh error:', error);
     res.status(500).json({ error: 'Failed to refresh token' });
+  }
+});
+
+router.get('/check-role', verifyToken, async (req: CustomRequest, res: Response) => {
+  try {
+    console.log('Check role request:', {
+      user: req.user,
+      headers: req.headers
+    });
+    
+    if (!req.user) {
+      return res.status(401).json({ error: 'No user found' });
+    }
+
+    res.json({
+      role: req.user.role,
+      id: req.user.id,
+      name: req.user.name
+    });
+  } catch (error) {
+    console.error('Check role error:', error);
+    res.status(500).json({ error: 'Failed to check role' });
   }
 });
 

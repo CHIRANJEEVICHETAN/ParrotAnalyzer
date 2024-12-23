@@ -302,143 +302,130 @@ export default function EmployeeExpenses() {
     checkAuthAndFetchDetails();
   }, []);
 
+  // Add this function before handleSubmit
+  const resetForm = () => {
+    setFormData({
+      employeeName: user?.name || '',
+      employeeNumber: '',
+      department: '',
+      designation: '',
+      location: '',
+      date: new Date(),
+      travelDate: new Date(),
+      vehicleType: '',
+      vehicleNumber: '',
+      totalKilometers: '',
+      startDateTime: new Date(),
+      endDateTime: new Date(),
+      routeTaken: '',
+      showStartPicker: false,
+      showEndPicker: false,
+      lodgingExpenses: '',
+      dailyAllowance: '',
+      diesel: '',
+      tollCharges: '',
+      otherExpenses: '',
+      advanceTaken: '',
+      supportingDocs: [],
+    });
+    setErrors({});
+  };
+
   // Update handleSubmit to use auth_token instead of userToken
   const handleSubmit = async () => {
-    if (!validateForm()) {
-      Alert.alert('Error', 'Please fill all required fields correctly');
-      return;
-    }
-  
-    setIsSubmitting(true);
-    
     try {
-      // Get saved details from AsyncStorage
-      const savedTravelDetailsStr = await AsyncStorage.getItem('savedTravelDetails');
-      const savedExpenseDetailsStr = await AsyncStorage.getItem('savedExpenseDetails');
-      
-      let savedTravelDetails = [];
-      let savedExpenseDetails = [];
+      setIsSubmitting(true);
+      console.log('Starting expense submission...');
 
-      try {
-        if (savedTravelDetailsStr) {
-          savedTravelDetails = JSON.parse(savedTravelDetailsStr);
-        }
-        if (savedExpenseDetailsStr) {
-          savedExpenseDetails = JSON.parse(savedExpenseDetailsStr);
-        }
-      } catch (error) {
-        console.error('Error parsing saved details:', error);
+      // Validate employee details first
+      if (!formData.employeeName || !formData.employeeNumber || !formData.department || !formData.designation) {
+        console.error('Missing employee details:', {
+          name: formData.employeeName,
+          number: formData.employeeNumber,
+          department: formData.department,
+          designation: formData.designation
+        });
+        Alert.alert('Error', 'Employee details are missing. Please try refreshing the page.');
+        return;
       }
 
-      // Create current travel detail if fields are filled
-      const currentTravelDetail = formData.totalKilometers.trim() !== '' ? {
-        vehicleType: formData.vehicleType,
-        vehicleNumber: formData.vehicleNumber,
-        totalKilometers: parseFloat(formData.totalKilometers),
-        startDateTime: formData.startDateTime,
-        endDateTime: formData.endDateTime,
-        routeTaken: formData.routeTaken
-      } : null;
+      // Create form data for file upload
+      const formDataToSend = new FormData();
 
-      // Create current expense detail if fields are filled
-      const currentExpenseDetail = hasCurrentExpenseDetails() ? {
-        lodgingExpenses: parseFloat(formData.lodgingExpenses) || 0,
-        dailyAllowance: parseFloat(formData.dailyAllowance) || 0,
-        diesel: parseFloat(formData.diesel) || 0,
-        tollCharges: parseFloat(formData.tollCharges) || 0,
-        otherExpenses: parseFloat(formData.otherExpenses) || 0
-      } : null;
-
-      // Combine all travel details
-      const allTravelDetails = [
-        ...savedTravelDetails,
-        ...(currentTravelDetail ? [currentTravelDetail] : [])
-      ];
-
-      // Combine all expense details
-      const allExpenseDetails = [
-        ...savedExpenseDetails,
-        ...(currentExpenseDetail ? [currentExpenseDetail] : [])
-      ];
-
-      // Calculate total amounts from all details
-      const totalLodgingExpenses = allExpenseDetails.reduce((sum, detail) => 
-        sum + (parseFloat(detail.lodgingExpenses) || 0), 0);
-      const totalDailyAllowance = allExpenseDetails.reduce((sum, detail) => 
-        sum + (parseFloat(detail.dailyAllowance) || 0), 0);
-      const totalDiesel = allExpenseDetails.reduce((sum, detail) => 
-        sum + (parseFloat(detail.diesel) || 0), 0);
-      const totalTollCharges = allExpenseDetails.reduce((sum, detail) => 
-        sum + (parseFloat(detail.tollCharges) || 0), 0);
-      const totalOtherExpenses = allExpenseDetails.reduce((sum, detail) => 
-        sum + (parseFloat(detail.otherExpenses) || 0), 0);
-
-      const totalAmount = totalLodgingExpenses + totalDailyAllowance + 
-        totalDiesel + totalTollCharges + totalOtherExpenses;
-      
-      const advanceTaken = parseFloat(formData.advanceTaken) || 0;
-      const amountPayable = totalAmount - advanceTaken;
-
-      // Prepare expense data
-      const expenseData = {
+      // Log employee details before sending
+      console.log('Employee details being sent:', {
         employeeName: formData.employeeName,
         employeeNumber: formData.employeeNumber,
         department: formData.department,
-        designation: formData.designation,
-        location: formData.location,
-        date: formData.date,
-        travelDetails: allTravelDetails,
-        expenseDetails: allExpenseDetails,
-        totalAmount,
-        advanceTaken,
-        amountPayable
-      };
-
-      // Create FormData instance
-      const formDataToSend = new FormData();
-      
-      // Append expense data fields individually
-      Object.entries(expenseData).forEach(([key, value]) => {
-        if (key === 'travelDetails' || key === 'expenseDetails') {
-          formDataToSend.append(key, JSON.stringify(value));
-        } else {
-          formDataToSend.append(key, value?.toString() || '');
-        }
+        designation: formData.designation
       });
 
-      // Append files if any
-      if (formData.supportingDocs && formData.supportingDocs.length > 0) {
-        formData.supportingDocs.forEach((file, index) => {
-          const fileToUpload = {
-            uri: file.uri,
-            type: file.type || 'image/jpeg',
-            name: file.name || `file${index}.jpg`
-          };
-          formDataToSend.append('supportingDocs', fileToUpload as any);
-        });
+      // Add saved details from AsyncStorage
+      formDataToSend.append('savedTravelDetails', JSON.stringify(savedTravelDetails));
+      formDataToSend.append('savedExpenseDetails', JSON.stringify(savedExpenseDetails));
 
-        console.log('Files being uploaded:', formData.supportingDocs);
+      // Add all the expense details
+      formDataToSend.append('employeeName', formData.employeeName);
+      formDataToSend.append('employeeNumber', formData.employeeNumber);
+      formDataToSend.append('department', formData.department);
+      formDataToSend.append('designation', formData.designation);
+      formDataToSend.append('location', formData.location);
+      formDataToSend.append('date', formData.date.toISOString());
+      formDataToSend.append('vehicleType', formData.vehicleType);
+      formDataToSend.append('vehicleNumber', formData.vehicleNumber);
+      formDataToSend.append('totalKilometers', formData.totalKilometers);
+      formDataToSend.append('startDateTime', formData.startDateTime.toISOString());
+      formDataToSend.append('endDateTime', formData.endDateTime.toISOString());
+      formDataToSend.append('routeTaken', formData.routeTaken);
+      formDataToSend.append('lodgingExpenses', formData.lodgingExpenses);
+      formDataToSend.append('dailyAllowance', formData.dailyAllowance);
+      formDataToSend.append('diesel', formData.diesel);
+      formDataToSend.append('tollCharges', formData.tollCharges);
+      formDataToSend.append('otherExpenses', formData.otherExpenses);
+      formDataToSend.append('advanceTaken', formData.advanceTaken);
+      formDataToSend.append('totalAmount', totalExpenses.toString());
+      formDataToSend.append('amountPayable', amountPayable.toString());
+
+      // Add supporting documents
+      formData.supportingDocs.forEach((doc, index) => {
+        console.log('Appending document:', {
+          name: doc.name,
+          type: doc.type,
+          uri: doc.uri
+        });
+        formDataToSend.append('documents', {
+          uri: doc.uri,
+          type: doc.type,
+          name: doc.name
+        } as any);
+      });
+
+      // Log the complete FormData
+      for (let [key, value] of formDataToSend.entries()) {
+        console.log(`${key}: ${value}`);
       }
 
-      console.log('Submitting expense data:', expenseData);
-      
       const response = await axios.post(
-        `${EXPO_PUBLIC_API_URL}/api/expenses/submit`, 
+        `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/submit`,
         formDataToSend,
         {
           headers: {
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'multipart/form-data',
-            Accept: 'application/json',
           },
-          transformRequest: (data, headers) => {
-            return data; // Don't transform the data
-          },
+          timeout: 30000,
         }
       );
 
-      // Clear saved data and show success message
-      await AsyncStorage.removeItem('savedTravelDetails');
-      await AsyncStorage.removeItem('savedExpenseDetails');
+      console.log('Submission response:', response.data);
+
+      // Clear AsyncStorage data after successful submission
+      await Promise.all([
+        AsyncStorage.removeItem('savedTravelDetails'),
+        AsyncStorage.removeItem('savedExpenseDetails')
+      ]);
+
+      // Clear the state as well
       setSavedTravelDetails([]);
       setSavedExpenseDetails([]);
 
@@ -448,28 +435,26 @@ export default function EmployeeExpenses() {
         [
           {
             text: 'OK',
-            onPress: () => router.replace('/(dashboard)/employee/employee')
-          }
+            onPress: () => {
+              resetForm();
+              router.back();
+            },
+          },
         ]
       );
-
     } catch (error) {
-      console.error('Submission error:', error);
-      
-      if (axios.isAxiosError(error)) {
-        console.error('Axios error details:', {
-          status: error.response?.status,
-          data: error.response?.data,
-          message: error.message
-        });
+      console.error('Expense submission error:', {
+        error,
+        response: axios.isAxiosError(error) ? error.response?.data : null,
+        status: axios.isAxiosError(error) ? error.response?.status : null
+      });
 
-        Alert.alert(
-          'Error',
-          error.response?.data?.error || 'Failed to submit expense'
-        );
-      } else {
-        Alert.alert('Error', 'An unexpected error occurred');
-      }
+      Alert.alert(
+        'Error',
+        axios.isAxiosError(error)
+          ? error.response?.data?.details || 'Failed to submit expense claim'
+          : 'Failed to submit expense claim'
+      );
     } finally {
       setIsSubmitting(false);
     }
