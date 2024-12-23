@@ -28,11 +28,11 @@ export default function GroupAdminDashboard() {
             description: 'Create new employee account'
         },
         {
-            title: 'Bulk Upload',
-            icon: 'cloud-upload-outline',
+            title: 'Expense Management',
+            icon: 'receipt-outline',
             color: '#10B981',
-            route: '/(dashboard)/Group-Admin/employee-management/bulk',
-            description: 'Upload multiple employees via CSV'
+            route: '/(dashboard)/Group-Admin/expense-management',
+            description: 'Manage employee expenses'
         },
         {
             title: 'Task Management',

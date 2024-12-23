@@ -352,9 +352,16 @@ export default function EmployeeDashboard() {
                     />
                   </View>
                   <View>
-                    <Text style={[styles.statusLabel, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
-                      Attendance
-                    </Text>
+                    <View style={styles.attendanceHeader}>
+                      <Text style={[styles.statusLabel, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
+                        Attendance
+                      </Text>
+                      {attendanceStatus === 'Present' && (
+                        <View style={styles.liveIndicator}>
+                          <Text style={styles.liveText}>LIVE <Ionicons name="flash-outline" size={8} color={theme === 'dark' ? "#10B981" : "#FFFFFF" } /></Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={[styles.statusValue, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
                       {attendanceStatus}
                     </Text>
@@ -792,5 +799,21 @@ const styles = StyleSheet.create({
   },
   taskCountText: {
     fontSize: 14,
+  },
+  attendanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  liveIndicator: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  liveText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '600',
   },
 });

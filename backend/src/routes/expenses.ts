@@ -3,6 +3,7 @@ import { pool } from '../config/database';
 import { verifyToken } from '../middleware/auth';
 import { CustomRequest } from '../types';
 import multer from 'multer';
+import { PoolClient } from 'pg';
 
 const router = express.Router();
 
@@ -21,532 +22,542 @@ const upload = multer({
   }
 });
 
-// Add endpoint to get file
-router.get('/documents/:id', verifyToken, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    // First check if user has access to this document
-    const docResult = await client.query(
-      `SELECT d.*, e.user_id, e.company_id 
-       FROM expense_documents d
-       JOIN expenses e ON d.expense_id = e.id
-       WHERE d.id = $1`,
-      [req.params.id]
-    );
-
-    if (!docResult.rows.length) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-
-    const doc = docResult.rows[0];
-
-    // Check if user has access (employee, group admin, or management)
-    if (req.user?.role === 'employee' && doc.user_id !== req.user.id) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    if (req.user?.role === 'group-admin') {
-      const hasAccess = await client.query(
-        'SELECT 1 FROM users WHERE id = $1 AND company_id = $2',
-        [req.user.id, doc.company_id]
-      );
-      if (!hasAccess.rows.length) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
-    }
-
-    // Set response headers
-    res.setHeader('Content-Type', doc.file_type);
-    res.setHeader('Content-Disposition', `attachment; filename="${doc.file_name}"`);
-    
-    // Send file data
-    res.send(doc.file_data);
-
-  } catch (error) {
-    console.error('Error getting document:', error);
-    res.status(500).json({ error: 'Failed to get document' });
-  } finally {
-    client.release();
-  }
-});
-
-// Direct expense submission route - NO AUTH REQUIRED
-router.post('/submit', upload.array('supportingDocs', 5), async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    console.log('Files received:', req.files ? req.files.length : 0);
-    if (req.files && Array.isArray(req.files)) {
-      console.log('File details:', req.files.map(f => ({
-        name: f.originalname,
-        type: f.mimetype,
-        size: f.size,
-        buffer: f.buffer ? `${f.buffer.length} bytes` : 'Missing'
-      })));
-    }
-
-    const { 
-      employeeName, 
-      employeeNumber, 
-      department, 
-      designation,
-      location,
-      date,
-      totalAmount,
-      amountPayable,
-      advanceTaken
-    } = req.body;
-
-    // Parse travel and expense details
-    const travelDetails = JSON.parse(req.body.travelDetails || '[]');
-    const expenseDetails = JSON.parse(req.body.expenseDetails || '[]');
-
-    console.log('Received expense submission:', {
-      employeeName,
-      employeeNumber,
-      department,
-      designation,
-      location,
-      date,
-      totalAmount,
-      amountPayable,
-      files: req.files?.length,
-      travelDetailsCount: travelDetails.length,
-      expenseDetailsCount: expenseDetails.length
-    });
-
-    // Basic validation
-    if (!employeeName || !employeeNumber || !department || !designation) {
-      console.log('Missing required fields:', { employeeName, employeeNumber, department, designation });
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    // First verify the employee exists
-    console.log('Verifying employee:', employeeNumber);
-    const employeeResult = await client.query(
-      'SELECT id, company_id FROM users WHERE employee_number = $1 AND role = $2',
-      [employeeNumber, 'employee']
-    );
-
-    if (!employeeResult.rows.length) {
-      console.log('Employee not found:', employeeNumber);
-      return res.status(404).json({ error: 'Employee not found' });
-    }
-
-    const userId = employeeResult.rows[0].id;
-    const companyId = employeeResult.rows[0].company_id;
-
-    // Start transaction
-    await client.query('BEGIN');
-
-    try {
-      const insertedExpenseIds = [];
-
-      // Function to calculate total amount for a single expense entry
-      const calculateExpenseTotal = (expenseDetail: any) => {
-        return (
-          parseFloat(expenseDetail.lodgingExpenses || '0') +
-          parseFloat(expenseDetail.dailyAllowance || '0') +
-          parseFloat(expenseDetail.diesel || '0') +
-          parseFloat(expenseDetail.tollCharges || '0') +
-          parseFloat(expenseDetail.otherExpenses || '0')
-        );
-      };
-
-      // Handle each travel and expense detail pair
-      const totalEntries = Math.max(travelDetails.length, expenseDetails.length);
-      
-      for (let i = 0; i < totalEntries; i++) {
-        const travelDetail = travelDetails[i] || {};
-        const expenseDetail = expenseDetails[i] || {};
-        
-        // Calculate individual expense total
-        const entryTotal = calculateExpenseTotal(expenseDetail);
-        const entryAdvanceTaken = i === 0 ? parseFloat(advanceTaken) || 0 : 0; // Only apply advance to first entry
-        const entryAmountPayable = entryTotal - entryAdvanceTaken;
-
-        const expenseResult = await client.query(
-          `INSERT INTO expenses (
-            user_id,
-            employee_name,
-            employee_number,
-            department,
-            designation,
-            location,
-            date,
-            vehicle_type,
-            vehicle_number,
-            total_kilometers,
-            start_time,
-            end_time,
-            route_taken,
-            lodging_expenses,
-            daily_allowance,
-            diesel,
-            toll_charges,
-            other_expenses,
-            total_amount,
-            amount_payable,
-            advance_taken,
-            status,
-            company_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
-          RETURNING id`,
-          [
-            userId,
-            employeeName,
-            employeeNumber,
-            department,
-            designation,
-            location,
-            new Date(date),
-            travelDetail.vehicleType || null,
-            travelDetail.vehicleNumber || null,
-            parseFloat(travelDetail.totalKilometers) || null,
-            travelDetail.startDateTime ? new Date(travelDetail.startDateTime) : null,
-            travelDetail.endDateTime ? new Date(travelDetail.endDateTime) : null,
-            travelDetail.routeTaken || null,
-            parseFloat(expenseDetail.lodgingExpenses) || 0,
-            parseFloat(expenseDetail.dailyAllowance) || 0,
-            parseFloat(expenseDetail.diesel) || 0,
-            parseFloat(expenseDetail.tollCharges) || 0,
-            parseFloat(expenseDetail.otherExpenses) || 0,
-            entryTotal,
-            entryAmountPayable,
-            entryAdvanceTaken,
-            'pending',
-            companyId
-          ]
-        );
-
-        insertedExpenseIds.push(expenseResult.rows[0].id);
-      }
-
-      // Save files if present (associate with the first expense entry)
-      if (req.files && Array.isArray(req.files) && req.files.length > 0 && insertedExpenseIds.length > 0) {
-        console.log('Saving files to database...');
-        for (const file of req.files) {
-          try {
-            const result = await client.query(
-              `INSERT INTO expense_documents (
-                expense_id,
-                file_name,
-                file_type,
-                file_size,
-                file_data
-              ) VALUES ($1, $2, $3, $4, $5)
-              RETURNING id`,
-              [
-                insertedExpenseIds[0], // Associate with first expense
-                file.originalname,
-                file.mimetype,
-                file.size,
-                file.buffer
-              ]
-            );
-            console.log(`File ${file.originalname} saved with ID:`, result.rows[0].id);
-          } catch (err) {
-            console.error('Error saving file:', file.originalname, err);
-            throw err;
-          }
-        }
-      }
-
-      // Commit transaction
-      await client.query('COMMIT');
-      console.log('Transaction committed successfully');
-
-      res.status(201).json({
-        message: 'Expenses submitted successfully',
-        expenseIds: insertedExpenseIds
-      });
-
-    } catch (err) {
-      // Rollback transaction on error
-      await client.query('ROLLBACK');
-      console.error('Database error during transaction:', err);
-      throw err;
-    }
-
-  } catch (err: any) {
-    console.error('Server error details:', {
-      name: err?.name || 'Unknown',
-      message: err?.message || 'Unknown error occurred',
-      stack: err?.stack,
-      code: err?.code,
-      detail: err?.detail,
-      table: err?.table,
-      constraint: err?.constraint
-    });
-    
-    res.status(500).json({ 
-      error: 'Failed to submit expense',
-      details: err?.message || 'Unknown error occurred'
-    });
-  } finally {
-    client.release();
-  }
-});
-
-// Middleware to check expense submission access
-const checkExpenseAccess = async (req: CustomRequest, res: Response, next: NextFunction) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
-  const client = await pool.connect();
-  try {
-    if (req.user.role !== 'employee') {
-      return res.status(403).json({ error: 'Only employees can submit expenses' });
-    }
-
-    const result = await client.query(
-      `SELECT 
-        u.can_submit_expenses_anytime,
-        u.shift_status,
-        c.status as company_status
-      FROM users u
-      JOIN users ga ON u.group_admin_id = ga.id
-      JOIN companies c ON ga.company_id = c.id
-      WHERE u.id = $1`,
-      [req.user.id]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: 'Employee not found' });
-    }
-
-    const { can_submit_expenses_anytime, shift_status, company_status } = result.rows[0];
-
-    if (company_status !== 'active') {
-      return res.status(403).json({ 
-        error: 'Access denied',
-        details: 'Company is not active. Please contact your administrator.'
-      });
-    }
-
-    if (!can_submit_expenses_anytime && shift_status !== 'active') {
-      return res.status(403).json({ 
-        error: 'Access denied',
-        details: 'You can only submit expenses during active shifts'
-      });
-    }
-
-    next();
-  } catch (error) {
-    console.error('Permission check error:', error);
-    res.status(500).json({ error: 'Failed to verify permissions' });
-  } finally {
-    client.release();
-  }
+// Add this function at the top of the file
+const createNotification = async (client: PoolClient, userId: number, title: string, message: string, type: string) => {
+  await client.query(
+    `INSERT INTO notifications (user_id, title, message, type) 
+     VALUES ($1, $2, $3, $4)`,
+    [userId, title, message, type]
+  );
 };
 
-// Apply middleware to expense routes
-router.use(verifyToken, checkExpenseAccess);
-
-// Submit expense
-router.post('/', async (req: CustomRequest, res: Response) => {
+// Group Admin routes should come first
+router.get('/group-admin/expenses', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
-  
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'User not authenticated' });
-    }
-
-    const result = await client.query(
-      `INSERT INTO expenses (
-        user_id, employee_name, employee_number, department, designation,
-        location, date, total_amount, amount_payable
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *`,
-      [
-        req.user.id,
-        req.body.employeeName,
-        req.body.employeeNumber,
-        req.body.department,
-        req.body.designation,
-        req.body.location,
-        req.body.date,
-        req.body.totalAmount,
-        req.body.amountPayable
-      ]
-    );
-
-    res.status(201).json({
-      message: 'Expense submitted successfully',
-      expense: result.rows[0]
+    console.log('Accessing group-admin expenses route with user:', {
+      id: req.user?.id,
+      role: req.user?.role
     });
-  } catch (error) {
-    console.error('Server error:', error);
-    res.status(500).json({ error: 'Failed to submit expense' });
-  } finally {
-    client.release();
-  }
-});
 
-// Get expenses for group admin approval
-router.get('/group-admin/pending', async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    if (req.user?.role !== 'group-admin') {
-      return res.status(403).json({ error: 'Access denied' });
+    if (!req.user) {
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        details: 'No user found in request'
+      });
     }
 
-    const result = await client.query(
-      `SELECT e.*, u.name as employee_name, u.employee_number
-       FROM expenses e
-       JOIN users u ON e.user_id = u.id
-       WHERE u.group_admin_id = $1
-       ORDER BY e.created_at DESC`,
-      [req.user.id]
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching expenses:', error);
-    res.status(500).json({ error: 'Failed to fetch expenses' });
-  } finally {
-    client.release();
-  }
-});
-
-// Get expenses for management approval
-router.get('/management/pending', async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    if (req.user?.role !== 'management') {
-      return res.status(403).json({ error: 'Access denied' });
+    if (req.user.role !== 'group-admin') {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        details: `Only group admins can access this resource. Your role is: ${req.user.role}`
+      });
     }
 
-    const result = await client.query(
-      `SELECT e.*, 
-        u.name as employee_name, 
+    const result = await client.query(`
+      SELECT 
+        e.id,
+        e.date,
+        CAST(e.total_amount AS FLOAT) as total_amount,
+        CAST(e.amount_payable AS FLOAT) as amount_payable,
+        e.status,
+        CASE 
+          WHEN e.status = 'approved' THEN true
+          WHEN e.status = 'rejected' THEN false
+          ELSE null
+        END as group_admin_approved,
+        false as management_approved,
+        u.name as employee_name,
         u.employee_number,
-        ga.name as group_admin_name
-       FROM expenses e
-       JOIN users u ON e.user_id = u.id
-       JOIN users ga ON u.group_admin_id = ga.id
-       WHERE ga.company_id = (
-         SELECT company_id FROM users WHERE id = $1
-       )
-       AND e.group_admin_approved = true
-       AND e.management_approved IS NULL
-       ORDER BY e.created_at DESC`,
+        u.department
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE u.group_admin_id = $1
+      ORDER BY e.created_at DESC`,
       [req.user.id]
     );
 
+    console.log('Query results:', {
+      rowCount: result.rowCount,
+      firstRow: result.rows[0]
+    });
+
     res.json(result.rows);
   } catch (error) {
-    console.error('Error fetching expenses:', error);
-    res.status(500).json({ error: 'Failed to fetch expenses' });
+    console.error('Error in group-admin expenses:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch expenses',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
   } finally {
     client.release();
   }
 });
 
-// Approve expense by group admin
-router.post('/:id/group-admin/approve', async (req: CustomRequest, res: Response) => {
+// Group Admin approval route
+router.post('/group-admin/:id/approve', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+
     if (req.user?.role !== 'group-admin') {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     const { id } = req.params;
-    const { approved, comments } = req.body;
+    const { approved, comments = '' } = req.body;
 
+    // First get the expense details including user_id
+    const expenseResult = await client.query(
+      `SELECT e.*, u.name as employee_name 
+       FROM expenses e 
+       JOIN users u ON e.user_id = u.id 
+       WHERE e.id = $1`,
+      [id]
+    );
+
+    if (expenseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Expense not found' });
+    }
+
+    const expense = expenseResult.rows[0];
+
+    // Update the expense status
     const result = await client.query(
       `UPDATE expenses 
-       SET group_admin_approved = $1,
-           group_admin_comments = $2,
-           group_admin_action_date = CURRENT_TIMESTAMP
+       SET status = $1,
+           comments = $2,
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = $3 AND EXISTS (
          SELECT 1 FROM users 
          WHERE id = expenses.user_id 
          AND group_admin_id = $4
        )
-       RETURNING *`,
-      [approved, comments, id, req.user.id]
+      RETURNING *`,
+      [approved ? 'approved' : 'rejected', comments || null, id, req.user.id]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Expense not found or unauthorized' });
+      throw new Error('Failed to update expense');
     }
 
+    // Create notification for the employee
+    const notificationTitle = approved ? 'Expense Approved' : 'Expense Rejected';
+    const notificationMessage = approved
+      ? `Your expense claim of ₹${expense.total_amount} has been approved.`
+      : `Your expense claim of ₹${expense.total_amount} has been rejected. Reason: ${comments}`;
+
+    await createNotification(
+      client,
+      expense.user_id,
+      notificationTitle,
+      notificationMessage,
+      approved ? 'approval' : 'rejection'
+    );
+
+    await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error approving expense:', error);
-    res.status(500).json({ error: 'Failed to approve expense' });
+    await client.query('ROLLBACK');
+    console.error('Error in expense approval:', error);
+    res.status(500).json({ 
+      error: 'Failed to process expense',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
   } finally {
     client.release();
   }
 });
 
-// Approve expense by management
-router.post('/:id/management/approve', async (req: CustomRequest, res: Response) => {
+// Group Admin report routes
+router.get('/group-admin/reports/expenses/summary', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    if (req.user?.role !== 'management') {
+    if (req.user?.role !== 'group-admin') {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { id } = req.params;
-    const { approved, comments } = req.body;
-
-    const result = await client.query(
-      `UPDATE expenses 
-       SET management_approved = $1,
-           management_comments = $2,
-           management_action_date = CURRENT_TIMESTAMP,
-           status = CASE WHEN $1 = true THEN 'approved' ELSE 'rejected' END
-       WHERE id = $3 AND group_admin_approved = true
-       RETURNING *`,
-      [approved, comments, id]
+    const result = await client.query(`
+      WITH employee_expenses AS (
+        SELECT e.*
+       FROM expenses e
+       JOIN users u ON e.user_id = u.id
+       WHERE u.group_admin_id = $1
+      )
+      SELECT 
+        CAST(COALESCE(SUM(total_amount), 0) AS FLOAT) as total_amount,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_count,
+        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_count
+      FROM employee_expenses`,
+      [req.user.id]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Expense not found or not approved by group admin' });
-    }
 
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error approving expense:', error);
-    res.status(500).json({ error: 'Failed to approve expense' });
+    console.error('Error fetching expense summary:', error);
+    res.status(500).json({ error: 'Failed to fetch expense summary' });
   } finally {
     client.release();
   }
 });
 
-// Get expense details
+router.get('/group-admin/reports/expenses/by-employee', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const result = await client.query(`
+      SELECT 
+        u.name as employee_name, 
+        CAST(COALESCE(SUM(e.total_amount), 0) AS FLOAT) as total_expenses,
+        COUNT(CASE WHEN e.status = 'approved' THEN 1 END) as approved_count,
+        COUNT(CASE WHEN e.status = 'rejected' THEN 1 END) as rejected_count
+      FROM users u
+      LEFT JOIN expenses e ON e.user_id = u.id
+      WHERE u.group_admin_id = $1
+      AND u.role = 'employee'
+      GROUP BY u.id, u.name
+      ORDER BY total_expenses DESC`,
+      [req.user.id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching employee expense report:', error);
+    res.status(500).json({ error: 'Failed to fetch employee expense report' });
+  } finally {
+    client.release();
+  }
+});
+
+// Update the expense submission route
+router.post('/submit', verifyToken, upload.array('documents'), async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    console.log('Starting expense submission process...');
+    console.log('Request body:', req.body);
+
+    // Validate required employee details
+    const requiredFields = ['employeeName', 'employeeNumber', 'department', 'designation'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        details: `Missing fields: ${missingFields.join(', ')}`
+      });
+    }
+
+    if (req.user?.role !== 'employee') {
+      return res.status(403).json({ error: 'Only employees can submit expenses' });
+    }
+
+    await client.query('BEGIN');
+
+    // Get user's company_id
+    const userResult = await client.query(
+      'SELECT company_id FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    const company_id = userResult.rows[0]?.company_id;
+
+    // First, ensure user details are up to date
+    await client.query(`
+      UPDATE users 
+      SET 
+        name = $1,
+        employee_number = $2,
+        department = $3,
+        designation = $4
+      WHERE id = $5`,
+      [
+        req.body.employeeName,
+        req.body.employeeNumber,
+        req.body.department,
+        req.body.designation,
+        req.user.id
+      ]
+    );
+
+    // Get saved travel and expense details from request
+    const savedTravelDetails = JSON.parse(req.body.savedTravelDetails || '[]');
+    const savedExpenseDetails = JSON.parse(req.body.savedExpenseDetails || '[]');
+
+    // Combine current form data with saved details
+    const allTravelDetails = [
+      ...savedTravelDetails,
+      {
+        vehicleType: req.body.vehicleType,
+        vehicleNumber: req.body.vehicleNumber,
+        totalKilometers: req.body.totalKilometers,
+        startDateTime: req.body.startDateTime,
+        endDateTime: req.body.endDateTime,
+        routeTaken: req.body.routeTaken
+      }
+    ].filter(detail => detail.vehicleType && detail.totalKilometers); // Filter out empty entries
+
+    const allExpenseDetails = [
+      ...savedExpenseDetails,
+      {
+        lodgingExpenses: req.body.lodgingExpenses,
+        dailyAllowance: req.body.dailyAllowance,
+        diesel: req.body.diesel,
+        tollCharges: req.body.tollCharges,
+        otherExpenses: req.body.otherExpenses
+      }
+    ].filter(detail => 
+      detail.lodgingExpenses || 
+      detail.dailyAllowance || 
+      detail.diesel || 
+      detail.tollCharges || 
+      detail.otherExpenses
+    );
+
+    // Insert an expense record for each travel detail
+    for (const travelDetail of allTravelDetails) {
+      // Calculate total amount for this travel detail
+      const expenseDetail = allExpenseDetails[allTravelDetails.indexOf(travelDetail)] || {
+        lodgingExpenses: 0,
+        dailyAllowance: 0,
+        diesel: 0,
+        tollCharges: 0,
+        otherExpenses: 0
+      };
+
+      const totalAmount = 
+        Number(expenseDetail.lodgingExpenses || 0) +
+        Number(expenseDetail.dailyAllowance || 0) +
+        Number(expenseDetail.diesel || 0) +
+        Number(expenseDetail.tollCharges || 0) +
+        Number(expenseDetail.otherExpenses || 0);
+
+      const amountPayable = totalAmount - Number(req.body.advanceTaken || 0);
+
+      const expenseResult = await client.query(`
+        INSERT INTO expenses (
+          user_id, company_id, employee_name, employee_number, department, designation,
+          location, date, vehicle_type, vehicle_number, total_kilometers,
+          start_time, end_time, route_taken, lodging_expenses, daily_allowance,
+          diesel, toll_charges, other_expenses, advance_taken, total_amount,
+          amount_payable, status, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
+          $16, $17, $18, $19, $20, $21, $22, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        ) RETURNING id`,
+        [
+          req.user.id,
+          company_id,
+          req.body.employeeName,
+          req.body.employeeNumber,
+          req.body.department,
+          req.body.designation,
+          req.body.location,
+          new Date(req.body.date),
+          travelDetail.vehicleType,
+          travelDetail.vehicleNumber,
+          travelDetail.totalKilometers,
+          new Date(travelDetail.startDateTime),
+          new Date(travelDetail.endDateTime),
+          travelDetail.routeTaken,
+          expenseDetail.lodgingExpenses || 0,
+          expenseDetail.dailyAllowance || 0,
+          expenseDetail.diesel || 0,
+          expenseDetail.tollCharges || 0,
+          expenseDetail.otherExpenses || 0,
+          req.body.advanceTaken || 0,
+          totalAmount,
+          amountPayable
+        ]
+      );
+
+      const expenseId = expenseResult.rows[0].id;
+
+      // Handle document uploads if any
+      if (req.files && Array.isArray(req.files)) {
+        for (const file of req.files) {
+          await client.query(`
+            INSERT INTO expense_documents (
+              expense_id, file_name, file_type, file_size, file_data
+            ) VALUES ($1, $2, $3, $4, $5)`,
+            [
+              expenseId,
+              file.originalname,
+              file.mimetype,
+              file.size,
+              file.buffer
+            ]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    console.log('Expense submission completed successfully');
+    res.json({ message: 'Expense submitted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error in expense submission:', error);
+    res.status(500).json({
+      error: 'Failed to submit expense',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Finally add the generic routes
 router.get('/:id', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    const result = await client.query(
-      `SELECT e.*, 
+    console.log('Fetching expense details for ID:', req.params.id);
+
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Query to get expense details with employee information
+    const result = await client.query(`
+      SELECT 
+        e.*,
         u.name as employee_name,
         u.employee_number,
-        ga.name as group_admin_name,
-        ga.email as group_admin_email
-       FROM expenses e
-       JOIN users u ON e.user_id = u.id
-       LEFT JOIN users ga ON u.group_admin_id = ga.id
-       WHERE e.id = $1`,
-      [req.params.id]
+        u.department,
+        u.designation
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.id = $1
+      AND (
+        -- Allow access if user is the group admin of the employee
+        (
+          $2 = 'group-admin' 
+          AND u.group_admin_id = $3
+        )
+        -- Or if user is management
+        OR $2 = 'management'
+        -- Or if user is the employee who submitted the expense
+        OR (
+          $2 = 'employee' 
+          AND e.user_id = $3
+        )
+      )`,
+      [req.params.id, req.user.role, req.user.id]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Expense not found' });
+      return res.status(404).json({ 
+        error: 'Expense not found',
+        details: 'The expense does not exist or you do not have permission to view it'
+      });
     }
 
-    res.json(result.rows[0]);
+    // Convert numeric fields to ensure they're numbers
+    const expense = result.rows[0];
+    const numericFields = [
+      'total_amount',
+      'amount_payable',
+      'lodging_expenses',
+      'daily_allowance',
+      'diesel',
+      'toll_charges',
+      'other_expenses',
+      'advance_taken',
+      'total_kilometers'
+    ];
+
+    numericFields.forEach(field => {
+      if (expense[field]) {
+        expense[field] = parseFloat(expense[field]);
+      }
+    });
+
+    console.log('Expense details found:', {
+      id: expense.id,
+      employee: expense.employee_name,
+      status: expense.status
+    });
+
+    res.json(expense);
   } catch (error) {
     console.error('Error fetching expense details:', error);
-    res.status(500).json({ error: 'Failed to fetch expense details' });
+    res.status(500).json({ 
+      error: 'Failed to fetch expense details',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
   } finally {
     client.release();
   }
 });
 
-// Add other expense-related routes...
+// Add this route to fetch documents for an expense
+router.get('/:id/documents', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // First check if user has access to this expense
+    const accessCheck = await client.query(`
+      SELECT 1
+       FROM expenses e
+       JOIN users u ON e.user_id = u.id
+      WHERE e.id = $1
+      AND (
+        (
+          $2 = 'group-admin' 
+          AND u.group_admin_id = $3
+        )
+        OR $2 = 'management'
+        OR (
+          $2 = 'employee' 
+          AND e.user_id = $3
+        )
+      )`,
+      [req.params.id, req.user.role, req.user.id]
+    );
+
+    if (accessCheck.rows.length === 0) {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        details: 'You do not have permission to view these documents'
+      });
+    }
+
+    // Fetch documents
+    const result = await client.query(`
+      SELECT 
+        id,
+        file_name,
+        file_type,
+        file_size,
+        file_data,
+        created_at
+      FROM expense_documents
+      WHERE expense_id = $1
+      ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+
+    // Convert binary data to base64
+    const documents = result.rows.map(doc => ({
+      ...doc,
+      file_data: doc.file_data.toString('base64')
+    }));
+
+    res.json(documents);
+  } catch (error) {
+    console.error('Error fetching expense documents:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch documents',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  } finally {
+    client.release();
+  }
+});
 
 export default router;

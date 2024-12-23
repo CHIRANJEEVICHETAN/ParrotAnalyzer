@@ -221,8 +221,8 @@ router.get('/attendance/:month', verifyToken, async (req: CustomRequest, res: Re
           DATE(start_time) as date,
           json_agg(
             json_build_object(
-              'shift_start', start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
-              'shift_end', end_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata',
+              'shift_start', start_time,
+              'shift_end', end_time,
               'total_hours', EXTRACT(EPOCH FROM duration)/3600,
               'total_distance', total_kilometers,
               'total_expenses', total_expenses
@@ -259,6 +259,38 @@ router.get('/attendance/:month', verifyToken, async (req: CustomRequest, res: Re
       error: 'Failed to fetch attendance',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
+  } finally {
+    client.release();
+  }
+});
+
+// Add this new endpoint to get recent shifts
+router.get('/shifts/recent', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const result = await client.query(
+      `SELECT 
+        id,
+        start_time,
+        end_time,
+        EXTRACT(EPOCH FROM duration)/3600 as duration,
+        total_kilometers,
+        total_expenses
+      FROM employee_shifts
+      WHERE user_id = $1
+      ORDER BY start_time DESC
+      LIMIT 3`,
+      [req.user.id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching recent shifts:', error);
+    res.status(500).json({ error: 'Failed to fetch recent shifts' });
   } finally {
     client.release();
   }

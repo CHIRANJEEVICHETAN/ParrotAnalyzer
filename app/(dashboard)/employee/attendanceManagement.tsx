@@ -21,10 +21,11 @@ import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 interface ShiftDetail {
   shift_start: string;
-  shift_end: string;
+  shift_end: string | null;
   total_hours: number | string;
   total_distance: number | string;
   total_expenses: number | string;
+  date: string;
 }
 
 interface AttendanceData {
@@ -74,6 +75,7 @@ export default function AttendanceManagement() {
     fetchAttendanceData(format(selectedDate, 'yyyy-MM'));
   }, [selectedDate]);
 
+  // Update the fetchAttendanceData function
   const fetchAttendanceData = async (month: string) => {
     try {
       setIsLoading(true);
@@ -86,7 +88,16 @@ export default function AttendanceManagement() {
         }
       );
 
-      console.log('Attendance response:', response.data);
+      // Log raw data from database
+      console.log('Raw response data:', response.data);
+      response.data.forEach((record: AttendanceData) => {
+        record.shifts.forEach((shift, index) => {
+          console.log(`Raw shift ${index + 1} times:`, {
+            start: shift.shift_start,
+            end: shift.shift_end
+          });
+        });
+      });
 
       const data = response.data.reduce((acc: any, curr: AttendanceData) => {
         const localDate = format(new Date(curr.date), 'yyyy-MM-dd');
@@ -102,20 +113,24 @@ export default function AttendanceManagement() {
         return acc;
       }, {});
 
+      // Log processed data
       console.log('Processed attendance data:', data);
+      (Object.values(data) as AttendanceData[]).forEach((day) => {
+        day.shifts.forEach((shift, index) => {
+          console.log(`Processed shift ${index + 1} times:`, {
+            start: shift.shift_start,
+            end: shift.shift_end,
+            displayStart: shift.shift_start.substring(11, 19),
+            displayEnd: shift.shift_end ? shift.shift_end.substring(11, 19) : 'Ongoing'
+          });
+        });
+      });
+
       setAttendanceData(data);
       calculateMonthStats(response.data);
     } catch (error: any) {
-      console.error('Error fetching attendance:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
-      
-      Alert.alert(
-        'Error',
-        'Failed to fetch attendance data. Please try again later.'
-      );
+      console.error('Error fetching attendance:', error);
+      Alert.alert('Error', 'Failed to fetch attendance data. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -125,25 +140,25 @@ export default function AttendanceManagement() {
     const stats = data.reduce(
       (acc, curr) => ({
         totalDays: acc.totalDays + 1,
-        totalHours: acc.totalHours + parseFloat(curr.total_hours.toString() || '0'),
-        totalExpenses: acc.totalExpenses + parseFloat(curr.total_expenses.toString() || '0'),
+        totalHours: acc.totalHours + (parseFloat(curr.total_hours?.toString() || '0') || 0),
+        totalExpenses: acc.totalExpenses + (parseFloat(curr.total_expenses?.toString() || '0') || 0),
       }),
       { totalDays: 0, totalHours: 0, totalExpenses: 0 }
     );
 
     setMonthStats({
       ...stats,
-      avgHours: stats.totalDays ? stats.totalHours / stats.totalDays : 0,
+      avgHours: stats.totalDays ? (stats.totalHours / stats.totalDays) || 0 : 0,
     });
   };
 
   const getMarkedDates = () => {
     const marked: MarkedDates = {};
     const today = new Date();
-    
+
     const currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
     const lastDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
-    
+
     for (let date = currentMonth; date <= lastDay; date.setDate(date.getDate() + 1)) {
       const dateString = format(date, 'yyyy-MM-dd');
       const isAttendancePresent = attendanceData[dateString];
@@ -180,11 +195,12 @@ export default function AttendanceManagement() {
     }
   };
 
-  const parseNumber = (value: string | number): number => {
+  const parseNumber = (value: string | number | null): number => {
+    if (value === null || value === undefined) return 0;
     if (typeof value === 'string') {
-      return parseFloat(value);
+      return parseFloat(value) || 0;
     }
-    return value;
+    return value || 0;
   };
 
   return (
@@ -209,7 +225,7 @@ export default function AttendanceManagement() {
         </View>
       </LinearGradient>
 
-      <ScrollView 
+      <ScrollView
         className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
         showsVerticalScrollIndicator={false}
       >
@@ -224,25 +240,25 @@ export default function AttendanceManagement() {
             },
             {
               title: 'Total Hours',
-              value: monthStats.totalHours.toFixed(1),
+              value: monthStats.totalHours?.toFixed(1) || '0.0',
               icon: 'time-outline',
               color: 'bg-green-500',
             },
             {
               title: 'Avg Hours/Day',
-              value: monthStats.avgHours.toFixed(1),
+              value: monthStats.avgHours?.toFixed(1) || '0.0',
               icon: 'stats-chart-outline',
               color: 'bg-purple-500',
             },
             {
               title: 'Total Expenses',
-              value: `₹${monthStats.totalExpenses.toFixed(0)}`,
+              value: `₹${monthStats.totalExpenses?.toFixed(0) || '0'}`,
               icon: 'cash-outline',
               color: 'bg-orange-500',
             },
           ].map((stat, index) => (
             <View key={index} className="w-1/2 p-2">
-              <View 
+              <View
                 className={`p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
                 style={styles.statCard}
               >
@@ -261,7 +277,7 @@ export default function AttendanceManagement() {
         </View>
 
         {/* Calendar */}
-        <View 
+        <View
           className={`mx-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
           style={styles.calendarCard}
         >
@@ -286,7 +302,7 @@ export default function AttendanceManagement() {
 
         {/* Selected Day Details */}
         {attendanceData[format(selectedDate, 'yyyy-MM-dd')] ? (
-          <View 
+          <View
             className={`m-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
             style={styles.detailCard}
           >
@@ -313,7 +329,7 @@ export default function AttendanceManagement() {
                     Total Hours
                   </Text>
                   <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    {parseNumber(attendanceData[format(selectedDate, 'yyyy-MM-dd')].total_hours).toFixed(1)} hrs
+                    {parseNumber(attendanceData[format(selectedDate, 'yyyy-MM-dd')].total_hours)?.toFixed(1) || '0.0'} hrs
                   </Text>
                 </View>
                 <View className="w-1/2">
@@ -321,7 +337,7 @@ export default function AttendanceManagement() {
                     Total Distance
                   </Text>
                   <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    {parseNumber(attendanceData[format(selectedDate, 'yyyy-MM-dd')].total_distance).toFixed(1)} km
+                    {parseNumber(attendanceData[format(selectedDate, 'yyyy-MM-dd')].total_distance)?.toFixed(1) || '0.0'} km
                   </Text>
                 </View>
                 <View className="w-1/2">
@@ -329,7 +345,7 @@ export default function AttendanceManagement() {
                     Total Expenses
                   </Text>
                   <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    ₹{parseNumber(attendanceData[format(selectedDate, 'yyyy-MM-dd')].total_expenses).toFixed(2)}
+                    ₹{parseNumber(attendanceData[format(selectedDate, 'yyyy-MM-dd')].total_expenses)?.toFixed(2) || '0.00'}
                   </Text>
                 </View>
               </View>
@@ -339,44 +355,58 @@ export default function AttendanceManagement() {
             <Text className={`text-base font-semibold mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
               Shift Details
             </Text>
-            
+
             {attendanceData[format(selectedDate, 'yyyy-MM-dd')].shifts.map((shift, index) => (
-              <View 
+              <View
                 key={index}
-                className={`mb-4 p-4 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-50'} ${
-                  index === attendanceData[format(selectedDate, 'yyyy-MM-dd')].shifts.length - 1 ? 'mb-0' : ''
-                }`}
+                className={`mb-4 p-4 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-50'} ${index === attendanceData[format(selectedDate, 'yyyy-MM-dd')].shifts.length - 1 ? 'mb-0' : ''
+                  }`}
               >
                 <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                   Shift {index + 1}
                 </Text>
-                
+
                 <View className="space-y-3">
                   {[
                     {
                       label: 'Shift Time',
-                      value: `${format(new Date(shift.shift_start), 'hh:mm a')} - ${format(new Date(shift.shift_end), 'hh:mm a')}`,
-                      icon: 'time-outline'
+                      value: (() => {
+                        console.log('Rendering shift times:', {
+                          rawStart: shift.shift_start,
+                          rawEnd: shift.shift_end,
+                          displayStart: shift.shift_start.substring(11, 19),
+                          displayEnd: shift.shift_end ? shift.shift_end.substring(11, 19) : 'Ongoing'
+                        });
+                        return `${shift.shift_start.substring(11, 19)} - ${
+                          shift.shift_end ? shift.shift_end.substring(11, 19) : 'Ongoing'
+                        }`;
+                      })(),
+                      icon: 'time-outline' as keyof typeof Ionicons.glyphMap
                     },
                     {
                       label: 'Duration',
-                      value: `${parseNumber(shift.total_hours).toFixed(1)} hrs`,
-                      icon: 'hourglass-outline'
+                      value: `${parseNumber(shift.total_hours)?.toFixed(1) || '0.0'} hrs`,
+                      icon: 'hourglass-outline' as keyof typeof Ionicons.glyphMap
                     },
                     {
                       label: 'Distance',
-                      value: `${parseNumber(shift.total_distance).toFixed(1)} km`,
-                      icon: 'map-outline'
+                      value: `${parseNumber(shift.total_distance)?.toFixed(1) || '0.0'} km`,
+                      icon: 'map-outline' as keyof typeof Ionicons.glyphMap
                     },
                     {
                       label: 'Expenses',
-                      value: `₹${parseNumber(shift.total_expenses).toFixed(2)}`,
-                      icon: 'cash-outline'
+                      value: `₹${parseNumber(shift.total_expenses)?.toFixed(2) || '0.00'}`,
+                      icon: 'cash-outline' as keyof typeof Ionicons.glyphMap
                     }
                   ].map((detail, detailIndex) => (
                     <View key={detailIndex} className="flex-row items-center">
-                      <View className={`w-8 h-8 rounded-full items-center justify-center ${isDark ? 'bg-gray-600' : 'bg-gray-200'}`}>
-                        <Ionicons name={detail.icon as any} size={16} color={isDark ? '#60A5FA' : '#3B82F6'} />
+                      <View className={`w-8 h-8 rounded-full items-center justify-center ${isDark ? 'bg-gray-600' : 'bg-gray-200'
+                        }`}>
+                        <Ionicons
+                          name={detail.icon}
+                          size={16}
+                          color={isDark ? '#60A5FA' : '#3B82F6'}
+                        />
                       </View>
                       <View className="ml-3 flex-1">
                         <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -393,20 +423,19 @@ export default function AttendanceManagement() {
             ))}
           </View>
         ) : (
-          <View 
+          <View
             className={`m-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
             style={styles.detailCard}
           >
             <View className="items-center py-6">
-              <Ionicons 
-                name="calendar-outline" 
-                size={48} 
-                color={isDark ? '#4B5563' : '#9CA3AF'} 
+              <Ionicons
+                name="calendar-outline"
+                size={48}
+                color={isDark ? '#4B5563' : '#9CA3AF'}
               />
-              <Text 
-                className={`mt-4 text-center text-lg ${
-                  isDark ? 'text-gray-400' : 'text-gray-500'
-                }`}
+              <Text
+                className={`mt-4 text-center text-lg ${isDark ? 'text-gray-400' : 'text-gray-500'
+                  }`}
               >
                 No attendance record found for {format(selectedDate, 'MMMM d, yyyy')}
               </Text>
