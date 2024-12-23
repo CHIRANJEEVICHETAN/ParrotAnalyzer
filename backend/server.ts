@@ -81,5 +81,6 @@ initDB().then(() => {
   });
 }).catch(error => {
   console.error('Failed to initialize database:', error);
+  console.log('Server is not running');
   process.exit(1);
 });
