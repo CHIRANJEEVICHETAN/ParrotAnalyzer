@@ -1,5 +1,5 @@
 import express, { Response } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
 import { pool } from '../config/database';

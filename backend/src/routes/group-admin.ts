@@ -1,5 +1,5 @@
 import express, { Response } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { pool } from '../config/database';
 import { verifyToken } from '../middleware/auth';
 import { CustomRequest } from '../types';
