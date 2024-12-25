@@ -99,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           router.replace('/(dashboard)/super-admin/super-admin');
           break;
         default:
-          router.replace('/(dashboard)/employee/employee');
+          router.replace('/');
       }
     } catch (error: any) {
       console.error('Login error details:', {
