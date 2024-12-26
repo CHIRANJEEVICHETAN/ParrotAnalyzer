@@ -6,6 +6,15 @@ import AuthContext from '../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 
+interface SettingsItem {
+    icon: string;
+    label: string;
+    action: () => void;
+    showArrow?: boolean;
+    isSwitch?: boolean;
+    switchValue?: boolean;
+}
+
 export default function GroupAdminSettings() {
     const { theme, toggleTheme } = ThemeContext.useTheme();
     const { logout } = AuthContext.useAuth();
@@ -40,19 +49,19 @@ export default function GroupAdminSettings() {
                 {
                     icon: 'person-outline',
                     label: 'Profile Settings',
-                    action: () => router.push('/(dashboard)/group-admin/profile'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/ProfileSettings'),
                     showArrow: true
-                },
+                } as SettingsItem,
                 {
                     icon: 'notifications-outline',
                     label: 'Notifications',
-                    action: () => router.push('/(dashboard)/group-admin/notifications'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/Notifications'),
                     showArrow: true
                 },
                 {
                     icon: 'shield-outline',
                     label: 'Privacy & Security',
-                    action: () => router.push('/(dashboard)/group-admin/privacy'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/PrivacySecurity'),
                     showArrow: true
                 }
             ]
@@ -63,19 +72,19 @@ export default function GroupAdminSettings() {
                 {
                     icon: 'people-outline',
                     label: 'User Permissions',
-                    action: () => router.push('/(dashboard)/group-admin/permissions'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/UserPermissions'),
                     showArrow: true
                 },
                 {
                     icon: 'map-outline',
                     label: 'Tracking Settings',
-                    action: () => router.push('/(dashboard)/group-admin/tracking-settings'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/TrackingSettings'),
                     showArrow: true
                 },
                 {
                     icon: 'receipt-outline',
                     label: 'Expense Approval Rules',
-                    action: () => router.push('/(dashboard)/group-admin/expense-rules'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/ExpenseApprovalRules'),
                     showArrow: true
                 }
             ]
@@ -98,13 +107,13 @@ export default function GroupAdminSettings() {
                 {
                     icon: 'help-circle-outline',
                     label: 'Help & Support',
-                    action: () => router.push('/(dashboard)/group-admin/support'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/HelpSupport'),
                     showArrow: true
                 },
                 {
                     icon: 'information-circle-outline',
                     label: 'About',
-                    action: () => router.push('/(dashboard)/group-admin/about'),
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/About'),
                     showArrow: true
                 }
             ]

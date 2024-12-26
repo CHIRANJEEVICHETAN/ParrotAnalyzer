@@ -46,6 +46,7 @@ export default function EmployeeDashboard() {
   const [activeTaskType, setActiveTaskType] = useState('All Tasks');
   const [taskPriority, setTaskPriority] = useState('Medium');
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Add new state for quick actions
   const [quickActions] = useState([
@@ -240,6 +241,19 @@ export default function EmployeeDashboard() {
     fetchTasks();
   }, []);
 
+  // Add this function to handle refresh
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      await fetchTasks();
+    } catch (error) {
+      console.error('Error refreshing tasks:', error);
+      Alert.alert('Error', 'Failed to refresh tasks');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <View className="flex-1">
       <KeyboardAvoidingView 
@@ -396,6 +410,8 @@ export default function EmployeeDashboard() {
                 onUpdateStatus={updateTaskStatus}
                 activeTaskType={activeTaskType}
                 onChangeTaskType={setActiveTaskType}
+                onRefresh={handleRefresh}
+                isRefreshing={isRefreshing}
               />
             </View>
           </View>

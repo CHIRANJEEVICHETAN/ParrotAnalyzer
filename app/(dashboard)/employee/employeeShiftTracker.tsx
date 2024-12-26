@@ -11,6 +11,7 @@ import {
   Alert,
   InteractionManager,
   Platform,
+  StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -38,8 +39,7 @@ interface RecentShift {
   start_time: string;
   end_time: string | null;
   duration: string;
-  total_kilometers: number;
-  total_expenses: number;
+  date: string;
 }
 
 export default function EmployeeShiftTracker() {
@@ -51,6 +51,7 @@ export default function EmployeeShiftTracker() {
   // Animated values
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const rotateAnim = React.useRef(new Animated.Value(0)).current;
+  const spinValue = React.useRef(new Animated.Value(0)).current;
 
   // State
   const [isShiftActive, setIsShiftActive] = useState(false);
@@ -71,6 +72,7 @@ export default function EmployeeShiftTracker() {
     showCancel: false
   });
   const [recentShifts, setRecentShifts] = useState<RecentShift[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Load persistent state
   useEffect(() => {
@@ -380,6 +382,7 @@ export default function EmployeeShiftTracker() {
 
   const fetchRecentShifts = async () => {
     try {
+      setIsRefreshing(true);
       const response = await axios.get<RecentShift[]>(
         `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shifts/recent`,
         {
@@ -390,6 +393,7 @@ export default function EmployeeShiftTracker() {
       // Process and set the recent shifts
       const formattedShifts = response.data.map((shift: RecentShift) => ({
         ...shift,
+        date: format(new Date(shift.start_time), 'yyyy-MM-dd'),
         start_time: format(new Date(shift.start_time), 'hh:mm a'),
         end_time: shift.end_time ? format(new Date(shift.end_time), 'hh:mm a') : 'Ongoing',
         duration: shift.duration ? parseFloat(shift.duration).toFixed(1) : '0.0'
@@ -398,12 +402,37 @@ export default function EmployeeShiftTracker() {
       setRecentShifts(formattedShifts);
     } catch (error) {
       console.error('Error fetching recent shifts:', error);
+      Alert.alert('Error', 'Failed to fetch recent shifts');
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchRecentShifts();
   }, []);
+
+  // Add this effect to handle the refresh animation
+  React.useEffect(() => {
+    if (isRefreshing) {
+      Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.linear,
+          useNativeDriver: true
+        })
+      ).start();
+    } else {
+      spinValue.setValue(0);
+    }
+  }, [isRefreshing]);
+
+  // Add this with other interpolations
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
 
   return (
     <View className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
@@ -482,40 +511,86 @@ export default function EmployeeShiftTracker() {
 
         {/* Recent Shifts */}
         <View className="mt-4">
-          <Text className={`text-lg font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Recent Shifts
-          </Text>
+          <View className="flex-row justify-between items-center mb-4">
+            <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Recent Shifts
+            </Text>
+            <TouchableOpacity
+              onPress={fetchRecentShifts}
+              disabled={isRefreshing}
+              className={`p-2 rounded-full ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
+            >
+              <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                <Ionicons 
+                  name="refresh-outline"
+                  size={20} 
+                  color={isDark ? '#9CA3AF' : '#6B7280'}
+                />
+              </Animated.View>
+            </TouchableOpacity>
+          </View>
+
           {recentShifts.length > 0 ? (
             recentShifts.map((shift: RecentShift, index: number) => (
               <View 
                 key={index} 
                 className={`mb-3 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
-                style={styles.shiftCard}
+                style={[styles.shiftCard, { borderLeftWidth: 4, borderLeftColor: '#3B82F6' }]}
               >
-                <View className="flex-row justify-between items-center">
-                  <View>
-                    <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Shift Time
-                    </Text>
-                    <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      {shift.start_time} - {shift.end_time}
-                    </Text>
-                  </View>
-                  <View>
-                    <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Duration
-                    </Text>
-                    <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      {shift.duration} hrs
-                    </Text>
+                <View>
+                  <Text className={`text-sm mb-2 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                    {format(new Date(shift.date), 'EEEE, MMMM do, yyyy')}
+                  </Text>
+                  <View className="flex-row justify-between items-center">
+                    <View>
+                      <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Shift Time
+                      </Text>
+                      <View className="flex-row items-center">
+                        <Ionicons 
+                          name="time-outline" 
+                          size={16} 
+                          color={isDark ? '#9CA3AF' : '#6B7280'} 
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          {shift.start_time} - {shift.end_time}
+                        </Text>
+                      </View>
+                    </View>
+                    <View>
+                      <Text className={`text-sm text-right ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Duration
+                      </Text>
+                      <View className="flex-row items-center">
+                        <Ionicons 
+                          name="hourglass-outline" 
+                          size={16} 
+                          color={isDark ? '#9CA3AF' : '#6B7280'} 
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          {shift.duration} hrs
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                 </View>
               </View>
             ))
           ) : (
-            <Text className={`text-center py-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              No recent shifts found
-            </Text>
+            <View className={`p-8 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+              <View className="items-center">
+                <Ionicons 
+                  name="calendar-outline" 
+                  size={40} 
+                  color={isDark ? '#4B5563' : '#9CA3AF'} 
+                />
+                <Text className={`text-center mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  No recent shifts found
+                </Text>
+              </View>
+            </View>
           )}
         </View>
 
@@ -599,9 +674,9 @@ const styles = {
   },
   shiftCard: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: 3,
     elevation: 2,
   },
 };
