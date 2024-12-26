@@ -1,12 +1,12 @@
 import express, { Response } from 'express';
 import { pool } from '../config/database';
-import { verifyToken, requireGroupAdmin } from '../middleware/auth';
+import { verifyToken, adminMiddleware } from '../middleware/auth';
 import { CustomRequest } from '../types';
 
 const router = express.Router();
 
 // Group Admin: Create task
-router.post('/', verifyToken, requireGroupAdmin, async (req: CustomRequest, res: Response) => {
+router.post('/', verifyToken, adminMiddleware, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
     const { 
@@ -114,7 +114,7 @@ router.get('/employee', verifyToken, async (req: CustomRequest, res: Response) =
 });
 
 // Group Admin: Get all tasks
-router.get('/admin', verifyToken, requireGroupAdmin, async (req: CustomRequest, res: Response) => {
+router.get('/admin', verifyToken, adminMiddleware, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
     const result = await client.query(

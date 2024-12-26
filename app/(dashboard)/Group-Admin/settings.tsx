@@ -112,36 +112,37 @@ export default function GroupAdminSettings() {
     ];
 
     return (
-        <View className="flex-1" style={styles.container}>
-            {/* Enhanced Header with Gradient */}
-            <LinearGradient
-                colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                className={`pb-4`}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }}>
+            <StatusBar
+                backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
+                barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+            />
+
+            {/* Header */}
+            <View 
+                className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
+                style={styles.header}
             >
-                <View className="flex-row items-center justify-between px-6">
-                    <View className="flex-row items-center">
-                        <TouchableOpacity
-                            onPress={() => router.back()}
-                            className="mr-4 p-2 rounded-full"
-                            style={[
-                                styles.backButton,
-                                { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
-                            ]}
-                        >
-                            <Ionicons
-                                name="arrow-back"
-                                size={24}
-                                color={theme === 'dark' ? '#FFFFFF' : '#000000'}
-                            />
-                        </TouchableOpacity>
-                        <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}
-                              style={styles.headerTitle}>
+                <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+                    <TouchableOpacity
+                        onPress={() => router.back()}
+                        className={`p-2 rounded-full ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'}`}
+                        style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+                    >
+                        <Ionicons 
+                            name="arrow-back" 
+                            size={24} 
+                            color={theme === 'dark' ? '#FFFFFF' : '#111827'} 
+                        />
+                    </TouchableOpacity>
+                    <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
+                        <Text className={`text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                             Settings
                         </Text>
                     </View>
+                    <View style={{ width: 40 }} />
                 </View>
-            </LinearGradient>
+            </View>
 
             {/* Settings Content with Enhanced Styling */}
             <ScrollView 
@@ -266,10 +267,10 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     scrollView: {
-        bounces: true,
+        flex: 1,
     },
     section: {
-        marginBottom: 16,
+        marginBottom: 8,
     },
     sectionTitle: {
         letterSpacing: 0.5,

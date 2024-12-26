@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   TextInput,
   Alert,
   Platform,
+  ActivityIndicator,
+  StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -15,6 +17,9 @@ import ThemeContext from '../../context/ThemeContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import { format } from 'date-fns';
+import Modal from 'react-native-modal';
+import axios from 'axios';
+import AuthContext from '../../context/AuthContext';
 
 type LeaveType = 'casual' | 'sick' | 'annual' | 'other';
 
@@ -26,15 +31,9 @@ interface LeaveBalance {
 
 export default function EmployeeLeave() {
   const { theme } = ThemeContext.useTheme();
+  const { token } = AuthContext.useAuth();
   const router = useRouter();
   const isDark = theme === 'dark';
-
-  // Mock leave balance - replace with API data
-  const leaveBalance: LeaveBalance = {
-    casual: 10,
-    sick: 7,
-    annual: 14,
-  };
 
   // Form state
   const [formData, setFormData] = useState({
@@ -49,6 +48,42 @@ export default function EmployeeLeave() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateType, setDateType] = useState<'start' | 'end'>('start');
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance>({
+    casual: 0,
+    sick: 0,
+    annual: 0
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [contactNumber, setContactNumber] = useState('');
+
+  // Fetch leave balance
+  useEffect(() => {
+    fetchLeaveBalance();
+  }, []);
+
+  const fetchLeaveBalance = async () => {
+    try {
+      setIsLoading(true);
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/leave/balance`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      // Update the mapping to match backend field names
+      setLeaveBalance({
+        casual: response.data.casual_leave,
+        sick: response.data.sick_leave,
+        annual: response.data.annual_leave
+      });
+    } catch (error) {
+      console.error('Error fetching leave balance:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleDateSelect = (event: any, selectedDate?: Date) => {
     setShowDatePicker(false);
@@ -65,6 +100,13 @@ export default function EmployeeLeave() {
     setShowDatePicker(true);
   };
 
+  const validatePhoneNumber = (number: string) => {
+    // Remove any non-digit characters except the plus sign
+    const cleanNumber = number.replace(/[^\d+]/g, '');
+    // Check if it matches the format: +91 followed by 10 digits
+    return /^\+91\d{10}$/.test(cleanNumber);
+  };
+
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
 
@@ -76,8 +118,10 @@ export default function EmployeeLeave() {
       newErrors.reason = 'Please provide a reason';
     }
 
-    if (!formData.contactNumber.trim()) {
+    if (!formData.contactNumber) {
       newErrors.contactNumber = 'Please provide contact number';
+    } else if (!validatePhoneNumber(formData.contactNumber)) {
+      newErrors.contactNumber = 'Please enter a valid 10-digit number';
     }
 
     if (formData.endDate < formData.startDate) {
@@ -88,14 +132,23 @@ export default function EmployeeLeave() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (validateForm()) {
-      // Submit form logic here
-      Alert.alert(
-        'Success',
-        'Leave request submitted successfully',
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      try {
+        setIsSubmitting(true);
+        await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/leave/request`,
+          formData,
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+        setShowSuccessModal(true);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to submit leave request');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -106,19 +159,30 @@ export default function EmployeeLeave() {
         barStyle={isDark ? 'light-content' : 'dark-content'}
       />
 
-      {/* Header */}
-      <View className={`flex-row items-center justify-between p-4 ${isDark ? 'bg-gray-800' : 'bg-white'} border-b border-gray-200`}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons 
-            name="arrow-back" 
-            size={24} 
-            color={isDark ? '#FFFFFF' : '#111827'} 
-          />
-        </TouchableOpacity>
-        <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-          Request Leave
-        </Text>
-        <View style={{ width: 24 }} />
+      {/* Header - Updated to match profile page exactly */}
+      <View 
+        className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
+        style={styles.header}
+      >
+        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+          >
+            <Ionicons 
+              name="arrow-back" 
+              size={24} 
+              color={isDark ? '#FFFFFF' : '#111827'} 
+            />
+          </TouchableOpacity>
+          <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
+            <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Request Leave
+            </Text>
+          </View>
+          <View style={{ width: 40 }} />
+        </View>
       </View>
 
       <ScrollView className="flex-1 p-4">
@@ -127,32 +191,26 @@ export default function EmployeeLeave() {
           <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Leave Balance
           </Text>
-          <View className="flex-row justify-between">
-            <View className="items-center">
-              <Text className={`text-2xl font-bold ${isDark ? 'text-blue-400' : 'text-blue-500'}`}>
-                {leaveBalance.casual}
-              </Text>
-              <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Casual
-              </Text>
+          {isLoading ? (
+            <ActivityIndicator color={isDark ? '#60A5FA' : '#3B82F6'} />
+          ) : (
+            <View className="flex-row justify-between">
+              {[
+                { type: 'Casual', balance: leaveBalance.casual },
+                { type: 'Sick', balance: leaveBalance.sick },
+                { type: 'Annual', balance: leaveBalance.annual }
+              ].map((item) => (
+                <View key={item.type} className="items-center">
+                  <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {item.balance}
+                  </Text>
+                  <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {item.type}
+                  </Text>
+                </View>
+              ))}
             </View>
-            <View className="items-center">
-              <Text className={`text-2xl font-bold ${isDark ? 'text-blue-400' : 'text-blue-500'}`}>
-                {leaveBalance.sick}
-              </Text>
-              <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Sick
-              </Text>
-            </View>
-            <View className="items-center">
-              <Text className={`text-2xl font-bold ${isDark ? 'text-blue-400' : 'text-blue-500'}`}>
-                {leaveBalance.annual}
-              </Text>
-              <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Annual
-              </Text>
-            </View>
-          </View>
+          )}
         </View>
 
         {/* Leave Request Form */}
@@ -183,23 +241,34 @@ export default function EmployeeLeave() {
           {/* Date Selection */}
           <View className="mb-4">
             <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-              Date Range *
+              Leave Period *
             </Text>
-            <View className="flex-row space-x-4">
+            <View className="flex-row space-x-4 gap-3">
+              {/* Start Date */}
               <TouchableOpacity
                 onPress={() => showDatePickerModal('start')}
-                className={`flex-1 p-3 rounded-lg border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}
+                className={`flex-1 p-3 rounded-lg border ${
+                  isDark 
+                    ? 'border-gray-700 bg-gray-700' 
+                    : 'border-gray-200 bg-gray-50'
+                }`}
               >
                 <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                  {format(formData.startDate, 'MMM dd, yyyy')}
+                  {format(formData.startDate, 'dd/MM/yyyy')}
                 </Text>
               </TouchableOpacity>
+
+              {/* End Date */}
               <TouchableOpacity
                 onPress={() => showDatePickerModal('end')}
-                className={`flex-1 p-3 rounded-lg border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}
+                className={`flex-1 p-3 rounded-lg border ${
+                  isDark 
+                    ? 'border-gray-700 bg-gray-700' 
+                    : 'border-gray-200 bg-gray-50'
+                }`}
               >
                 <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                  {format(formData.endDate, 'MMM dd, yyyy')}
+                  {format(formData.endDate, 'dd/MM/yyyy')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -211,13 +280,13 @@ export default function EmployeeLeave() {
           {/* Reason */}
           <View className="mb-4">
             <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-              Reason *
+              Reason for Leave *
             </Text>
             <TextInput
-              multiline
-              numberOfLines={4}
               value={formData.reason}
               onChangeText={(text) => setFormData(prev => ({ ...prev, reason: text }))}
+              multiline
+              numberOfLines={4}
               className={`p-3 rounded-lg border ${
                 isDark 
                   ? 'border-gray-700 bg-gray-700 text-white' 
@@ -225,6 +294,7 @@ export default function EmployeeLeave() {
               }`}
               placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
               placeholder="Enter reason for leave"
+              textAlignVertical="top"
             />
             {errors.reason && (
               <Text className="text-red-500 text-sm mt-1">{errors.reason}</Text>
@@ -236,18 +306,39 @@ export default function EmployeeLeave() {
             <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
               Contact Number During Leave *
             </Text>
-            <TextInput
-              value={formData.contactNumber}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, contactNumber: text }))}
-              keyboardType="phone-pad"
-              className={`p-3 rounded-lg border ${
-                isDark 
-                  ? 'border-gray-700 bg-gray-700 text-white' 
-                  : 'border-gray-200 bg-gray-50 text-gray-900'
-              }`}
-              placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-              placeholder="Enter contact number"
-            />
+            <View className={`flex-row items-center p-3 rounded-lg border ${
+              isDark 
+                ? 'border-gray-700 bg-gray-700' 
+                : 'border-gray-200 bg-gray-50'
+            }`}>
+              <Text className={`${isDark ? 'text-white' : 'text-gray-900'} mr-2`}>
+                +91
+              </Text>
+              <TextInput
+                value={contactNumber}
+                onChangeText={(text) => {
+                  // Remove any non-digit characters
+                  const cleaned = text.replace(/\D/g, '');
+                  // Limit to 10 digits
+                  const truncated = cleaned.slice(0, 10);
+                  setContactNumber(truncated);
+                  // Update form data with complete number including prefix
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    contactNumber: truncated ? `+91${truncated}` : '' 
+                  }));
+                }}
+                keyboardType="phone-pad"
+                className={`flex-1 ${
+                  isDark 
+                    ? 'text-white' 
+                    : 'text-gray-900'
+                }`}
+                placeholder="Enter 10 digit number"
+                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                maxLength={10}
+              />
+            </View>
             {errors.contactNumber && (
               <Text className="text-red-500 text-sm mt-1">{errors.contactNumber}</Text>
             )}
@@ -256,11 +347,21 @@ export default function EmployeeLeave() {
           {/* Submit Button */}
           <TouchableOpacity
             onPress={handleSubmit}
-            className="bg-blue-500 rounded-lg py-4"
+            disabled={isSubmitting}
+            className={`bg-blue-500 rounded-lg py-4 ${isSubmitting ? 'opacity-70' : ''}`}
           >
-            <Text className="text-white text-center font-semibold">
-              Submit Request
-            </Text>
+            {isSubmitting ? (
+              <View className="flex-row items-center justify-center">
+                <ActivityIndicator color="white" size="small" style={{ marginRight: 8 }} />
+                <Text className="text-white font-semibold">
+                  Submitting...
+                </Text>
+              </View>
+            ) : (
+              <Text className="text-white text-center font-semibold">
+                Submit Request
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -274,6 +375,49 @@ export default function EmployeeLeave() {
           minimumDate={dateType === 'end' ? formData.startDate : new Date()}
         />
       )}
+
+      {/* Success Modal */}
+      <Modal
+        isVisible={showSuccessModal}
+        backdropOpacity={0.5}
+        onBackdropPress={() => setShowSuccessModal(false)}
+        style={{ margin: 0 }}
+      >
+        <View className={`m-4 p-6 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+          <View className="items-center">
+            <View className="w-16 h-16 rounded-full bg-green-100 items-center justify-center mb-4">
+              <Ionicons name="checkmark-circle" size={40} color="#10B981" />
+            </View>
+            <Text className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Leave Request Submitted
+            </Text>
+            <Text className={`text-center mb-6 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              Your leave request has been submitted successfully. You will be notified once it's reviewed.
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setShowSuccessModal(false);
+                router.back();
+              }}
+              className="bg-green-500 py-3 px-6 rounded-lg w-full"
+            >
+              <Text className="text-white text-center font-semibold">
+                Done
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  }
+});

@@ -222,9 +222,115 @@ export const initDB = async () => {
         date DATE NOT NULL,
         time TIME NOT NULL,
         location VARCHAR(255),
+        status VARCHAR(20) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    // Add status column if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'employee_schedule' 
+          AND column_name = 'status'
+        ) THEN
+          ALTER TABLE employee_schedule ADD COLUMN status VARCHAR(20) DEFAULT 'pending';
+        END IF;
+      END $$;
+    `);
+
+    // Add leave_balances table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS leave_balances (
+        id SERIAL PRIMARY KEY,
+        group_admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        casual_leave INTEGER DEFAULT 10,
+        sick_leave INTEGER DEFAULT 7,
+        annual_leave INTEGER DEFAULT 14,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_group_admin_id UNIQUE (group_admin_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS leave_requests (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        group_admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        leave_type VARCHAR(50) NOT NULL,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        reason TEXT NOT NULL,
+        contact_number VARCHAR(20) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        rejection_reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Add group_admin_id column to users table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'group_admin_id'
+        ) THEN
+          ALTER TABLE users ADD COLUMN group_admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+        END IF;
+      END $$;
+
+      -- Update existing employees to link them to their group admin
+      UPDATE users e
+      SET group_admin_id = ga.id
+      FROM users ga
+      WHERE e.role = 'employee' 
+      AND ga.role = 'group-admin'
+      AND e.company_id = ga.company_id
+      AND e.group_admin_id IS NULL;
+    `);
+
+    // Add expenses table with group_admin_id
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS expenses (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        group_admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(255),
+        description TEXT,
+        amount DECIMAL(10,2),
+        total_amount DECIMAL(10,2),
+        date DATE,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Add group_admin_id column if it doesn't exist
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'expenses' 
+          AND column_name = 'group_admin_id'
+        ) THEN
+          ALTER TABLE expenses ADD COLUMN group_admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+          
+          -- Update existing expenses with group_admin_id from the user's group_admin
+          UPDATE expenses e
+          SET group_admin_id = u.group_admin_id
+          FROM users u
+          WHERE e.user_id = u.id
+          AND e.group_admin_id IS NULL;
+        END IF;
+      END $$;
     `);
 
     console.log('Database initialized successfully');

@@ -143,25 +143,36 @@ export default function TaskManagement() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#111827' : '#F3F4F6' }]}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
       />
 
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons 
-            name="arrow-back" 
-            size={24} 
-            color={isDark ? '#FFFFFF' : '#111827'} 
-          />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#111827' }]}>
-          Task Management
-        </Text>
-        <View style={{ width: 24 }} />
+      <View 
+        className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
+        style={styles.header}
+      >
+        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+          >
+            <Ionicons 
+              name="arrow-back" 
+              size={24} 
+              color={isDark ? '#FFFFFF' : '#111827'} 
+            />
+          </TouchableOpacity>
+          <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
+            <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Task Management
+            </Text>
+          </View>
+          <View style={{ width: 40 }} />
+        </View>
       </View>
 
       {/* Task creation form */}
@@ -276,20 +287,12 @@ export default function TaskManagement() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   header: {
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
   content: {
     flex: 1,
@@ -312,25 +315,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
-  },
-  taskTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  taskDescription: {
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  taskMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  assignedTo: {
-    fontSize: 14,
-  },
-  priority: {
-    fontSize: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   pickerContainer: {
     borderRadius: 8,

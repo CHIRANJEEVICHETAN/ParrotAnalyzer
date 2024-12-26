@@ -50,31 +50,43 @@ export default function GroupAdminDashboard() {
         }
     ];
 
+    // Add new section for Leave Management
+    const leaveManagementActions = [
+        {
+            title: 'Leave Requests',
+            icon: 'calendar-outline',
+            color: '#EC4899', // Pink color for distinction
+            route: '/(dashboard)/Group-Admin/leave-management',
+            description: 'Manage employee leave requests'
+        },
+        {
+            title: 'Leave Balance',
+            icon: 'time-outline',
+            color: '#6366F1', // Indigo color
+            route: '/(dashboard)/Group-Admin/leave-management/balance',
+            description: 'Configure leave balance settings'
+        }
+    ];
+
     return (
-        <View style={styles.container}>
+        <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
+            <StatusBar
+                backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+                barStyle={isDark ? 'light-content' : 'dark-content'}
+            />
+
             {/* Header */}
-            <View style={[
-                styles.header,
-                { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
-            ]}>
-                <View style={styles.headerContent}>
-                    <View>
-                        <Text style={[
-                            styles.headerTitle,
-                            { color: isDark ? '#FFFFFF' : '#111827' }
-                        ]}>
-                            Group Admin
-                        </Text>
-                        <Text style={[
-                            styles.headerSubtitle,
-                            { color: isDark ? '#9CA3AF' : '#6B7280' }
-                        ]}>
-                            Dashboard
-                        </Text>
-                    </View>
+            <View 
+                className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
+                style={styles.header}
+            >
+                <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+                    <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        Group Admin
+                    </Text>
                     <TouchableOpacity 
                         onPress={() => router.push('/(dashboard)/Group-Admin/settings')}
-                        style={styles.settingsButton}
+                        className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
                     >
                         <Ionicons
                             name="settings-outline"
@@ -115,9 +127,54 @@ export default function GroupAdminDashboard() {
                                     { backgroundColor: `${action.color}20` }
                                 ]}>
                                     <Ionicons
-                                        name={action.icon as any}
+                                        name={action.icon as keyof typeof Ionicons.glyphMap}
                                         size={24}
                                         color={action.color}
+                                    />
+                                </View>
+                                <Text style={[
+                                    styles.cardTitle,
+                                    { color: isDark ? '#FFFFFF' : '#111827' }
+                                ]}>
+                                    {action.title}
+                                </Text>
+                                <Text style={[
+                                    styles.cardDescription,
+                                    { color: isDark ? '#9CA3AF' : '#6B7280' }
+                                ]}>
+                                    {action.description}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </View>
+
+                {/* New Leave Management Section */}
+                <View style={styles.section}>
+                    <Text style={[
+                        styles.sectionTitle,
+                        { color: isDark ? '#FFFFFF' : '#111827' }
+                    ]}>
+                        Leave Management
+                    </Text>
+                    <View style={styles.quickActionsGrid}>
+                        {leaveManagementActions.map((action, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                style={[
+                                    styles.quickActionCard,
+                                    { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
+                                ]}
+                                onPress={() => router.push(action.route as any)}
+                            >
+                                <View style={[
+                                    styles.iconCircle,
+                                    { backgroundColor: `${action.color}20` }
+                                ]}>
+                                    <Ionicons 
+                                        name={action.icon as keyof typeof Ionicons.glyphMap} 
+                                        size={24} 
+                                        color={action.color} 
                                     />
                                 </View>
                                 <Text style={[
@@ -198,10 +255,11 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     header: {
-        paddingTop: StatusBar.currentHeight || 48,
-        paddingBottom: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 3,
     },
     headerContent: {
         flexDirection: 'row',

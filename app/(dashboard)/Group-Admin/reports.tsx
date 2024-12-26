@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
+import { 
+  View, 
+  Text, 
+  ScrollView, 
+  TouchableOpacity, 
+  StyleSheet, 
+  StatusBar,
+  ActivityIndicator 
+} from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../context/ThemeContext';
@@ -8,29 +16,15 @@ import axios from 'axios';
 import { format } from 'date-fns';
 
 type ReportType = 'expense' | 'attendance' | 'activity';
-
 type IconName = keyof typeof Ionicons.glyphMap;
 
-interface ExpenseSummary {
-  totalAmount: number;
-  pendingCount: number;
-  approvedCount: number;
-  rejectedCount: number;
-}
-
-interface EmployeeExpense {
-  employee_name: string;
-  total_expenses: number;
-  approved_count: number;
-  rejected_count: number;
-}
-
-interface ReportSummary {
+interface Report {
+  id: number;
+  type: ReportType;
   title: string;
-  count: number;
-  icon: IconName;
-  color: string;
-  format?: (value: number) => string;
+  date: string;
+  amount: number | null;
+  status: string | null;
 }
 
 export default function GroupAdminReports() {
@@ -39,146 +33,159 @@ export default function GroupAdminReports() {
   const router = useRouter();
   const isDark = theme === 'dark';
 
-  const [selectedType, setSelectedType] = useState<ReportType>('expense');
-  const [expenseSummary, setExpenseSummary] = useState<ExpenseSummary>({
-    totalAmount: 0,
-    pendingCount: 0,
-    approvedCount: 0,
-    rejectedCount: 0
-  });
-  const [employeeExpenses, setEmployeeExpenses] = useState<EmployeeExpense[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchExpenseReports();
+    fetchReports();
   }, []);
 
-  const fetchExpenseReports = async () => {
+  const fetchReports = async () => {
     try {
-      const [summaryRes, employeeRes] = await Promise.all([
-        axios.get(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/reports/expenses/summary`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        ),
-        axios.get(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/reports/expenses/by-employee`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-      ]);
-
-      setExpenseSummary(summaryRes.data);
-      setEmployeeExpenses(employeeRes.data);
-    } catch (error) {
-      console.error('Error fetching expense reports:', error);
+      setLoading(true);
+      setError(null);  // Clear any previous errors
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/reports`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      setReports(response.data);
+    } catch (error: any) {
+      console.error('Error fetching reports:', error);
+      setError(error.response?.data?.message || 'Failed to fetch reports');
     } finally {
       setLoading(false);
     }
   };
 
-  const reportSummaries: ReportSummary[] = [
-    { 
-      title: 'Total Expenses', 
-      count: expenseSummary.totalAmount, 
-      icon: 'cash-outline' as IconName,
-      color: '#10B981',
-      format: (value: number) => `₹${value.toFixed(2)}`
-    },
-    { 
-      title: 'Pending Approvals', 
-      count: expenseSummary.pendingCount, 
-      icon: 'time-outline' as IconName,
-      color: '#EF4444'
-    },
-    { 
-      title: 'Approved', 
-      count: expenseSummary.approvedCount, 
-      icon: 'checkmark-circle-outline' as IconName,
-      color: '#10B981'
-    },
-    { 
-      title: 'Rejected', 
-      count: expenseSummary.rejectedCount, 
-      icon: 'close-circle-outline' as IconName,
-      color: '#F59E0B'
+  const getIconName = (type: ReportType): IconName => {
+    switch (type) {
+      case 'expense':
+        return 'receipt-outline';
+      case 'attendance':
+        return 'calendar-outline';
+      case 'activity':
+        return 'bar-chart-outline';
+      default:
+        return 'document-text-outline';
     }
-  ];
+  };
+
+  // Safe amount formatting function
+  const formatAmount = (amount: number | null | undefined): string => {
+    // If amount is null or undefined, return default
+    if (amount == null) return '0.00';
+    
+    // Convert string to number if needed
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+    
+    // Check if it's a valid number
+    if (isNaN(numAmount)) {
+      console.warn('Invalid amount received:', amount);
+      return '0.00';
+    }
+    
+    try {
+      return numAmount.toFixed(2);
+    } catch (error) {
+      console.error('Error formatting amount:', error, 'Amount:', amount);
+      return '0.00';
+    }
+  };
 
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
+      <StatusBar
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+      />
+
       {/* Header */}
-      <View className={`p-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.header}>
-        <View className="flex-row items-center justify-between">
-          <Link href="/(dashboard)/Group-Admin/group-admin" asChild>
-            <TouchableOpacity className="p-2">
-              <Ionicons 
-                name="arrow-back" 
-                size={24} 
-                color={isDark ? '#FFFFFF' : '#000000'} 
-              />
-            </TouchableOpacity>
-          </Link>
-          <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Reports & Analytics
-          </Text>
+      <View 
+        className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
+        style={styles.header}
+      >
+        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+          >
+            <Ionicons 
+              name="arrow-back" 
+              size={24} 
+              color={isDark ? '#FFFFFF' : '#111827'} 
+            />
+          </TouchableOpacity>
+          <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
+            <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Reports
+            </Text>
+          </View>
           <View style={{ width: 40 }} />
         </View>
       </View>
 
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        {/* Summary Cards */}
-        <View className="flex-row flex-wrap p-4 gap-4">
-          {reportSummaries.map((summary, index) => (
-            <View 
-              key={index}
-              className={`w-[47%] p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
-              style={styles.summaryCard}
+      <ScrollView className="flex-1 p-4">
+        {loading ? (
+          <View className="flex-1 justify-center items-center">
+            <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
+          </View>
+        ) : error ? (
+          <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <Text className={`text-center text-red-500`}>
+              {error}
+            </Text>
+            <TouchableOpacity 
+              onPress={fetchReports}
+              className="mt-4 bg-blue-500 p-3 rounded-lg"
             >
-              <View style={[styles.iconCircle, { backgroundColor: `${summary.color}20` }]}>
-                <Ionicons name={summary.icon} size={24} color={summary.color} />
-              </View>
-              <Text className={`text-2xl font-bold mt-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                {summary.format ? summary.format(summary.count) : summary.count}
+              <Text className="text-white text-center font-medium">
+                Retry
               </Text>
-              <Text className={`mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                {summary.title}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Employee-wise Expense Report */}
-        <View className={`mx-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.reportCard}>
-          <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Employee Expense Report
-          </Text>
-          {employeeExpenses.map((employee, index) => (
-            <View 
-              key={index} 
-              className={`py-4 ${
-                index !== employeeExpenses.length - 1 ? 'border-b' : ''
-              } ${isDark ? 'border-gray-700' : 'border-gray-200'}`}
+            </TouchableOpacity>
+          </View>
+        ) : reports.length === 0 ? (
+          <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              No reports found
+            </Text>
+          </View>
+        ) : (
+          reports.map((report, index) => (
+            <TouchableOpacity
+              key={`${report.type}-${report.id || index}`}
+              className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              style={styles.reportCard}
+              onPress={() => {/* Handle report press */}}
             >
-              <View className="flex-row justify-between items-start">
-                <View>
-                  <Text className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    {employee.employee_name}
+              <View className="flex-row items-center">
+                <View className={`w-12 h-12 rounded-full items-center justify-center bg-blue-100`}>
+                  <Ionicons 
+                    name={getIconName(report.type)}
+                    size={24}
+                    color="#3B82F6"
+                  />
+                </View>
+                <View className="ml-4 flex-1">
+                  <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {report.title}
                   </Text>
-                  <Text className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Total Expenses: ₹{employee.total_expenses.toFixed(2)}
+                  <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {format(new Date(report.date), 'MMM dd, yyyy')}
                   </Text>
                 </View>
-                <View className="items-end">
-                  <Text className="text-green-500">
-                    {employee.approved_count} Approved
+                {report.type === 'expense' && report.amount !== null && (
+                  <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    ₹{formatAmount(report.amount)}
                   </Text>
-                  <Text className="text-red-500">
-                    {employee.rejected_count} Rejected
-                  </Text>
-                </View>
+                )}
               </View>
-            </View>
-          ))}
-        </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -192,26 +199,11 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
   },
-  summaryCard: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   reportCard: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-    marginBottom: 16,
-  },
+  }
 });

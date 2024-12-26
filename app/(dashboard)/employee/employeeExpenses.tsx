@@ -22,6 +22,7 @@ import AuthContext from '../../context/AuthContext';
 import { format, differenceInSeconds, differenceInHours, differenceInMinutes } from 'date-fns';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import Modal from 'react-native-modal';
 
 interface TravelDetail {
   id: number;
@@ -158,6 +159,7 @@ export default function EmployeeExpenses() {
   const [savedTravelDetails, setSavedTravelDetails] = useState<TravelDetail[]>([]);
   const [companyName, setCompanyName] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Calculated fields
   const totalExpenses = React.useMemo(() => {
@@ -429,31 +431,27 @@ export default function EmployeeExpenses() {
       setSavedTravelDetails([]);
       setSavedExpenseDetails([]);
 
-      Alert.alert(
-        'Success',
-        'Expense claim submitted successfully',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              resetForm();
-              router.back();
-            },
-          },
-        ]
-      );
-    } catch (error) {
-      console.error('Expense submission error:', {
-        error,
-        response: axios.isAxiosError(error) ? error.response?.data : null,
-        status: axios.isAxiosError(error) ? error.response?.status : null
-      });
+      setShowSuccessModal(true);
+      
+      // Auto hide after 2 seconds
+      setTimeout(() => {
+        setShowSuccessModal(false);
+        resetForm();
+        router.back();
+      }, 2000);
 
+    } catch (error) {
+      console.error('Expense submission error:', error);
       Alert.alert(
         'Error',
         axios.isAxiosError(error)
           ? error.response?.data?.details || 'Failed to submit expense claim'
-          : 'Failed to submit expense claim'
+          : 'Failed to submit expense claim',
+        [{ text: 'OK', style: 'default' }],
+        {
+          cancelable: true,
+          userInterfaceStyle: theme === 'dark' ? 'dark' : 'light',
+        }
       );
     } finally {
       setIsSubmitting(false);
@@ -779,7 +777,8 @@ export default function EmployeeExpenses() {
       [
         {
           text: 'Cancel',
-          style: 'cancel'
+          style: 'cancel',
+          onPress: () => {} // Add empty onPress to prevent undefined handler
         },
         {
           text: 'Delete',
@@ -795,29 +794,63 @@ export default function EmployeeExpenses() {
             }
           }
         }
-      ]
+      ],
+      {
+        cancelable: true,
+        userInterfaceStyle: theme === 'dark' ? 'dark' : 'light'
+      }
     );
   };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={[styles.container, { backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }]}
+      style={[
+        styles.container,
+        { backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }
+      ]}
     >
       <StatusBar
         backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
         barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
       />
 
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#111827'} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-          Travel Claim Form
-        </Text>
-        <View style={{ width: 24 }} />
+      {/* Update header to match profile page */}
+      <View
+        style={[
+          styles.header,
+          {
+            backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
+            paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0
+          }
+        ]}
+      >
+        <View style={styles.headerContent}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[
+              styles.backButton,
+              { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
+            ]}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+            />
+          </TouchableOpacity>
+          <Text 
+            style={[
+              styles.headerTitle,
+              { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+            ]}
+          >
+            Travel Claim Form
+          </Text>
+          <View style={{ width: 40 }}>
+            <Text> </Text>
+          </View>
+        </View>
       </View>
 
       {/* Form Content */}
@@ -1476,6 +1509,40 @@ export default function EmployeeExpenses() {
           )}
         </TouchableOpacity>
       </ScrollView>
+
+      <Modal
+        isVisible={showSuccessModal}
+        backdropOpacity={0.5}
+        animationIn="fadeIn"
+        animationOut="fadeOut"
+        useNativeDriver
+        style={styles.modal}
+      >
+        <View style={[
+          styles.successModal,
+          { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+        ]}>
+          <View style={styles.successIconContainer}>
+            <Ionicons
+              name="checkmark-circle"
+              size={50}
+              color="#10B981"
+            />
+          </View>
+          <Text style={[
+            styles.successTitle,
+            { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+          ]}>
+            Success!
+          </Text>
+          <Text style={[
+            styles.successMessage,
+            { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
+          ]}>
+            Expense claim submitted successfully
+          </Text>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1485,18 +1552,31 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: StatusBar.currentHeight || 16,
     paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+  },
+  backButton: {
+    padding: 8,
+    borderRadius: 20,
+    marginRight: 16,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 24,
+    fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
@@ -1739,5 +1819,44 @@ const styles = StyleSheet.create({
   savedDetailSubText: {
     fontSize: 12,
     marginTop: 4,
+  },
+  modal: {
+    margin: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successModal: {
+    width: '80%',
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  successIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#10B98120',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  successMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
   },
 });

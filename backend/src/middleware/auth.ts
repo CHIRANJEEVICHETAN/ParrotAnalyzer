@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { CustomRequest, JwtPayload } from '../types';
 import { pool } from '../config/database';
+import { CustomRequest, JwtPayload } from '../types';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -66,6 +66,8 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
   }
 };
 
+export const authMiddleware = verifyToken;
+
 export const requireSuperAdmin = (req: CustomRequest, res: Response, next: NextFunction) => {
   if (req.user?.role !== 'super-admin') {
     return res.status(403).json({ error: 'Access denied. Super admin only.' });
@@ -73,7 +75,7 @@ export const requireSuperAdmin = (req: CustomRequest, res: Response, next: NextF
   next();
 };
 
-export const requireGroupAdmin = async (req: CustomRequest, res: Response, next: NextFunction) => {
+export const adminMiddleware = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -85,7 +87,7 @@ export const requireGroupAdmin = async (req: CustomRequest, res: Response, next:
 
     next();
   } catch (error) {
-    console.error('Group Admin middleware error:', error);
+    console.error('Admin middleware error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 }; 
