@@ -17,10 +17,6 @@ export interface CustomRequest extends Request {
     role: string;
     company_id?: string;
   };
-  headers: Request['headers'] & {
-    authorization?: string;
-  };
-  file?: any;
 }
 
 export interface ExpenseData {

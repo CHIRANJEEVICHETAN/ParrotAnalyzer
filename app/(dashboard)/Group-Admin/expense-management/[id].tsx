@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -182,19 +183,33 @@ export default function ExpenseDetailView() {
 
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
+      <StatusBar
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+      />
+
       {/* Header */}
-      <View className={`p-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.header}>
-        <View className="flex-row items-center justify-between">
-          <TouchableOpacity onPress={() => router.back()} className="p-2">
+      <View 
+        className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
+        style={styles.header}
+      >
+        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+          >
             <Ionicons 
               name="arrow-back" 
               size={24} 
-              color={isDark ? '#FFFFFF' : '#000000'} 
+              color={isDark ? '#FFFFFF' : '#111827'} 
             />
           </TouchableOpacity>
-          <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Expense Details
-          </Text>
+          <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
+            <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Expense Details
+            </Text>
+          </View>
           <View style={{ width: 40 }} />
         </View>
       </View>

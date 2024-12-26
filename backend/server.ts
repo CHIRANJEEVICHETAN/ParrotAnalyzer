@@ -12,6 +12,8 @@ import employeeRoutes from './src/routes/employee';
 import groupAdminsRoutes from './src/routes/group-admins';
 import tasksRoutes from './src/routes/tasks';
 import notificationsRouter from './src/routes/notifications';
+import leaveRoutes from './src/routes/leave';
+import reportsRoutes from './src/routes/reports';
 
 dotenv.config();
 
@@ -37,6 +39,8 @@ app.use('/api/employee', employeeRoutes);
 app.use('/api/group-admins', groupAdminsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api', leaveRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Test route at root level
 app.get('/api/test', (req, res) => {
