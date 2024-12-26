@@ -334,4 +334,124 @@ router.delete('/employees/:id', verifyToken, async (req: CustomRequest, res: Res
   }
 });
 
+// Get group admin profile with group details
+router.get('/profile', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const result = await client.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.created_at,
+        c.name as company_name,
+        (
+          SELECT COUNT(*) 
+          FROM users e 
+          WHERE e.group_admin_id = u.id AND e.role = 'employee'
+        ) as total_employees,
+        (
+          SELECT COUNT(*) 
+          FROM users e 
+          WHERE e.group_admin_id = u.id 
+          AND e.role = 'employee'
+          AND e.status = 'active'
+        ) as active_employees
+      FROM users u
+      LEFT JOIN companies c ON u.company_id = c.id
+      WHERE u.id = $1`,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching profile:', error);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  } finally {
+    client.release();
+  }
+});
+
+// Update group admin profile
+router.put('/profile', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const { name, phone } = req.body;
+
+    const result = await client.query(
+      `UPDATE users 
+       SET 
+         name = COALESCE($1, name),
+         phone = COALESCE($2, phone),
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3
+       RETURNING id, name, email, phone`,
+      [name, phone, req.user.id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  } finally {
+    client.release();
+  }
+});
+
+// Change password endpoint
+router.post('/change-password', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Verify current password
+    const userResult = await client.query(
+      'SELECT password FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    const validPassword = await bcrypt.compare(
+      currentPassword,
+      userResult.rows[0].password
+    );
+
+    if (!validPassword) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash and update new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    await client.query(
+      'UPDATE users SET password = $1 WHERE id = $2',
+      [hashedPassword, req.user.id]
+    );
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json({ error: 'Failed to change password' });
+  } finally {
+    client.release();
+  }
+});
+
 export default router; 

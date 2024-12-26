@@ -6,6 +6,8 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  Animated,
+  Easing,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
@@ -26,9 +28,41 @@ interface TaskListProps {
   onUpdateStatus: (taskId: number, newStatus: string) => void;
   activeTaskType: string;
   onChangeTaskType: (type: string) => void;
+  onRefresh: () => void;
+  isRefreshing?: boolean;
 }
 
-export default function TaskList({ tasks, isDark, onUpdateStatus, activeTaskType, onChangeTaskType }: TaskListProps) {
+export default function TaskList({ 
+  tasks, 
+  isDark, 
+  onUpdateStatus, 
+  activeTaskType, 
+  onChangeTaskType,
+  onRefresh,
+  isRefreshing = false 
+}: TaskListProps) {
+  const spinValue = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (isRefreshing) {
+      Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.linear,
+          useNativeDriver: true
+        })
+      ).start();
+    } else {
+      spinValue.setValue(0);
+    }
+  }, [isRefreshing]);
+
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
+
   const getPriorityColor = (priority: string) => {
     switch (priority.toLowerCase()) {
       case 'low': return '#10B981';
@@ -65,30 +99,50 @@ export default function TaskList({ tasks, isDark, onUpdateStatus, activeTaskType
 
   return (
     <View style={styles.container}>
-      {/* Task Type Selector */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.taskTypeSelector}
-      >
-        {taskTypes.map((type) => (
-          <TouchableOpacity
-            key={type.label}
-            onPress={() => onChangeTaskType(type.label)}
-            style={[
-              styles.taskTypeButton,
-              { backgroundColor: getTaskTypeColor(type.label, activeTaskType === type.label).bg }
-            ]}
-          >
-            <Text style={[
-              styles.taskTypeText,
-              { color: getTaskTypeColor(type.label, activeTaskType === type.label).text }
-            ]}>
-              {type.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      {/* Task Type Selector and Refresh Button Row */}
+      <View style={styles.headerRow}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.taskTypeSelector}
+        >
+          {taskTypes.map((type) => (
+            <TouchableOpacity
+              key={type.label}
+              onPress={() => onChangeTaskType(type.label)}
+              style={[
+                styles.taskTypeButton,
+                { backgroundColor: getTaskTypeColor(type.label, activeTaskType === type.label).bg }
+              ]}
+            >
+              <Text style={[
+                styles.taskTypeText,
+                { color: getTaskTypeColor(type.label, activeTaskType === type.label).text }
+              ]}>
+                {type.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <TouchableOpacity
+          onPress={onRefresh}
+          disabled={isRefreshing}
+          style={[
+            styles.refreshButton,
+            { backgroundColor: isDark ? '#374151' : '#F3F4F6' }
+          ]}
+        >
+          <Animated.View style={{ transform: [{ rotate: spin }] }}>
+            <Ionicons 
+              name="refresh-outline"
+              size={20} 
+              color={isDark ? '#9CA3AF' : '#6B7280'}
+              style={styles.refreshIcon}
+            />
+          </Animated.View>
+        </TouchableOpacity>
+      </View>
 
       {/* Task List */}
       {filteredTasks.length === 0 ? (
@@ -255,5 +309,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
     textAlign: 'center',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 8,
+  },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 20,
+    marginLeft: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshIcon: {
+    opacity: 0.8,
   },
 }); 
