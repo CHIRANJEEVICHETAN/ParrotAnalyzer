@@ -31,6 +31,70 @@ const createNotification = async (client: PoolClient, userId: number, title: str
   );
 };
 
+// Place the employee specific route BEFORE other routes
+// Add this route at the beginning of the file, right after creating the router
+router.get('/employee/my-expenses', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    console.log('Accessing employee my-expenses route with user:', {
+      id: req.user?.id,
+      role: req.user?.role
+    });
+
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // First check if the user has any expenses
+    const checkQuery = await client.query(
+      'SELECT COUNT(*) FROM expenses WHERE user_id = $1',
+      [req.user.id]
+    );
+    
+    console.log('Found expenses count:', checkQuery.rows[0].count);
+
+    const result = await client.query(
+      `SELECT 
+        id,
+        date,
+        total_amount,
+        amount_payable,
+        status,
+        rejection_reason,
+        created_at,
+        vehicle_type,
+        vehicle_number,
+        total_kilometers,
+        route_taken,
+        lodging_expenses,
+        daily_allowance,
+        diesel,
+        toll_charges,
+        other_expenses,
+        advance_taken
+      FROM expenses
+      WHERE user_id = $1
+      ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+
+    console.log('Query results:', {
+      rowCount: result.rowCount,
+      firstRow: result.rows[0] || null
+    });
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Detailed error in employee expenses:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch expenses',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    client.release();
+  }
+});
+
 // Group Admin routes should come first
 router.get('/group-admin/expenses', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();

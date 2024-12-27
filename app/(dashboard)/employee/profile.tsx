@@ -246,6 +246,44 @@ export default function Profile() {
             </View>
           ))}
         </View>
+
+        <View style={styles.quickActionsContainer}>
+          <TouchableOpacity
+            onPress={() => router.push('/(dashboard)/employee/myExpenses')}
+            style={[
+              styles.quickActionCard,
+              styles.card,
+              { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
+            ]}
+            className="p-4 rounded-xl"
+          >
+            <View 
+              style={[
+                styles.iconContainer,
+                { backgroundColor: isDark ? '#374151' : '#F3F4F6' }
+              ]}
+              className="w-12 h-12 rounded-full items-center justify-center mb-3"
+            >
+              <Ionicons
+                name="receipt-outline"
+                size={24}
+                color={isDark ? '#60A5FA' : '#3B82F6'}
+              />
+            </View>
+            <Text
+              style={styles.quickActionTitle}
+              className={`text-lg font-semibold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}
+            >
+              My Expenses
+            </Text>
+            <Text
+              style={styles.quickActionSubtitle}
+              className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}
+            >
+              Track your expense claims
+            </Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
@@ -270,5 +308,31 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-  }
+  },
+  quickActionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 10,
+  },
+  quickActionCard: {
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  quickActionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  quickActionSubtitle: {
+    fontSize: 14,
+    opacity: 0.8,
+  },
 });
