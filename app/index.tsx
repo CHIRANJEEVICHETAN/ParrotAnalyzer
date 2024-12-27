@@ -3,10 +3,12 @@ import { View, Text, Animated, Image, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from './context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import AuthContext from './context/AuthContext';
 
 export default function SplashScreen() {
   const router = useRouter();
   const { theme } = ThemeContext.useTheme();
+  const { isLoading, user } = AuthContext.useAuth();
   const fadeAnim = new Animated.Value(0);
   const scaleAnim = new Animated.Value(0.3);
   const rotateAnim = new Animated.Value(0);
@@ -14,49 +16,72 @@ export default function SplashScreen() {
   const textFadeAnim = new Animated.Value(0);
 
   useEffect(() => {
-    // Logo animation sequence
-    Animated.sequence([
-      // First: Scale and fade in the logo
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
+    // Only proceed with animations and navigation when auth is initialized
+    if (!isLoading) {
+      // Logo animation sequence
+      Animated.sequence([
+        // First: Scale and fade in the logo
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            friction: 8,
+            tension: 40,
+            useNativeDriver: true,
+          }),
+        ]),
+        // Then: Rotate the logo
+        Animated.timing(rotateAnim, {
           toValue: 1,
-          duration: 800,
+          duration: 700,
           useNativeDriver: true,
         }),
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          friction: 8,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Then: Rotate the logo
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: 700,
-        useNativeDriver: true,
-      }),
-      // Finally: Slide up and fade in the text
-      Animated.parallel([
-        Animated.timing(slideUpAnim, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(textFadeAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start();
+        // Finally: Slide up and fade in the text
+        Animated.parallel([
+          Animated.timing(slideUpAnim, {
+            toValue: 0,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(textFadeAnim, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start();
 
-    const timer = setTimeout(() => {
-      router.replace('/welcome');
-    }, 2500); // Increased duration slightly to accommodate animations
+      // Navigate based on auth state
+      const timer = setTimeout(() => {
+        if (user) {
+          // User is already logged in, navigate to their dashboard
+          switch (user.role) {
+            case 'employee':
+              router.replace('/(dashboard)/employee/employee');
+              break;
+            case 'group-admin':
+              router.replace('/(dashboard)/Group-Admin/group-admin');
+              break;
+            case 'management':
+              router.replace('/(dashboard)/management/management');
+              break;
+            case 'super-admin':
+              router.replace('/(dashboard)/super-admin/super-admin');
+              break;
+          }
+        } else {
+          // No user logged in, go to welcome screen
+          router.replace('/welcome');
+        }
+      }, 2500);
 
-    return () => clearTimeout(timer);
-  }, []);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, user]);
 
   const isDark = theme === 'dark';
   const spin = rotateAnim.interpolate({

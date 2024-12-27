@@ -41,20 +41,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initializeAuth = async () => {
       try {
         setIsLoading(true);
-        const storedToken = await AsyncStorage.getItem('auth_token');
+        const [storedToken, storedUser] = await Promise.all([
+          AsyncStorage.getItem('auth_token'),
+          AsyncStorage.getItem('user_data')
+        ]);
         
-        if (storedToken) {
-          console.log('Found stored token, attempting refresh');
-          const newToken = await refreshToken();
-          if (!newToken) {
-            console.log('Token refresh failed during initialization');
-            router.replace('/(auth)/signin');
-          } else {
-            console.log('Token refresh successful during initialization');
+        if (storedToken && storedUser) {
+          // Set the token in axios defaults
+          axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+          
+          // Parse and set the stored user data
+          const userData = JSON.parse(storedUser);
+          setUser(userData);
+          setToken(storedToken);
+          
+          // Verify token validity
+          try {
+            const response = await axios.get(`${API_URL}/auth/check-role`);
+            
+            // If successful, navigate to the appropriate dashboard
+            switch (userData.role) {
+              case 'employee':
+                router.replace('/(dashboard)/employee/employee');
+                break;
+              case 'group-admin':
+                router.replace('/(dashboard)/Group-Admin/group-admin');
+                break;
+              case 'management':
+                router.replace('/(dashboard)/management/management');
+                break;
+              case 'super-admin':
+                router.replace('/(dashboard)/super-admin/super-admin');
+                break;
+              default:
+                throw new Error('Invalid user role');
+            }
+          } catch (error) {
+            // If token is invalid, clear storage
+            await AsyncStorage.multiRemove(['auth_token', 'user_data']);
+            setUser(null);
+            setToken(null);
+            delete axios.defaults.headers.common['Authorization'];
           }
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
+        // Clear any potentially corrupted data
+        await AsyncStorage.multiRemove(['auth_token', 'user_data']);
+        setUser(null);
+        setToken(null);
+        delete axios.defaults.headers.common['Authorization'];
       } finally {
         setIsLoading(false);
       }
@@ -66,26 +102,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (identifier: string, password: string) => {
     setIsLoading(true);
     try {
-      console.log('Login attempt:', { identifier, url: API_URL });
-      
-      // Create axios instance with full URL
       const response = await axios.post(`${API_URL}/auth/login`, {
         identifier,
         password
       });
 
-      console.log('Login response:', response.data);
-      const { token: newToken, user } = response.data;
+      const { token: newToken, user: userData } = response.data;
 
-      await AsyncStorage.setItem('auth_token', newToken);
-      setToken(newToken);
+      // Store both token and user data
+      await Promise.all([
+        AsyncStorage.setItem('auth_token', newToken),
+        AsyncStorage.setItem('user_data', JSON.stringify(userData))
+      ]);
+
+      // Set axios default header
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-      setUser(user);
 
-      console.log('Auth state updated:', { user, token: newToken });
+      setToken(newToken);
+      setUser(userData);
 
-      // Navigate based on role
-      switch (user.role) {
+      // Navigate based on user role
+      switch (userData.role) {
         case 'employee':
           router.replace('/(dashboard)/employee/employee');
           break;
@@ -99,44 +136,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           router.replace('/(dashboard)/super-admin/super-admin');
           break;
         default:
-          router.replace('/');
+          throw new Error('Invalid user role');
       }
-    } catch (error: any) {
-      console.error('Login error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        url: API_URL
-      });
-
-      let errorMessage = 'An error occurred during login';
-      
-      if (error.response) {
-        errorMessage = error.response.data?.error || 'Server error: ' + error.response.status;
-      } else if (error.request) {
-        errorMessage = 'No response from server. Please check your connection.';
-      } else {
-        errorMessage = error.message || 'Error setting up the request';
-      }
-
-      throw new Error(errorMessage);
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
     } finally {
       setIsLoading(false);
     }
   };
 
   const logout = async () => {
-    setIsLoading(true);
     try {
-      await AsyncStorage.removeItem('auth_token');
-      axios.defaults.headers.common['Authorization'] = '';
-      setUser(null);
+      await Promise.all([
+        AsyncStorage.removeItem('auth_token'),
+        AsyncStorage.removeItem('user_data')
+      ]);
+      
+      delete axios.defaults.headers.common['Authorization'];
       setToken(null);
-      router.replace('/');
+      setUser(null);
+      router.replace('/(auth)/signin');
     } catch (error) {
       console.error('Logout error:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
