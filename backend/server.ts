@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { initDB, seedUsers } from './src/config/database';
+import { initDB, seedUsers, initExpensesTable } from './src/config/database';
 import authRoutes from './src/routes/auth';
 import expenseRoutes from './src/routes/expenses';
 import companyRoutes from './src/routes/companies';
@@ -66,8 +66,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const PORT = process.env.PORT || 8080;
 
 // Initialize database and start server
-initDB().then(() => {
-  seedUsers().then(() => {
+initDB()
+  .then(() => initExpensesTable())
+  .then(() => {
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log('Available routes:');
@@ -82,9 +83,8 @@ initDB().then(() => {
       console.log('- /api/tasks/*');
       console.log('- /api/notifications/*');
     });
+  })
+  .catch(error => {
+    console.error('Failed to initialize:', error);
+    process.exit(1);
   });
-}).catch(error => {
-  console.error('Failed to initialize database:', error);
-  console.log('Server is not running');
-  process.exit(1);
-});
