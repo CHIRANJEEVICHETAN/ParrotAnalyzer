@@ -201,7 +201,7 @@ export default function Terms() {
               isDark ? 'text-gray-500' : 'text-gray-400'
             }`}
           >
-            Last updated: March 15, 2024
+            Last updated: December 27, 2024
           </Text>
         </View>
       </ScrollView>
