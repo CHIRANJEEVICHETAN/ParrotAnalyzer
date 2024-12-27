@@ -14,39 +14,36 @@ export const pool = new Pool({
 
 // Database initialization functions
 export const initExpensesTable = async () => {
+  const client = await pool.connect();
   try {
-    await pool.query(`
+    await client.query(`
       CREATE TABLE IF NOT EXISTS expenses (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id),
-        employee_name VARCHAR(100) NOT NULL,
-        employee_number VARCHAR(50) NOT NULL,
-        department VARCHAR(100) NOT NULL,
-        designation VARCHAR(100),
-        location VARCHAR(100),
         date TIMESTAMP NOT NULL,
+        total_amount DECIMAL NOT NULL,
+        amount_payable DECIMAL NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        rejection_reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         vehicle_type VARCHAR(50),
         vehicle_number VARCHAR(50),
         total_kilometers DECIMAL,
-        start_time TIMESTAMP,
-        end_time TIMESTAMP,
         route_taken TEXT,
         lodging_expenses DECIMAL DEFAULT 0,
         daily_allowance DECIMAL DEFAULT 0,
         diesel DECIMAL DEFAULT 0,
         toll_charges DECIMAL DEFAULT 0,
         other_expenses DECIMAL DEFAULT 0,
-        advance_taken DECIMAL DEFAULT 0,
-        total_amount DECIMAL NOT NULL,
-        amount_payable DECIMAL NOT NULL,
-        status VARCHAR(20) DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        advance_taken DECIMAL DEFAULT 0
       )
     `);
-    console.log('Expenses table initialized successfully');
+    console.log('Expenses table initialized');
   } catch (error) {
     console.error('Error initializing expenses table:', error);
+    throw error;
+  } finally {
+    client.release();
   }
 };
 
