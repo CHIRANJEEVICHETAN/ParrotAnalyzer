@@ -18,6 +18,16 @@ interface CompanyFormData {
   userLimit: string;
 }
 
+interface FormField {
+  key: string;
+  label: string;
+  icon: string;
+  keyboardType: string;
+  placeholder: string;
+  multiline?: boolean;
+  secure?: boolean;
+}
+
 export default function AddCompany() {
   const { theme } = ThemeContext.useTheme();
   const { user, token } = AuthContext.useAuth();
@@ -145,7 +155,7 @@ export default function AddCompany() {
     }
   };
 
-  const formFields = [
+  const formFields: { section: string; fields: FormField[] }[] = [
     // Company Section
     {
       section: 'Company Details',
@@ -264,7 +274,7 @@ export default function AddCompany() {
                     <View className="relative">
                       <View className="absolute left-4 top-4 z-10">
                         <Ionicons
-                          name={field.icon}
+                          name={field.icon as keyof typeof Ionicons.glyphMap}
                           size={20}
                           color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
                         />
