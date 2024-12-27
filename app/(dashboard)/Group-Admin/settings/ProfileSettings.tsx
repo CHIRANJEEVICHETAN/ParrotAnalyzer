@@ -14,12 +14,14 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   TouchableWithoutFeedback,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
+import * as ImagePicker from 'expo-image-picker';
 
 interface ProfileData {
   name: string;
@@ -28,6 +30,7 @@ interface ProfileData {
   company_name: string;
   total_employees: number;
   active_employees: number;
+  profile_image?: string;
 }
 
 interface PasswordData {
@@ -62,10 +65,18 @@ export default function ProfileSettings() {
   const [error, setError] = useState<string | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [newImageSelected, setNewImageSelected] = useState(false);
 
   useEffect(() => {
     fetchProfileData();
   }, []);
+
+  useEffect(() => {
+    if (profileData.email) {
+      fetchProfileImage();
+    }
+  }, [profileData.email]);
 
   const fetchProfileData = async () => {
     try {
@@ -81,6 +92,57 @@ export default function ProfileSettings() {
       setError(error.response?.data?.message || 'Failed to fetch profile data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchProfileImage = async () => {
+    try {
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/users/profile-image/${profileData.id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.data.image) {
+        setProfileImage(response.data.image);
+      }
+    } catch (error) {
+      console.error('Error fetching profile image:', error);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
+        if (blob.size > 5 * 1024 * 1024) {
+          Alert.alert('Error', 'Image size should be less than 5MB');
+          return;
+        }
+
+        setProfileImage(asset.uri);
+        setNewImageSelected(true);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
     }
   };
 
@@ -100,14 +162,36 @@ export default function ProfileSettings() {
       setSaving(true);
       setError(null);
       
+      const formData = new FormData();
+      formData.append('name', profileData.name);
+      formData.append('phone', profileData.phone);
+
+      if (newImageSelected && profileImage) {
+        const response = await fetch(profileImage);
+        const blob = await response.blob();
+        
+        formData.append('profileImage', {
+          uri: profileImage,
+          type: 'image/jpeg',
+          name: 'profile.jpg',
+        } as any);
+      }
+
       const response = await axios.put(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin/profile`,
+        `${process.env.EXPO_PUBLIC_API_URL}/api/users/profile`,
+        formData,
         {
-          name: profileData.name,
-          phone: profileData.phone,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
+
+      if (response.data.profile_image) {
+        setProfileImage(response.data.profile_image);
+        setNewImageSelected(false);
+      }
 
       Alert.alert('Success', 'Profile updated successfully');
     } catch (error: any) {
@@ -192,6 +276,49 @@ export default function ProfileSettings() {
           </View>
         ) : (
           <>
+            {/* Profile Image Section - Moved to top */}
+            <View 
+              className={`p-6 rounded-xl mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              style={styles.formCard}
+            >
+              <View className="items-center">
+                <TouchableOpacity onPress={pickImage}>
+                  {profileImage ? (
+                    <Image
+                      source={{ 
+                        uri: newImageSelected 
+                          ? profileImage 
+                          : `data:image/jpeg;base64,${profileImage}`
+                      }}
+                      className="w-32 h-32 rounded-full"
+                      style={styles.profileImage}
+                    />
+                  ) : (
+                    <View 
+                      className="w-32 h-32 rounded-full bg-blue-500 items-center justify-center"
+                      style={styles.profileImage}
+                    >
+                      <Text className="text-white text-4xl font-bold">
+                        {profileData.name.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <View 
+                    className="absolute bottom-2 right-2 bg-blue-500 p-3 rounded-full"
+                    style={styles.cameraButton}
+                  >
+                    <Ionicons name="camera" size={24} color="white" />
+                  </View>
+                </TouchableOpacity>
+                <Text className={`mt-4 text-base font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  {profileData.name}
+                </Text>
+                <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {profileData.email}
+                </Text>
+              </View>
+            </View>
+
             <View 
               className={`p-4 rounded-xl mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
               style={styles.formCard}
@@ -344,5 +471,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 2,
+  },
+  profileImage: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  cameraButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    borderWidth: 3,
+    borderColor: 'white',
   }
 });
+
