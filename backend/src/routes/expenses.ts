@@ -301,56 +301,36 @@ router.get('/group-admin/reports/expenses/by-employee', verifyToken, async (req:
 router.post('/submit', verifyToken, upload.array('documents'), async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    console.log('Starting expense submission process...');
-    console.log('Request body:', req.body);
+    console.log('Starting expense submission with user:', {
+      id: req.user?.id,
+      role: req.user?.role
+    });
 
-    // Validate required employee details
-    const requiredFields = ['employeeName', 'employeeNumber', 'department', 'designation'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
-    
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: 'Missing required fields',
-        details: `Missing fields: ${missingFields.join(', ')}`
-      });
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (req.user?.role !== 'employee') {
-      return res.status(403).json({ error: 'Only employees can submit expenses' });
+    // First get the user's group_admin_id and company_id
+    const userResult = await client.query(
+      'SELECT group_admin_id, company_id FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (!userResult.rows.length) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    const { group_admin_id, company_id } = userResult.rows[0];
+
+    if (!group_admin_id) {
+      return res.status(400).json({ error: 'No group admin assigned to user' });
     }
 
     await client.query('BEGIN');
 
-    // Get user's company_id
-    const userResult = await client.query(
-      'SELECT company_id FROM users WHERE id = $1',
-      [req.user.id]
-    );
-    const company_id = userResult.rows[0]?.company_id;
-
-    // First, ensure user details are up to date
-    await client.query(`
-      UPDATE users 
-      SET 
-        name = $1,
-        employee_number = $2,
-        department = $3,
-        designation = $4
-      WHERE id = $5`,
-      [
-        req.body.employeeName,
-        req.body.employeeNumber,
-        req.body.department,
-        req.body.designation,
-        req.user.id
-      ]
-    );
-
-    // Get saved travel and expense details from request
+    // Parse travel and expense details
     const savedTravelDetails = JSON.parse(req.body.savedTravelDetails || '[]');
     const savedExpenseDetails = JSON.parse(req.body.savedExpenseDetails || '[]');
-
-    // Combine current form data with saved details
     const allTravelDetails = [
       ...savedTravelDetails,
       {
@@ -361,7 +341,7 @@ router.post('/submit', verifyToken, upload.array('documents'), async (req: Custo
         endDateTime: req.body.endDateTime,
         routeTaken: req.body.routeTaken
       }
-    ].filter(detail => detail.vehicleType && detail.totalKilometers); // Filter out empty entries
+    ];
 
     const allExpenseDetails = [
       ...savedExpenseDetails,
@@ -372,13 +352,7 @@ router.post('/submit', verifyToken, upload.array('documents'), async (req: Custo
         tollCharges: req.body.tollCharges,
         otherExpenses: req.body.otherExpenses
       }
-    ].filter(detail => 
-      detail.lodgingExpenses || 
-      detail.dailyAllowance || 
-      detail.diesel || 
-      detail.tollCharges || 
-      detail.otherExpenses
-    );
+    ];
 
     // Insert an expense record for each travel detail
     for (const travelDetail of allTravelDetails) {
@@ -402,18 +376,20 @@ router.post('/submit', verifyToken, upload.array('documents'), async (req: Custo
 
       const expenseResult = await client.query(`
         INSERT INTO expenses (
-          user_id, company_id, employee_name, employee_number, department, designation,
-          location, date, vehicle_type, vehicle_number, total_kilometers,
-          start_time, end_time, route_taken, lodging_expenses, daily_allowance,
-          diesel, toll_charges, other_expenses, advance_taken, total_amount,
-          amount_payable, status, created_at, updated_at
+          user_id, company_id, group_admin_id, employee_name, employee_number, 
+          department, designation, location, date, vehicle_type, vehicle_number, 
+          total_kilometers, start_time, end_time, route_taken, lodging_expenses, 
+          daily_allowance, diesel, toll_charges, other_expenses, advance_taken, 
+          total_amount, amount_payable, status, created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
-          $16, $17, $18, $19, $20, $21, $22, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          $16, $17, $18, $19, $20, $21, $22, $23, 'pending', CURRENT_TIMESTAMP, 
+          CURRENT_TIMESTAMP
         ) RETURNING id`,
         [
           req.user.id,
           company_id,
+          group_admin_id,
           req.body.employeeName,
           req.body.employeeNumber,
           req.body.department,
@@ -464,9 +440,9 @@ router.post('/submit', verifyToken, upload.array('documents'), async (req: Custo
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error in expense submission:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       error: 'Failed to submit expense',
-      details: error instanceof Error ? error.message : 'Unknown error occurred'
+      details: error instanceof Error ? error.message : 'Unknown error'
     });
   } finally {
     client.release();
