@@ -14,6 +14,7 @@ import tasksRoutes from './src/routes/tasks';
 import notificationsRouter from './src/routes/notifications';
 import leaveRoutes from './src/routes/leave';
 import reportsRoutes from './src/routes/reports';
+import { errorLogger, errorHandler } from './src/middleware/errorHandler';
 
 dotenv.config();
 
@@ -62,6 +63,10 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal Server Error' });
 });
+
+// Add error handling middleware last
+app.use(errorLogger);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 8080;
 

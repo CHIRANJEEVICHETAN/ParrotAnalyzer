@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { Alert } from 'react-native';
 
 type UserRole = 'employee' | 'group-admin' | 'management' | 'super-admin';
 
@@ -138,8 +139,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         default:
           throw new Error('Invalid user role');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      
+      // Handle company disabled error
+      if (error.response?.data?.code === 'COMPANY_DISABLED') {
+        await logout(); // Force logout
+        Alert.alert(
+          'Access Denied',
+          'Your company account has been disabled. Please contact the administrator.'
+        );
+        return;
+      }
+      
       throw error;
     } finally {
       setIsLoading(false);
@@ -165,16 +177,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Add a function to refresh token
   const refreshToken = async () => {
     try {
-      console.log('=== Starting token refresh ===');
       const storedToken = await AsyncStorage.getItem('auth_token');
       if (!storedToken) {
-        console.log('No stored token found');
         return null;
       }
-      console.log('Found stored token:', storedToken.substring(0, 20) + '...');
 
       try {
-        console.log('Making refresh token request...');
         const response = await axios.post(`${API_URL}/auth/refresh`, null, {
           headers: {
             'Authorization': `Bearer ${storedToken}`
@@ -182,38 +190,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         const { token: newToken, user } = response.data;
-        console.log('Refresh successful. New token:', newToken.substring(0, 20) + '...');
-        console.log('User data:', { id: user.id, role: user.role });
-
         await AsyncStorage.setItem('auth_token', newToken);
         setToken(newToken);
         setUser(user);
 
-        // Set the token in axios defaults
         axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-        console.log('Updated axios default headers');
-
         return newToken;
-      } catch (error) {
-        console.error('Token refresh request failed:', error);
-        if (axios.isAxiosError(error)) {
-          console.error('Response status:', error.response?.status);
-          console.error('Response data:', error.response?.data);
+      } catch (error: any) {
+        // Handle company disabled error during token refresh
+        if (error.response?.data?.code === 'COMPANY_DISABLED') {
+          await logout(); // Force logout
+          Alert.alert(
+            'Access Denied',
+            'Your company account has been disabled. Please contact the administrator.'
+          );
+          return null;
+        }
+
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          await logout();
         }
         throw error;
       }
     } catch (error) {
       console.error('Token refresh failed:', error);
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        console.log('Clearing auth state due to 401');
-        await AsyncStorage.removeItem('auth_token');
-        setToken(null);
-        setUser(null);
-        delete axios.defaults.headers.common['Authorization'];
-      }
+      await logout();
       return null;
     }
   };
+
+  // Add an axios interceptor to handle company disabled responses globally
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      response => response,
+      async error => {
+        if (error.response?.data?.code === 'COMPANY_DISABLED') {
+          await logout();
+          Alert.alert(
+            'Access Denied',
+            'Your company account has been disabled. Please contact the administrator.'
+          );
+          return Promise.reject(error);
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+    };
+  }, []);
 
   return (
     <AuthContext.Provider 

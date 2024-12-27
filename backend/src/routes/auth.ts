@@ -47,12 +47,16 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
   try {
     const { identifier, password } = req.body;
 
-    console.log('Login attempt:', { identifier });
-
     const isEmail = identifier.includes('@');
     const query = isEmail
-      ? 'SELECT * FROM users WHERE email = $1'
-      : 'SELECT * FROM users WHERE phone = $1';
+      ? `SELECT u.*, c.status as company_status 
+         FROM users u 
+         LEFT JOIN companies c ON u.company_id = c.id 
+         WHERE u.email = $1`
+      : `SELECT u.*, c.status as company_status 
+         FROM users u 
+         LEFT JOIN companies c ON u.company_id = c.id 
+         WHERE u.phone = $1`;
 
     const result = await client.query(query, [identifier]);
 
@@ -61,12 +65,16 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
     }
 
     const user = result.rows[0];
-    
-    console.log('User found:', { 
-      id: user.id,
-      role: user.role,
-      name: user.name 
-    });
+
+    // Check company status for non-super-admin users
+    if (user.role !== 'super-admin' && 
+        user.company_id && 
+        user.company_status === 'disabled') {
+      return res.status(403).json({ 
+        error: 'Company access disabled. Please contact administrator.',
+        code: 'COMPANY_DISABLED'
+      });
+    }
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
@@ -77,17 +85,12 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
       { 
         id: user.id,
         role: user.role,
-        company_id: user.company_id 
+        company_id: user.company_id,
+        token_version: user.token_version 
       },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
-
-    console.log('Generated token payload:', {
-      id: user.id,
-      role: user.role,
-      company_id: user.company_id
-    });
 
     res.json({
       token,
@@ -205,7 +208,11 @@ router.post('/refresh', verifyToken, async (req: CustomRequest, res: Response) =
     }
 
     const userResult = await pool.query(
-      'SELECT id, name, email, phone, role, company_id FROM users WHERE id = $1',
+      `SELECT u.id, u.name, u.email, u.phone, u.role, u.company_id, 
+              u.token_version, c.status as company_status
+       FROM users u
+       LEFT JOIN companies c ON u.company_id = c.id 
+       WHERE u.id = $1`,
       [req.user.id]
     );
 
@@ -214,11 +221,23 @@ router.post('/refresh', verifyToken, async (req: CustomRequest, res: Response) =
     }
 
     const user = userResult.rows[0];
+
+    // Check company status for non-super-admin users
+    if (user.role !== 'super-admin' && 
+        user.company_id && 
+        user.company_status === 'disabled') {
+      return res.status(403).json({ 
+        error: 'Company access disabled. Please contact administrator.',
+        code: 'COMPANY_DISABLED'
+      });
+    }
+
     const newToken = jwt.sign(
       { 
         id: user.id,
         role: user.role,
-        company_id: user.company_id 
+        company_id: user.company_id,
+        token_version: user.token_version 
       },
       JWT_SECRET,
       { expiresIn: '24h' }

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../context/ThemeContext';
 import axios from 'axios';
+import Modal from 'react-native-modal';
 
 interface Company {
   id: number;
@@ -18,6 +19,8 @@ interface Company {
   } | null;
   user_count: number;
   created_at: string;
+  user_limit: number;
+  pending_users: number;
 }
 
 export default function CompanyManagement() {
@@ -30,6 +33,11 @@ export default function CompanyManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
   const [error, setError] = useState<string | null>(null);
+  const [isEditLimitModalVisible, setIsEditLimitModalVisible] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
+  const [newUserLimit, setNewUserLimit] = useState('');
+  const [isUpdatingLimit, setIsUpdatingLimit] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
 
   useEffect(() => {
     fetchCompanies();
@@ -54,10 +62,31 @@ export default function CompanyManagement() {
 
   const handleStatusToggle = async (companyId: number) => {
     try {
-      await axios.patch(`${process.env.EXPO_PUBLIC_API_URL}/api/companies/${companyId}/toggle-status`);
-      fetchCompanies();
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update company status');
+      setUpdatingStatus(companyId);
+      const response = await axios.patch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/companies/${companyId}/toggle-status`
+      );
+      
+      setCompanies(companies.map(company => 
+        company.id === companyId 
+          ? { ...company, status: response.data.status }
+          : company
+      ));
+
+      Alert.alert(
+        'Success',
+        response.data.message,
+        [{ text: 'OK' }]
+      );
+    } catch (error: any) {
+      console.error('Error updating company status:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.error || 'Failed to update company status',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
@@ -81,6 +110,37 @@ export default function CompanyManagement() {
         }
       ]
     );
+  };
+
+  const handleUpdateUserLimit = async () => {
+    if (!selectedCompany || !newUserLimit) return;
+
+    const limit = parseInt(newUserLimit);
+    if (isNaN(limit) || limit < 1) {
+      Alert.alert('Error', 'Please enter a valid number');
+      return;
+    }
+
+    try {
+      setIsUpdatingLimit(true);
+      await axios.patch(`${process.env.EXPO_PUBLIC_API_URL}/api/companies/${selectedCompany.id}/user-limit`, {
+        userLimit: limit
+      });
+      
+      setCompanies(companies.map(company => 
+        company.id === selectedCompany.id 
+          ? { ...company, user_limit: limit }
+          : company
+      ));
+      
+      setIsEditLimitModalVisible(false);
+      Alert.alert('Success', 'User limit updated successfully');
+    } catch (error) {
+      console.error('Error updating user limit:', error);
+      Alert.alert('Error', 'Failed to update user limit');
+    } finally {
+      setIsUpdatingLimit(false);
+    }
   };
 
   const filteredCompanies = companies.filter(company => {
@@ -239,16 +299,21 @@ export default function CompanyManagement() {
                   <View className="flex-row items-start gap-3">
                     <TouchableOpacity
                       onPress={() => handleStatusToggle(company.id)}
+                      disabled={updatingStatus === company.id}
                       className={`p-2 rounded-full ${
                         company.status === 'active' ? 'bg-green-500' : 'bg-red-500'
-                      }`}
+                      } ${updatingStatus === company.id ? 'opacity-50' : ''}`}
                       style={styles.actionButton}
                     >
-                      <Ionicons
-                        name={company.status === 'active' ? 'checkmark' : 'close'}
-                        size={20}
-                        color="white"
-                      />
+                      {updatingStatus === company.id ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <Ionicons
+                          name={company.status === 'active' ? 'checkmark' : 'close'}
+                          size={16}
+                          color="white"
+                        />
+                      )}
                     </TouchableOpacity>
                     
                     <TouchableOpacity
@@ -270,11 +335,86 @@ export default function CompanyManagement() {
                     {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
                   </Text>
                 </View>
+
+                {company.pending_users > 0 && (
+                  <TouchableOpacity
+                    onPress={() => router.push(`/super-admin/company/${company.id}/pending-users`)}
+                    className="absolute top-2 right-20 px-2 py-1 bg-yellow-100 rounded-full"
+                  >
+                    <Text className="text-yellow-800 text-xs font-medium">
+                      {company.pending_users} Pending
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <View className="flex-row items-center justify-between mb-2">
+                  <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                    Users: {company.user_count} / {company.user_limit || 50}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSelectedCompany(company);
+                      setNewUserLimit((company.user_limit || 50).toString());
+                      setIsEditLimitModalVisible(true);
+                    }}
+                    className="p-2"
+                  >
+                    <Ionicons 
+                      name="pencil" 
+                      size={16} 
+                      color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
+                    />
+                  </TouchableOpacity>
+                </View>
               </TouchableOpacity>
             ))
           )}
         </ScrollView>
       </View>
+
+      <Modal
+        isVisible={isEditLimitModalVisible}
+        onBackdropPress={() => !isUpdatingLimit && setIsEditLimitModalVisible(false)}
+        className="m-4"
+      >
+        <View className={`p-6 rounded-2xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+          <Text className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+            Edit User Limit for {selectedCompany?.name}
+          </Text>
+          <TextInput
+            value={newUserLimit}
+            onChangeText={setNewUserLimit}
+            keyboardType="numeric"
+            editable={!isUpdatingLimit}
+            className={`p-4 rounded-lg mb-4 ${
+              theme === 'dark' ? 'bg-gray-700 text-white' : 'bg-gray-50 text-gray-900'
+            }`}
+            style={styles.input}
+            placeholder="Enter new user limit"
+            placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+          />
+          <View className="flex-row justify-end gap-2">
+            <TouchableOpacity
+              onPress={() => setIsEditLimitModalVisible(false)}
+              disabled={isUpdatingLimit}
+              className={`px-4 py-2 rounded-lg bg-gray-500 ${isUpdatingLimit ? 'opacity-50' : ''}`}
+            >
+              <Text className="text-white">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleUpdateUserLimit}
+              disabled={isUpdatingLimit}
+              className={`px-4 py-2 rounded-lg bg-blue-500 ${isUpdatingLimit ? 'opacity-50' : ''}`}
+            >
+              {isUpdatingLimit ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text className="text-white">Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -309,6 +449,13 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   actionButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
+  },
+  input: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
