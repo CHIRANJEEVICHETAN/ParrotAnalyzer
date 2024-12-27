@@ -5,6 +5,7 @@ export interface JwtPayload {
   id: string;
   role: string;
   company_id?: string;
+  token_version?: number;
   iat?: number;
   exp?: number;
 }
@@ -16,6 +17,7 @@ export interface CustomRequest extends Request {
     email?: string;
     role: string;
     company_id?: string;
+    token_version?: number;
   };
 }
 

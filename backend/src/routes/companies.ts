@@ -16,6 +16,7 @@ router.get('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: 
         c.email,
         c.status,
         c.created_at,
+        c.user_limit,
         (
           SELECT json_build_object(
             'name', u.name,
@@ -38,7 +39,8 @@ router.get('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: 
     const companies = result.rows.map(company => ({
       ...company,
       management: company.management || null,
-      user_count: parseInt(company.user_count) || 0
+      user_count: parseInt(company.user_count) || 0,
+      user_limit: parseInt(company.user_limit) || 50 // Default to 50 if not set
     }));
 
     res.json(companies);
@@ -59,7 +61,8 @@ router.post('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res:
       managementName, 
       managementEmail, 
       managementPhone, 
-      managementPassword 
+      managementPassword,
+      userLimit
     } = req.body;
 
     if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword) {
@@ -89,10 +92,10 @@ router.post('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res:
     }
 
     const companyResult = await client.query(
-      `INSERT INTO companies (name, email, address, status)
-       VALUES ($1, $2, $3, 'active')
+      `INSERT INTO companies (name, email, address, status, user_limit)
+       VALUES ($1, $2, $3, 'active', $4)
        RETURNING id`,
-      [companyName, companyEmail, companyAddress]
+      [companyName, companyEmail, companyAddress, userLimit || 50]
     );
 
     const companyId = companyResult.rows[0].id;
@@ -120,47 +123,21 @@ router.post('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res:
   }
 });
 
-// Toggle company status
+// Update company status
 router.patch('/:id/toggle-status', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    
-    const result = await client.query(
-      `UPDATE companies 
-       SET status = CASE WHEN status = 'active' THEN 'disabled' ELSE 'active' END
-       WHERE id = $1
-       RETURNING status`,
-      [req.params.id]
-    );
-    
-    const newStatus = result.rows[0].status;
-
-    await client.query('COMMIT');
-    res.json({ 
-      message: 'Company status updated successfully',
-      status: newStatus
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error updating company status:', error);
-    res.status(500).json({ error: 'Failed to update company status' });
-  } finally {
-    client.release();
-  }
-});
-
-// Delete company
-router.delete('/:id', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
     const { id } = req.params;
+    
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({ error: 'Invalid company ID' });
+    }
 
     await client.query('BEGIN');
 
-    // First check if company exists
+    // First check if company exists and get current status
     const companyCheck = await client.query(
-      'SELECT id FROM companies WHERE id = $1',
+      `SELECT id, status, name FROM companies WHERE id = $1`,
       [id]
     );
 
@@ -169,69 +146,79 @@ router.delete('/:id', verifyToken, requireSuperAdmin, async (req: CustomRequest,
       return res.status(404).json({ error: 'Company not found' });
     }
 
-    // 1. First delete all expense documents
-    await client.query(`
-      DELETE FROM expense_documents 
-      WHERE expense_id IN (
-        SELECT e.id FROM expenses e
-        JOIN users u ON e.user_id = u.id
-        WHERE u.company_id = $1
-      )
-    `, [id]);
+    const company = companyCheck.rows[0];
+    const newStatus = company.status === 'active' ? 'disabled' : 'active';
 
-    // 2. Delete all expenses
-    await client.query(`
-      DELETE FROM expenses 
-      WHERE user_id IN (
-        SELECT id FROM users WHERE company_id = $1
-      )
-    `, [id]);
+    // Update company status
+    await client.query(
+      'UPDATE companies SET status = $1 WHERE id = $2',
+      [newStatus, id]
+    );
 
-    // 3. Delete all schedule entries
-    await client.query(`
-      DELETE FROM schedule 
-      WHERE user_id IN (
-        SELECT id FROM users WHERE company_id = $1
-      )
-    `, [id]);
+    // If company is being disabled, invalidate all user tokens
+    if (newStatus === 'disabled') {
+      // Get count of affected users for logging
+      const userCount = await client.query(
+        `SELECT COUNT(*) FROM users WHERE company_id = $1 AND role != 'super-admin'`,
+        [id]
+      );
 
-    // 4. First update group_admin_id to null for all employees
-    await client.query(`
-      UPDATE users 
-      SET group_admin_id = NULL 
-      WHERE company_id = $1 AND role = 'employee'
-    `, [id]);
+      await client.query(
+        `UPDATE users 
+         SET token_version = COALESCE(token_version, 0) + 1 
+         WHERE company_id = $1 AND role != 'super-admin'`,
+        [id]
+      );
 
-    // 5. Now we can safely delete all users
-    await client.query(`
-      DELETE FROM users 
-      WHERE company_id = $1
-    `, [id]);
-
-    // 6. Finally delete the company
-    await client.query('DELETE FROM companies WHERE id = $1', [id]);
+      console.log(`Invalidated tokens for ${userCount.rows[0].count} users in company ${company.name}`);
+    }
 
     await client.query('COMMIT');
-    
+
+    // Return the new status with detailed message
     res.json({ 
-      success: true,
-      message: 'Company and all associated data deleted successfully' 
+      status: newStatus,
+      message: `Company ${company.name} ${newStatus === 'active' ? 'activated' : 'disabled'} successfully`,
+      company_id: id
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error deleting company:', error);
+    console.error('Error toggling company status:', error);
     
-    // Send more detailed error information
-    let errorMessage = 'Failed to delete company';
-    if (error instanceof Error) {
-      errorMessage += `: ${error.message}`;
-    }
-    
+    // Send more specific error message
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     res.status(500).json({ 
-      error: errorMessage,
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Failed to update company status',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
     });
+  } finally {
+    client.release();
+  }
+});
+
+// Delete company and all associated data
+router.delete('/:id', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    
+    await client.query('BEGIN');
+
+    // Delete all related data in correct order
+    await client.query('DELETE FROM expenses WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM schedules WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM tasks WHERE assigned_to IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM users WHERE company_id = $1', [id]);
+    await client.query('DELETE FROM companies WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+    res.json({ message: 'Company and all associated data deleted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting company:', error);
+    res.status(500).json({ error: 'Failed to delete company' });
   } finally {
     client.release();
   }
@@ -322,6 +309,40 @@ router.get('/:id/hierarchy', verifyToken, requireSuperAdmin, async (req: CustomR
   } catch (error) {
     console.error('Error fetching company hierarchy:', error);
     res.status(500).json({ error: 'Failed to fetch company hierarchy' });
+  } finally {
+    client.release();
+  }
+});
+
+// Add endpoint to update user limit
+router.patch('/:id/user-limit', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { userLimit } = req.body;
+
+    if (!userLimit || isNaN(userLimit) || userLimit < 1) {
+      return res.status(400).json({ error: 'Invalid user limit' });
+    }
+
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      'UPDATE companies SET user_limit = $1 WHERE id = $2 RETURNING *',
+      [userLimit, id]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    await client.query('COMMIT');
+    res.json({ user_limit: result.rows[0].user_limit });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating user limit:', error);
+    res.status(500).json({ error: 'Failed to update user limit' });
   } finally {
     client.release();
   }

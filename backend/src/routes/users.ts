@@ -23,38 +23,77 @@ router.get('/profile', verifyToken, async (req: CustomRequest, res: Response) =>
 });
 
 // Register new user (super admin only)
-router.post('/register', verifyToken, requireSuperAdmin, async (req, res) => {
+router.post('/register', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
-    const { name, email, phone, password, role } = req.body;
+    const { name, email, password, role, company_id } = req.body;
 
-    const validRoles = ['employee', 'group-admin', 'management', 'super-admin'];
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({ error: 'Invalid role' });
-    }
-
-    const existingUser = await pool.query(
-      'SELECT * FROM users WHERE email = $1 OR phone = $2',
-      [email, phone]
+    // Check company status and user limit
+    const companyResult = await client.query(
+      `SELECT status, user_limit, 
+        (SELECT COUNT(*) FROM users WHERE company_id = companies.id) as current_users
+       FROM companies WHERE id = $1`,
+      [company_id]
     );
 
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({ error: 'User already exists' });
+    if (companyResult.rows[0].status === 'disabled') {
+      return res.status(403).json({ error: 'Company is disabled' });
     }
 
+    const { user_limit, current_users } = companyResult.rows[0];
+    const needsApproval = current_users >= user_limit;
+
+    // Create user with pending status if limit exceeded
+    const status = needsApproval ? 'pending' : 'active';
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const result = await pool.query(
-      `INSERT INTO users (name, email, phone, password, role)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, email, phone, role`,
-      [name, email, phone, hashedPassword, role]
+    const result = await client.query(
+      `INSERT INTO users (name, email, password, role, company_id, status)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, email, role`,
+      [name, email, hashedPassword, role, company_id, status]
     );
 
-    res.status(201).json(result.rows[0]);
+    if (needsApproval) {
+      // Notify super admin about pending user
+      await client.query(
+        `INSERT INTO notifications (user_id, title, message, type)
+         SELECT id, 'New User Pending Approval', $1, 'approval_needed'
+         FROM users WHERE role = 'super-admin'`,
+        [`New user ${name} (${role}) needs approval for ${companyResult.rows[0].name}`]
+      );
+    }
+
+    res.status(201).json({
+      user: result.rows[0],
+      needsApproval
+    });
   } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Error registering user' });
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Failed to create user' });
+  } finally {
+    client.release();
+  }
+});
+
+// Add approval endpoints for super admin
+router.post('/approve/:id', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    
+    await client.query(
+      'UPDATE users SET status = $1 WHERE id = $2',
+      ['active', id]
+    );
+
+    res.json({ message: 'User approved successfully' });
+  } catch (error) {
+    console.error('Error approving user:', error);
+    res.status(500).json({ error: 'Failed to approve user' });
+  } finally {
+    client.release();
   }
 });
 

@@ -7,30 +7,22 @@ export const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 export const verifyToken = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
-    console.log('\n=== Token Verification Start ===');
-    
     const authHeader = req.headers.authorization;
-    console.log('Authorization header present:', !!authHeader);
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('Invalid or missing authorization header');
       return res.status(401).json({ error: 'Authentication required' });
     }
 
     const token = authHeader.split(' ')[1];
-    console.log('Token extracted, verifying...');
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-      console.log('Token verified successfully, decoded payload:', {
-        id: decoded.id,
-        role: decoded.role
-      });
-
       const client = await pool.connect();
+      
       try {
         const result = await client.query(
-          `SELECT u.id, u.name, u.email, u.role, u.company_id, c.status as company_status
+          `SELECT 
+            u.id, u.name, u.email, u.role, u.company_id, 
+            u.token_version, c.status as company_status
            FROM users u
            LEFT JOIN companies c ON u.company_id = c.id
            WHERE u.id = $1`,
@@ -38,15 +30,27 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
         );
 
         if (!result.rows.length) {
-          console.log('User not found in database');
           return res.status(401).json({ error: 'User not found' });
         }
 
         const user = result.rows[0];
-        console.log('User found in database:', {
-          id: user.id,
-          role: user.role
-        });
+
+        if (user.role !== 'super-admin' && 
+            user.company_id && 
+            user.company_status === 'disabled') {
+          return res.status(403).json({ 
+            error: 'Company access disabled. Please contact administrator.',
+            code: 'COMPANY_DISABLED'
+          });
+        }
+
+        if (decoded.token_version !== undefined && 
+            decoded.token_version !== user.token_version) {
+          return res.status(401).json({ 
+            error: 'Session expired. Please login again.',
+            code: 'TOKEN_VERSION_MISMATCH'
+          });
+        }
 
         req.user = user;
         next();
@@ -54,7 +58,6 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
         client.release();
       }
     } catch (error) {
-      console.error('Token verification failed:', error);
       if (error instanceof jwt.TokenExpiredError) {
         return res.status(401).json({ error: 'Token expired' });
       }

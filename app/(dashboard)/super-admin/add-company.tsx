@@ -15,6 +15,7 @@ interface CompanyFormData {
   managementEmail: string;
   managementPhone: string;
   managementPassword: string;
+  userLimit: string;
 }
 
 export default function AddCompany() {
@@ -30,6 +31,7 @@ export default function AddCompany() {
     managementEmail: '',
     managementPhone: '',
     managementPassword: '',
+    userLimit: '',
   });
 
   const [errors, setErrors] = useState<Partial<CompanyFormData>>({});
@@ -83,6 +85,7 @@ export default function AddCompany() {
     if (!formData.managementPassword || formData.managementPassword.length < 8) {
       newErrors.managementPassword = 'Password must be at least 8 characters';
     }
+    if (!formData.userLimit) newErrors.userLimit = 'User limit is required';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -142,6 +145,79 @@ export default function AddCompany() {
     }
   };
 
+  const formFields = [
+    // Company Section
+    {
+      section: 'Company Details',
+      fields: [
+        {
+          key: 'companyName',
+          label: 'Company Name',
+          icon: 'business',
+          keyboardType: 'default',
+          placeholder: 'Enter company name'
+        },
+        {
+          key: 'companyEmail',
+          label: 'Company Email',
+          icon: 'mail',
+          keyboardType: 'email-address',
+          placeholder: 'company@example.com'
+        },
+        {
+          key: 'companyAddress',
+          label: 'Company Address',
+          icon: 'location',
+          keyboardType: 'default',
+          placeholder: 'Enter company address',
+          multiline: true
+        },
+        {
+          key: 'userLimit',
+          label: 'User Limit',
+          icon: 'people',
+          keyboardType: 'numeric',
+          placeholder: 'Enter maximum number of users'
+        }
+      ]
+    },
+    // Management Section
+    {
+      section: 'Management Account',
+      fields: [
+        {
+          key: 'managementName',
+          label: 'Management Name',
+          icon: 'person',
+          keyboardType: 'default',
+          placeholder: 'Enter management name'
+        },
+        {
+          key: 'managementEmail',
+          label: 'Management Email',
+          icon: 'mail',
+          keyboardType: 'email-address',
+          placeholder: 'management@example.com'
+        },
+        {
+          key: 'managementPhone',
+          label: 'Management Phone',
+          icon: 'call',
+          keyboardType: 'phone-pad',
+          placeholder: 'Enter phone number'
+        },
+        {
+          key: 'managementPassword',
+          label: 'Management Password',
+          icon: 'lock-closed',
+          keyboardType: 'default',
+          secure: true,
+          placeholder: 'Enter password'
+        }
+      ]
+    }
+  ];
+
   return (
     <View className="flex-1">
       <LinearGradient
@@ -169,89 +245,64 @@ export default function AddCompany() {
         showsVerticalScrollIndicator={false}
       >
         <View className="p-6">
-          {/* Company Details Section */}
-          <View className="mb-8">
-            <Text className={`text-xl font-bold mb-6 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-              Company Details
-            </Text>
-            
-            {/* Form fields for company */}
-            <View className="space-y-4">
-              {[
-                { label: 'Company Name', key: 'companyName' },
-                { label: 'Company Email', key: 'companyEmail', keyboardType: 'email-address' },
-                { label: 'Company Address', key: 'companyAddress', multiline: true }
-              ].map((field) => (
-                <View key={field.key}>
-                  <Text className={`mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                    {field.label}
-                  </Text>
-                  <TextInput
-                    value={formData[field.key as keyof CompanyFormData]}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
-                    className={`p-4 rounded-lg mb-2 ${
-                      theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-                    } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
-                    style={styles.inputContainer}
-                    placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                    multiline={field.multiline}
-                    numberOfLines={field.multiline ? 3 : 1}
-                    keyboardType={field.keyboardType as any}
-                  />
-                  {errors[field.key as keyof CompanyFormData] && (
-                    <Text className="text-red-500 mt-1">
-                      {errors[field.key as keyof CompanyFormData]}
+          {formFields.map((section) => (
+            <View key={section.section} className="mb-8">
+              <Text className={`text-xl font-bold mb-6 ${
+                theme === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>
+                {section.section}
+              </Text>
+              
+              <View className="space-y-4">
+                {section.fields.map((field) => (
+                  <View key={field.key} className="mb-4">
+                    <Text className={`mb-2 font-medium ${
+                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                    }`}>
+                      {field.label}
                     </Text>
-                  )}
-                </View>
-              ))}
+                    <View className="relative">
+                      <View className="absolute left-4 top-4 z-10">
+                        <Ionicons
+                          name={field.icon}
+                          size={20}
+                          color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                        />
+                      </View>
+                      <TextInput
+                        value={formData[field.key as keyof CompanyFormData]}
+                        onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
+                        className={`pl-12 p-4 rounded-lg ${
+                          theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+                        } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
+                        style={[
+                          styles.inputContainer,
+                          field.multiline && { height: 100, textAlignVertical: 'top' }
+                        ]}
+                        placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                        placeholder={field.placeholder}
+                        secureTextEntry={field.secure}
+                        keyboardType={field.keyboardType as any}
+                        multiline={field.multiline}
+                        numberOfLines={field.multiline ? 4 : 1}
+                      />
+                    </View>
+                    {errors[field.key as keyof CompanyFormData] && (
+                      <Text className="text-red-500 mt-1">
+                        {errors[field.key as keyof CompanyFormData]}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
-
-          {/* Management Details Section */}
-          <View className="mb-8">
-            <Text className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-              Management Account Details
-            </Text>
-            
-            {/* Form fields for management */}
-            <View className="space-y-4">
-              {[
-                { label: 'Full Name', key: 'managementName' },
-                { label: 'Email', key: 'managementEmail', keyboardType: 'email-address' },
-                { label: 'Phone', key: 'managementPhone', keyboardType: 'phone-pad' },
-                { label: 'Password', key: 'managementPassword', secure: false }
-              ].map((field) => (
-                <View key={field.key}>
-                  <Text className={`mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                    {field.label}
-                  </Text>
-                  <TextInput
-                    value={formData[field.key as keyof CompanyFormData]}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
-                    className={`p-4 rounded-lg mb-2 ${
-                      theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-                    } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
-                    style={styles.inputContainer}
-                    placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                    secureTextEntry={field.secure}
-                    keyboardType={field.keyboardType as any}
-                  />
-                  {errors[field.key as keyof CompanyFormData] && (
-                    <Text className="text-red-500 mt-1">
-                      {errors[field.key as keyof CompanyFormData]}
-                    </Text>
-                  )}
-                </View>
-              ))}
-            </View>
-          </View>
+          ))}
 
           {/* Submit Button */}
           <TouchableOpacity
             onPress={handleSubmit}
             disabled={loading}
-            className={`py-4 rounded-lg bg-blue-500 ${loading ? 'opacity-50' : ''} active:bg-blue-600`}
+            className={`py-4 rounded-lg bg-blue-500 ${loading ? 'opacity-50' : ''}`}
             style={styles.submitButton}
           >
             <Text className="text-white text-center font-semibold text-lg">
