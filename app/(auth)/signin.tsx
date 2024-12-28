@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, Animated, Keyboard, Image, StatusBar, ScrollView } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, Animated, Keyboard, Image, StatusBar, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../context/ThemeContext';
 import AuthContext from '../context/AuthContext';
@@ -15,7 +15,7 @@ export default function SignIn() {
     const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    const [error, setError] = useState('');
+    const [error, setError] = useState<{ message: string; type: string } | null>(null);
     const [isValidIdentifier, setIsValidIdentifier] = useState(false);
     const [identifierType, setIdentifierType] = useState<'email' | 'phone' | null>(null);
 
@@ -50,54 +50,27 @@ export default function SignIn() {
             setIsValidIdentifier(validateEmail(text));
         }
         setIdentifier(formattedText);
-        setError('');
+        setError(null);
     };
 
     const handleSignIn = async () => {
-        setError('');
-        
+        setError(null);
+
         if (!identifier || !password) {
-            setError('Please fill in all fields');
+            setError({
+                message: 'Please enter both email/phone and password',
+                type: 'VALIDATION'
+            });
             return;
         }
 
-        try {
-            await login(identifier, password);
-            console.log('Login successful');
-        } catch (err: any) {
-            console.error('Login error in signin:', err);
-            let errorMessage = 'An error occurred during login';
-            
-            if (err.response?.data?.error) {
-                errorMessage = err.response.data.error;
-            } else if (err.response?.status === 401) {
-                errorMessage = 'Invalid credentials. Please check your email/phone and password';
-            } else if (err.response?.status === 403) {
-                errorMessage = err.response?.data?.details || 'Account is locked. Please contact support';
-            } else if (err.message) {
-                errorMessage = err.message;
-            }
+        const result = await login(identifier, password);
 
-            setError(errorMessage);
-            
-            // Shake animation for error feedback
-            Animated.sequence([
-                Animated.timing(inputFocusAnim, {
-                    toValue: 10,
-                    duration: 100,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(inputFocusAnim, {
-                    toValue: -10,
-                    duration: 100,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(inputFocusAnim, {
-                    toValue: 0,
-                    duration: 100,
-                    useNativeDriver: true,
-                }),
-            ]).start();
+        if (result.error) {
+            setError({
+                message: result.error,
+                type: result.errorType || 'UNKNOWN'
+            });
         }
     };
 
@@ -119,12 +92,12 @@ export default function SignIn() {
 
     return (
         <>
-            <StatusBar 
+            <StatusBar
                 barStyle={theme === 'dark' ? "light-content" : "dark-content"}
                 backgroundColor={theme === 'dark' ? '#1E293B' : '#EEF2FF'}
             />
-            <TouchableOpacity 
-                activeOpacity={1} 
+            <TouchableOpacity
+                activeOpacity={1}
                 onPress={Keyboard.dismiss}
                 style={{
                     flex: 1,
@@ -132,12 +105,12 @@ export default function SignIn() {
                 }}
             >
                 <LinearGradient
-                    colors={theme === 'dark' ? 
-                        ['#1E293B', '#0F172A'] : 
+                    colors={theme === 'dark' ?
+                        ['#1E293B', '#0F172A'] :
                         ['#EEF2FF', '#E0E7FF']}
                     style={{ flex: 1 }}
                 >
-                    <ScrollView 
+                    <ScrollView
                         contentContainerStyle={{ flexGrow: 1 }}
                         keyboardShouldPersistTaps="handled"
                         showsVerticalScrollIndicator={false}
@@ -180,7 +153,7 @@ export default function SignIn() {
                                         overflow: 'hidden',
                                         backgroundColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(99, 102, 241, 0.05)',
                                     }}>
-                                        <Image 
+                                        <Image
                                             source={require('../../assets/images/icon.png')}
                                             style={{
                                                 width: '100%',
@@ -234,10 +207,10 @@ export default function SignIn() {
                                             borderRadius: 12,
                                             color: theme === 'dark' ? '#ffffff' : '#1F2937',
                                             borderWidth: 2,
-                                            borderColor: isValidIdentifier 
-                                                ? '#10B981' 
-                                                : identifier 
-                                                    ? '#EF4444' 
+                                            borderColor: isValidIdentifier
+                                                ? '#10B981'
+                                                : identifier
+                                                    ? '#EF4444'
                                                     : theme === 'dark' ? '#374151' : '#E5E7EB',
                                         }}
                                         placeholderTextColor={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
@@ -249,8 +222,8 @@ export default function SignIn() {
                                             fontSize: 12,
                                             color: isValidIdentifier ? '#10B981' : '#EF4444',
                                         }}>
-                                            {isValidIdentifier 
-                                                ? `Valid ${identifierType}` 
+                                            {isValidIdentifier
+                                                ? `Valid ${identifierType}`
                                                 : `Invalid ${identifierType}`}
                                         </Text>
                                     )}
@@ -310,24 +283,19 @@ export default function SignIn() {
                                     </Text>
                                 </TouchableOpacity>
 
-                                {error ? (
-                                    <Animated.View 
-                                        style={{
-                                            transform: [{ translateX: inputFocusAnim }],
-                                            backgroundColor: theme === 'dark' ? '#991B1B' : '#FEE2E2',
-                                            padding: 12,
-                                            borderRadius: 8,
-                                            marginBottom: 16,
-                                        }}
-                                    >
-                                        <Text style={{
-                                            color: theme === 'dark' ? '#FCA5A5' : '#991B1B',
-                                            textAlign: 'center',
-                                        }}>
-                                            {error}
-                                        </Text>
-                                    </Animated.View>
-                                ) : null}
+                                {error && (
+                                    <View style={[
+                                        styles.errorContainer,
+                                        error.type === 'COMPANY_DISABLED' ? styles.companyDisabledError : styles.generalError
+                                    ]}>
+                                        <Text style={styles.errorText}>{error.message}</Text>
+                                        {error.type === 'COMPANY_DISABLED' && (
+                                            <Text style={styles.errorSubText}>
+                                                If you believe this is a mistake, please contact your administrator or support team.
+                                            </Text>
+                                        )}
+                                    </View>
+                                )}
 
                                 <TouchableOpacity
                                     onPress={handleSignIn}
@@ -367,3 +335,34 @@ export default function SignIn() {
         </>
     );
 }
+
+const styles = StyleSheet.create({
+    errorContainer: {
+        padding: 16,
+        borderRadius: 8,
+        marginBottom: 16,
+        width: '100%',
+    },
+    generalError: {
+        backgroundColor: '#FEE2E2',
+        borderColor: '#EF4444',
+        borderWidth: 1,
+    },
+    companyDisabledError: {
+        backgroundColor: '#DC2626',
+        borderColor: '#B91C1C',
+        borderWidth: 1,
+    },
+    errorText: {
+        color: '#991B1B',
+        fontSize: 14,
+        fontWeight: '500',
+        textAlign: 'center',
+    },
+    errorSubText: {
+        color: '#991B1B',
+        fontSize: 12,
+        marginTop: 8,
+        textAlign: 'center',
+    },
+});
