@@ -142,12 +142,6 @@ export default function UserPermissions() {
         refreshData();
     }, []);
 
-    // Add handlers for user management
-    const handleAddUser = () => {
-        // Navigate to add user form
-        router.push('/(dashboard)/Group-Admin/settings/add-user');
-    };
-
     const handleBulkDelete = () => {
         Alert.alert(
             'Delete Users',
@@ -194,43 +188,6 @@ export default function UserPermissions() {
             prev.includes(userId)
                 ? prev.filter(id => id !== userId)
                 : [...prev, userId]
-        );
-    };
-
-    const handleEditRole = (roleId: string) => {
-        const role = roles.find(r => r.id === roleId);
-        if (role?.isFixed) {
-            Alert.alert(
-                'Cannot Modify Role',
-                'The Group Admin role cannot be modified as it has full system access.'
-            );
-            return;
-        }
-        router.push({
-            pathname: '/(dashboard)/Group-Admin/settings/edit-role',
-            params: { id: roleId }
-        });
-    };
-
-    const handlePermissionToggle = (roleId: string, permissionId: string) => {
-        setRoles(currentRoles => 
-            currentRoles.map(role => {
-                if (role.id === roleId && !role.isFixed) {
-                    const newActivePermissions = role.activePermissions || [];
-                    if (newActivePermissions.includes(permissionId)) {
-                        return {
-                            ...role,
-                            activePermissions: newActivePermissions.filter(id => id !== permissionId)
-                        };
-                    } else {
-                        return {
-                            ...role,
-                            activePermissions: [...newActivePermissions, permissionId]
-                        };
-                    }
-                }
-                return role;
-            })
         );
     };
 
@@ -309,14 +266,6 @@ export default function UserPermissions() {
                                 </View>
                             )}
                         </View>
-                        {!role.isFixed && (
-                            <TouchableOpacity 
-                                className="bg-blue-500 px-3 py-1 rounded-lg"
-                                onPress={() => handleEditRole(role.id)}
-                            >
-                                <Text className="text-white">Edit</Text>
-                            </TouchableOpacity>
-                        )}
                     </View>
                     <Text className={`mb-3 ${
                         theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
