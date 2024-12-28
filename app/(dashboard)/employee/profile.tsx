@@ -41,6 +41,61 @@ interface ActivityItem {
   color: string;
 }
 
+interface ProgressBarProps {
+  value: number;
+  maxValue: number;
+  color: string;
+  isDark: boolean;
+}
+
+const ProgressBar: React.FC<ProgressBarProps> = ({ value, maxValue, color, isDark }) => {
+  const percentage = Math.min((value / maxValue) * 100, 100);
+  
+  return (
+    <View className="relative h-2.5 w-full rounded-full overflow-hidden" 
+          style={{ 
+            backgroundColor: isDark ? '#374151' : '#E5E7EB',
+            shadowColor: color,
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.1,
+            shadowRadius: 1,
+            elevation: 1,
+          }}>
+      <View 
+        className="h-full rounded-full"
+        style={{ 
+          width: `${percentage}%`,
+          backgroundColor: color,
+          shadowColor: color,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.3,
+          shadowRadius: 3,
+          elevation: 2,
+        }}
+      />
+      {percentage > 85 && (
+        <View 
+          style={{ 
+            position: 'absolute',
+            right: 2,
+            top: '50%',
+            transform: [{ translateY: -4 }],
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: 'white',
+            shadowColor: color,
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.5,
+            shadowRadius: 2,
+            elevation: 3,
+          }} 
+        />
+      )}
+    </View>
+  );
+};
+
 export default function Profile() {
   const { theme } = ThemeContext.useTheme();
   const { user, token } = AuthContext.useAuth();
@@ -55,6 +110,12 @@ export default function Profile() {
   });
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  const WORK_HOURS_PER_DAY = 8;
+  const WORK_DAYS_PER_MONTH = 22; // Average working days in a month
+  const MAX_HOURS_PER_MONTH = WORK_HOURS_PER_DAY * WORK_DAYS_PER_MONTH;
+  const MAX_EXPENSES_PER_MONTH = 50;
+  const MAX_TASKS_PER_MONTH = 50;
 
   useEffect(() => {
     if (user?.id) {
@@ -249,38 +310,126 @@ export default function Profile() {
         </View>
 
         {/* My Expenses Section */}
-        <View style={styles.quickActionsContainer}>
+        <View className="mx-4">
           <TouchableOpacity
             onPress={() => router.push('/(dashboard)/employee/myExpenses')}
-            style={[styles.quickActionCard, styles.card]}
-            className={`p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+            style={[styles.card]}
+            className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
           >
-            <View 
-              style={[
-                styles.iconContainer,
-                { backgroundColor: isDark ? '#374151' : '#F3F4F6' }
-              ]}
-              className="w-12 h-12 rounded-full items-center justify-center mb-3"
-            >
+            <View className="flex-row items-center">
+              <View 
+                style={[
+                  styles.iconContainer,
+                  { backgroundColor: isDark ? '#374151' : '#F3F4F6' }
+                ]}
+                className="rounded-full items-center justify-center"
+              >
+                <Ionicons
+                  name="receipt-outline"
+                  size={24}
+                  color={isDark ? '#60A5FA' : '#3B82F6'}
+                />
+              </View>
+              <View className="ml-3 flex-1">
+                <Text
+                  className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}
+                >
+                  My Expenses
+                </Text>
+                <Text
+                  className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}
+                >
+                  Track your expense claims
+                </Text>
+              </View>
               <Ionicons
-                name="receipt-outline"
+                name="chevron-forward"
                 size={24}
-                color={isDark ? '#60A5FA' : '#3B82F6'}
+                color={isDark ? '#6B7280' : '#9CA3AF'}
               />
             </View>
-            <Text
-              style={styles.quickActionTitle}
-              className={`text-lg font-semibold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}
-            >
-              My Expenses
-            </Text>
-            <Text
-              style={styles.quickActionSubtitle}
-              className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}
-            >
-              Track your expense claims
-            </Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Progress Bars Section */}
+        <View className={`mx-4 mt-4 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.card}>
+          <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Monthly Progress
+          </Text>
+          
+          <View className="space-y-4">
+            {/* Hours Progress */}
+            <View>
+              <View className="flex-row justify-between mb-2">
+                <Text className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Working Hours
+                </Text>
+                <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {stats.totalHours}/{MAX_HOURS_PER_MONTH}h
+                </Text>
+              </View>
+              <ProgressBar 
+                value={Number(stats.totalHours)} 
+                maxValue={MAX_HOURS_PER_MONTH}
+                color="#10B981"
+                isDark={isDark}
+              />
+            </View>
+
+            {/* Expenses Progress */}
+            <View>
+              <View className="flex-row justify-between mb-2">
+                <Text className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Expenses Claims
+                </Text>
+                <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {stats.expenseCount}/{MAX_EXPENSES_PER_MONTH}
+                </Text>
+              </View>
+              <ProgressBar 
+                value={Number(stats.expenseCount)} 
+                maxValue={MAX_EXPENSES_PER_MONTH}
+                color="#F59E0B"
+                isDark={isDark}
+              />
+            </View>
+
+            {/* Attendance Progress */}
+            <View>
+              <View className="flex-row justify-between mb-2">
+                <Text className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Attendance Rate
+                </Text>
+                <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {stats.attendanceRate}
+                </Text>
+              </View>
+              <ProgressBar 
+                value={Number(stats.attendanceRate.replace('%', ''))} 
+                maxValue={100}
+                color="#8B5CF6"
+                isDark={isDark}
+              />
+            </View>
+
+            {/* Tasks Progress */}
+            <View>
+              <View className="flex-row justify-between mb-2">
+                <Text className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Completed Tasks
+                </Text>
+                <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {stats.completedTasks}/{MAX_TASKS_PER_MONTH}
+                </Text>
+              </View>
+              <ProgressBar 
+                value={Number(stats.completedTasks)} 
+                maxValue={MAX_TASKS_PER_MONTH}
+                color="#3B82F6"
+                isDark={isDark}
+              />
+            </View>
+          </View>
         </View>
 
         {/* Recent Activity */}
@@ -347,30 +496,11 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 48,
   },
-  quickActionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 10,
-  },
-  quickActionCard: {
-    flex: 1,
-    marginHorizontal: 8,
-  },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  quickActionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  quickActionSubtitle: {
-    fontSize: 14,
-    opacity: 0.8,
   },
 });
