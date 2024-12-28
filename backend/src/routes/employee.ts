@@ -398,4 +398,137 @@ router.get('/admin/attendance/:month', verifyToken, async (req: CustomRequest, r
   }
 });
 
+// Get profile stats and recent activities
+router.get('/profile-stats', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
+
+    // Get total hours worked this month
+    const hoursResult = await client.query(`
+      SELECT COALESCE(
+        ROUND(
+          SUM(
+            EXTRACT(EPOCH FROM (end_time - start_time))/3600
+          )::numeric, 
+          1
+        ),
+        0
+      ) as total_hours
+      FROM employee_shifts
+      WHERE user_id = $1
+      AND DATE_TRUNC('month', start_time) = DATE_TRUNC('month', CURRENT_DATE)
+    `, [userId]);
+
+    // Get expense count
+    const expensesResult = await client.query(`
+      SELECT COUNT(*)::text as expense_count
+      FROM expenses
+      WHERE user_id = $1
+      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+    `, [userId]);
+
+    // Get attendance rate
+    const attendanceResult = await client.query(`
+      SELECT 
+        COALESCE(COUNT(DISTINCT DATE(start_time)), 0) as days_present,
+        COALESCE(COUNT(DISTINCT CASE WHEN status = 'late' THEN DATE(start_time) END), 0) as days_late
+      FROM employee_shifts
+      WHERE user_id = $1
+      AND DATE_TRUNC('month', start_time) = DATE_TRUNC('month', CURRENT_DATE)
+    `, [userId]);
+
+    // Get completed tasks
+    const tasksResult = await client.query(`
+      SELECT COUNT(*)::text as completed_tasks
+      FROM employee_tasks
+      WHERE assigned_to = $1
+      AND status = 'completed'
+      AND updated_at >= CURRENT_DATE - INTERVAL '30 days'
+    `, [userId]);
+
+    // Get recent activities with proper error handling
+    const activitiesResult = await client.query(`
+      (
+        SELECT 
+          'shift' as type,
+          CASE 
+            WHEN status = 'late' THEN 'Late Check-in'
+            ELSE 'Shift Completed'
+          END as title,
+          CONCAT(
+            'Duration: ',
+            COALESCE(
+              ROUND(
+                EXTRACT(EPOCH FROM (end_time - start_time))/3600
+              ::numeric, 
+              1
+            ),
+            0
+          ),
+            ' hours'
+          ) as description,
+          start_time as time
+        FROM employee_shifts
+        WHERE user_id = $1
+        AND start_time >= CURRENT_DATE - INTERVAL '30 days'
+
+        UNION ALL
+
+        SELECT 
+          'expense' as type,
+          'Expense ' || COALESCE(status, 'submitted') as title,
+          CONCAT('Amount: ₹', COALESCE(total_amount, 0)) as description,
+          created_at as time
+        FROM expenses
+        WHERE user_id = $1
+        AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+
+        UNION ALL
+
+        SELECT 
+          'task' as type,
+          'Task ' || COALESCE(status, 'updated') as title,
+          COALESCE(title, 'Task updated') as description,
+          updated_at as time
+        FROM employee_tasks
+        WHERE assigned_to = $1
+        AND updated_at >= CURRENT_DATE - INTERVAL '30 days'
+      )
+      ORDER BY time DESC
+      LIMIT 5
+    `, [userId]);
+
+    // Calculate attendance rate with proper handling
+    const workingDays = 22; // Assuming 22 working days per month
+    const daysPresent = parseInt(attendanceResult.rows[0].days_present) || 0;
+    const attendanceRate = ((daysPresent / workingDays) * 100).toFixed(1) + '%';
+
+    const stats = {
+      totalHours: hoursResult.rows[0].total_hours.toString(),
+      expenseCount: expensesResult.rows[0].expense_count.toString(),
+      attendanceRate: attendanceRate,
+      completedTasks: tasksResult.rows[0].completed_tasks.toString()
+    };
+
+    res.json({
+      stats,
+      recentActivities: activitiesResult.rows
+    });
+
+  } catch (error) {
+    console.error('Error details:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch profile stats',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    client.release();
+  }
+});
+
 export default router; 
