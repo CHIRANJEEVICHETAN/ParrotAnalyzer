@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Platform,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -18,22 +19,26 @@ import axios from 'axios';
 import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import TaskCard from './components/TaskCard';
+import { format } from 'date-fns';
 
 interface Employee {
   id: number;
   name: string;
   email: string;
+  employee_number: string;
 }
 
 interface Task {
   id: number;
   title: string;
   description: string;
-  assignedTo: number;
+  assignedTo?: number;
   priority: 'low' | 'medium' | 'high';
-  dueDate: Date;
   status: 'pending' | 'in_progress' | 'completed';
+  createdAt: string;
   employee_name: string;
+  employee_number: string;
+  assigned_by_name: string;
   status_history: StatusHistory[];
 }
 
@@ -58,11 +63,21 @@ export default function TaskManagement() {
     description: '',
     assignedTo: 0,
     priority: 'medium',
-    dueDate: new Date(),
     status: 'pending',
     employee_name: '',
+    employee_number: '',
+    createdAt: format(new Date(), 'yyyy-MM-dd'),
+    assigned_by_name: '',
     status_history: []
   });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [employeeFilter, setEmployeeFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
+  const [dateFilter, setDateFilter] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchEmployees = async () => {
     try {
@@ -129,9 +144,11 @@ export default function TaskManagement() {
         description: '',
         assignedTo: 0,
         priority: 'medium',
-        dueDate: new Date(),
         status: 'pending',
         employee_name: '',
+        employee_number: '',
+        createdAt: format(new Date(), 'yyyy-MM-dd'),
+        assigned_by_name: '',
         status_history: []
       });
     } catch (error) {
@@ -141,6 +158,58 @@ export default function TaskManagement() {
       setIsLoading(false);
     }
   };
+
+  const filteredTasks = tasks.filter(task => {
+    const matchesSearch = 
+      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      task.description.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
+    const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
+    
+    const matchesEmployee = employeeFilter === 'all' || 
+      task.employee_name === employees.find(emp => emp.id.toString() === employeeFilter)?.name;
+    
+    let matchesDate = true;
+    if (dateFilter) {
+      try {
+        const selectedDate = format(dateFilter, 'yyyy-MM-dd');
+        const taskDate = format(new Date(task.createdAt), 'yyyy-MM-dd');
+        matchesDate = selectedDate === taskDate;
+      } catch (error) {
+        console.error('Date comparison error:', error);
+        matchesDate = false;
+      }
+    }
+
+    return matchesSearch && matchesPriority && matchesStatus && matchesEmployee && matchesDate;
+  });
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    
+    if (selectedDate) {
+      try {
+        const newDate = new Date(selectedDate);
+        if (!isNaN(newDate.getTime())) {
+          setDateFilter(newDate);
+        }
+      } catch (error) {
+        console.error('Invalid date selection:', error);
+      }
+    }
+  };
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([fetchTasks(), fetchEmployees()]);
+    } catch (error) {
+      console.error('Error refreshing:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
@@ -175,8 +244,245 @@ export default function TaskManagement() {
         </View>
       </View>
 
+      {/* Search Bar */}
+      <View className="px-4 mt-4">
+        <View 
+          className={`flex-row items-center px-4 rounded-lg mb-4 ${
+            isDark ? 'bg-gray-800' : 'bg-white'
+          }`}
+          style={styles.searchBar}
+        >
+          <Ionicons 
+            name="search" 
+            size={20} 
+            color={isDark ? '#9CA3AF' : '#6B7280'} 
+          />
+          <TextInput
+            placeholder="Search tasks..."
+            placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            className={`flex-1 ml-2 py-3 ${isDark ? 'text-white' : 'text-gray-900'}`}
+          />
+          <TouchableOpacity
+            onPress={() => setShowFilters(!showFilters)}
+            className={`p-2 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+          >
+            <Ionicons 
+              name={showFilters ? "options" : "options-outline"} 
+              size={20} 
+              color={isDark ? '#60A5FA' : '#3B82F6'} 
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Filters Section */}
+        {showFilters && (
+          <View 
+            className={`p-4 rounded-xl mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+            style={styles.filterCard}
+          >
+            {/* Date Filter */}
+            <View className="mb-4">
+              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Created Date
+              </Text>
+              <View className="flex-row items-center">
+                <TouchableOpacity
+                  onPress={() => setDateFilter(null)}
+                  className={`px-4 py-2 rounded-lg mr-2 ${
+                    !dateFilter
+                      ? isDark ? 'bg-blue-600' : 'bg-blue-500'
+                      : isDark ? 'bg-gray-700' : 'bg-gray-100'
+                  }`}
+                >
+                  <Text className={!dateFilter ? 'text-white' : isDark ? 'text-gray-300' : 'text-gray-700'}>
+                    All Dates
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setShowDatePicker(true)}
+                  className={`flex-1 flex-row items-center justify-between px-4 py-2 rounded-lg ${
+                    isDark ? 'bg-gray-700' : 'bg-gray-100'
+                  }`}
+                >
+                  <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                    {dateFilter && !isNaN(dateFilter.getTime()) 
+                      ? format(dateFilter, 'MMM dd, yyyy') 
+                      : 'Select Date'
+                    }
+                  </Text>
+                  <Ionicons 
+                    name="calendar-outline" 
+                    size={20} 
+                    color={isDark ? '#9CA3AF' : '#6B7280'} 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Date Picker */}
+              {showDatePicker && (
+                <DateTimePicker
+                  value={dateFilter || new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={handleDateChange}
+                  textColor={isDark ? '#FFFFFF' : '#000000'}
+                  style={{ 
+                    backgroundColor: isDark ? '#374151' : '#FFFFFF',
+                  }}
+                />
+              )}
+            </View>
+
+            {/* Employee Filter with improved styling */}
+            <View className="mb-4">
+              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Employee
+              </Text>
+              <View
+                className={`rounded-xl overflow-hidden ${
+                  isDark ? 'bg-gray-700' : 'bg-gray-100'
+                }`}
+                style={[
+                  styles.pickerContainer,
+                  { borderWidth: 1, borderColor: isDark ? '#374151' : '#E5E7EB' }
+                ]}
+              >
+                <Picker
+                  selectedValue={employeeFilter}
+                  onValueChange={(value) => setEmployeeFilter(value)}
+                  dropdownIconColor={isDark ? '#FFFFFF' : '#000000'}
+                  style={{
+                    backgroundColor: 'transparent',
+                    color: isDark ? '#FFFFFF' : '#000000',
+                    height: Platform.OS === 'ios' ? 120 : 50,
+                    paddingHorizontal: 12,
+                  }}
+                  itemStyle={{
+                    fontSize: 16,
+                    height: Platform.OS === 'ios' ? 120 : 50,
+                    color: isDark ? '#FFFFFF' : '#000000',
+                  }}
+                >
+                  <Picker.Item 
+                    label="👥 All Employees" 
+                    value="all"
+                    style={{
+                      fontSize: 16,
+                      color: isDark ? '#FFFFFF' : '#000000',
+                      backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+                    }}
+                  />
+                  {employees.map((emp) => (
+                    <Picker.Item
+                      key={emp.id}
+                      label={`👤 ${emp.name} (${emp.employee_number})`}
+                      value={emp.id.toString()}
+                      style={{
+                        fontSize: 16,
+                        color: isDark ? '#FFFFFF' : '#000000',
+                        backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+                      }}
+                    />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+
+            {/* Priority Filter */}
+            <View className="mb-4">
+              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Priority
+              </Text>
+              <View className="flex-row flex-wrap gap-2">
+                {[
+                  { value: 'all', icon: 'filter-outline', label: 'All' },
+                  { value: 'high', icon: 'alert-circle-outline', label: 'High' },
+                  { value: 'medium', icon: 'remove-circle-outline', label: 'Medium' },
+                  { value: 'low', icon: 'checkmark-circle-outline', label: 'Low' }
+                ].map(({ value, icon, label }) => (
+                  <TouchableOpacity
+                    key={value}
+                    onPress={() => setPriorityFilter(value)}
+                    className={`px-4 py-2 rounded-lg flex-row items-center ${
+                      priorityFilter === value
+                        ? isDark ? 'bg-blue-600' : 'bg-blue-500'
+                        : isDark ? 'bg-gray-700' : 'bg-gray-100'
+                    }`}
+                  >
+                    <Ionicons 
+                      name={icon as any} 
+                      size={16} 
+                      color={priorityFilter === value ? '#FFFFFF' : isDark ? '#9CA3AF' : '#6B7280'} 
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text className={`${
+                      priorityFilter === value
+                        ? 'text-white'
+                        : isDark ? 'text-gray-300' : 'text-gray-700'
+                    }`}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Status Filter */}
+            <View>
+              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Status
+              </Text>
+              <View className="flex-row flex-wrap gap-2">
+                {[
+                  { value: 'all', icon: 'list-outline', label: 'All' },
+                  { value: 'pending', icon: 'time-outline', label: 'Pending' },
+                  { value: 'in_progress', icon: 'play-outline', label: 'In Progress' },
+                  { value: 'completed', icon: 'checkmark-outline', label: 'Completed' }
+                ].map(({ value, icon, label }) => (
+                  <TouchableOpacity
+                    key={value}
+                    onPress={() => setStatusFilter(value)}
+                    className={`px-4 py-2 rounded-lg flex-row items-center ${
+                      statusFilter === value
+                        ? isDark ? 'bg-blue-600' : 'bg-blue-500'
+                        : isDark ? 'bg-gray-700' : 'bg-gray-100'
+                    }`}
+                  >
+                    <Ionicons 
+                      name={icon as keyof typeof Ionicons.glyphMap} 
+                      size={16} 
+                      color={statusFilter === value ? '#FFFFFF' : isDark ? '#9CA3AF' : '#6B7280'} 
+                    />
+                    <Text className={`${
+                      statusFilter === value
+                        ? 'text-white'
+                        : isDark ? 'text-gray-300' : 'text-gray-700'
+                    }`}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+      </View>
+
       {/* Task creation form */}
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']}
+            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
+            progressBackgroundColor={isDark ? '#1F2937' : '#F3F4F6'}
+          />
+        }
+      >
         <View style={[styles.formSection, { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }]}>
           <TextInput
             style={[styles.input, { 
@@ -251,28 +557,31 @@ export default function TaskManagement() {
 
         {/* Task list */}
         <View style={styles.taskList}>
-          {tasks.length === 0 ? (
+          {filteredTasks.length === 0 ? (
             <View style={[styles.emptyState, { 
               backgroundColor: isDark ? '#1F2937' : '#FFFFFF' 
             }]}>
               <Ionicons 
-                name="list-outline" 
+                name="search-outline" 
                 size={48} 
                 color={isDark ? '#4B5563' : '#9CA3AF'} 
               />
               <Text style={[styles.emptyStateText, { 
                 color: isDark ? '#9CA3AF' : '#6B7280' 
               }]}>
-                No tasks created yet
+                {tasks.length === 0 ? 'No tasks created yet' : 'No matching tasks found'}
               </Text>
               <Text style={[styles.emptyStateSubText, { 
                 color: isDark ? '#6B7280' : '#9CA3AF' 
               }]}>
-                Create your first task using the form above
+                {tasks.length === 0 
+                  ? 'Create your first task using the form above'
+                  : 'Try adjusting your filters or search query'
+                }
               </Text>
             </View>
           ) : (
-            tasks.map(task => (
+            filteredTasks.map(task => (
               <TaskCard 
                 key={task.id} 
                 task={task} 
@@ -297,6 +606,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 16,
+    marginTop: 8,
   },
   formSection: {
     padding: 16,
@@ -322,9 +632,14 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   pickerContainer: {
-    borderRadius: 8,
-    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    borderRadius: 12,
     overflow: 'hidden',
+    marginBottom: 8,
   },
   createButton: {
     backgroundColor: '#3B82F6',
@@ -353,5 +668,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
+  },
+  searchBar: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    height: 50,
+    marginTop: 8,
+  },
+  filterCard: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
 }); 

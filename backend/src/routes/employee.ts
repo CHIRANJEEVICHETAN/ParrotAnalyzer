@@ -2,6 +2,7 @@ import express, { Response } from 'express';
 import { pool } from '../config/database';
 import { verifyToken } from '../middleware/auth';
 import { CustomRequest } from '../types';
+import { format } from 'date-fns';
 
 const router = express.Router();
 
@@ -291,6 +292,107 @@ router.get('/shifts/recent', verifyToken, async (req: CustomRequest, res: Respon
   } catch (error) {
     console.error('Error fetching recent shifts:', error);
     res.status(500).json({ error: 'Failed to fetch recent shifts' });
+  } finally {
+    client.release();
+  }
+});
+
+// Add this new endpoint for group admin attendance tracking
+router.get('/admin/attendance/:month', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user || req.user.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group Admin only.' });
+    }
+
+    const { month } = req.params;
+    const employee_id = typeof req.query.employee_id === 'string' ? req.query.employee_id : undefined;
+
+    // First get all employees
+    const employeesResult = await client.query(
+      `SELECT id, name, employee_number 
+       FROM users 
+       WHERE group_admin_id = $1 
+       AND role = 'employee'
+       ORDER BY name ASC`,
+      [req.user.id]
+    );
+
+    // Then get attendance data from employee_shifts table
+    let query = `
+      WITH daily_stats AS (
+        SELECT 
+          u.id as user_id,
+          u.name as employee_name,
+          u.employee_number,
+          DATE(es.start_time) as date,
+          COUNT(*) as shift_count,
+          SUM(EXTRACT(EPOCH FROM (COALESCE(es.end_time, CURRENT_TIMESTAMP) - es.start_time))/3600) as total_hours,
+          SUM(COALESCE(es.total_kilometers, 0)) as total_distance,
+          SUM(COALESCE(es.total_expenses, 0)) as total_expenses,
+          jsonb_agg(
+            jsonb_build_object(
+              'shift_start', es.start_time,
+              'shift_end', es.end_time,
+              'duration', EXTRACT(EPOCH FROM (COALESCE(es.end_time, CURRENT_TIMESTAMP) - es.start_time))/3600,
+              'total_kilometers', COALESCE(es.total_kilometers, 0),
+              'total_expenses', COALESCE(es.total_expenses, 0)
+            )
+          ) as shifts
+        FROM users u
+        LEFT JOIN employee_shifts es ON es.user_id = u.id
+        WHERE u.group_admin_id = $1
+        AND TO_CHAR(es.start_time, 'YYYY-MM') = $2
+        GROUP BY u.id, u.name, u.employee_number, DATE(es.start_time)
+      )
+      SELECT 
+        user_id,
+        employee_name,
+        employee_number,
+        date,
+        shift_count,
+        ROUND(total_hours::numeric, 2) as total_hours,
+        ROUND(total_distance::numeric, 2) as total_distance,
+        ROUND(total_expenses::numeric, 2) as total_expenses,
+        shifts
+      FROM daily_stats
+    `;
+
+    const queryParams: (string | number)[] = [req.user.id, month];
+
+    if (employee_id) {
+      query += ` WHERE user_id = $3`;
+      queryParams.push(parseInt(employee_id));
+    }
+
+    query += ` ORDER BY date DESC, employee_name ASC`;
+
+    const result = await client.query(query, queryParams);
+
+    // Group the results by date
+    const groupedAttendance = result.rows.reduce((acc: any, curr) => {
+      const dateKey = format(new Date(curr.date), 'yyyy-MM-dd');
+      if (!acc[dateKey]) {
+        acc[dateKey] = [];
+      }
+      acc[dateKey].push({
+        ...curr,
+        id: parseInt(`${curr.user_id}${dateKey.replace(/-/g, '')}`), // Generate unique ID
+        shifts: curr.shifts || []
+      });
+      return acc;
+    }, {});
+
+    res.json({
+      attendance: groupedAttendance,
+      employees: employeesResult.rows
+    });
+  } catch (error) {
+    console.error('Error fetching admin attendance:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch attendance data',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   } finally {
     client.release();
   }

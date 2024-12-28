@@ -42,9 +42,23 @@ export default function GroupAdminDashboard() {
             description: 'Manage employee tasks'
         },
         {
+            title: 'Attendance Management',
+            icon: 'calendar-outline',
+            color: '#F59E0B', // Amber color
+            route: '/(dashboard)/Group-Admin/attendance-management',
+            description: 'Track employee attendance'
+        },
+        {
+            title: 'Live Tracking',
+            icon: 'location-outline',
+            color: '#EF4444', // Red color
+            route: '/(dashboard)/Group-Admin/live-tracking',
+            description: 'Real-time employee location'
+        },
+        {
             title: 'View Reports',
             icon: 'bar-chart-outline',
-            color: '#F59E0B',
+            color: '#6366F1', // Changed to Indigo color
             route: '/(dashboard)/Group-Admin/reports',
             description: 'Access employee reports'
         }

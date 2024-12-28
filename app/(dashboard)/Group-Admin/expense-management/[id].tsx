@@ -67,6 +67,7 @@ export default function ExpenseDetailView() {
   const [expense, setExpense] = useState<ExpenseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     fetchExpenseDetail();
@@ -116,6 +117,7 @@ export default function ExpenseDetailView() {
 
   const handleApprove = async () => {
     try {
+      setActionLoading(true);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
         { approved: true },
@@ -127,11 +129,14 @@ export default function ExpenseDetailView() {
     } catch (error) {
       console.error('Error approving expense:', error);
       Alert.alert('Error', 'Failed to approve expense');
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleReject = async (reason: string) => {
     try {
+      setActionLoading(true);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
         { 
@@ -151,6 +156,8 @@ export default function ExpenseDetailView() {
           ? error.response?.data?.details || 'Failed to reject expense'
           : 'Failed to reject expense'
       );
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -339,17 +346,31 @@ export default function ExpenseDetailView() {
           <View className="flex-row justify-end mt-4 mb-8">
             <TouchableOpacity
               onPress={handleApprove}
-              className="bg-green-500 px-6 py-3 rounded-lg mr-4"
+              disabled={actionLoading}
+              className={`bg-green-500 px-6 py-3 rounded-lg mr-4 ${
+                actionLoading ? 'opacity-50' : ''
+              }`}
               style={styles.actionButton}
             >
-              <Text className="text-white font-medium text-center">Approve</Text>
+              {actionLoading ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text className="text-white font-medium text-center">Approve</Text>
+              )}
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setRejectModalVisible(true)}
-              className="bg-red-500 px-6 py-3 rounded-lg"
+              disabled={actionLoading}
+              className={`bg-red-500 px-6 py-3 rounded-lg ${
+                actionLoading ? 'opacity-50' : ''
+              }`}
               style={styles.actionButton}
             >
-              <Text className="text-white font-medium text-center">Reject</Text>
+              {actionLoading ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text className="text-white font-medium text-center">Reject</Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
