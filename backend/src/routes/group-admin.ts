@@ -5,6 +5,7 @@ import { verifyToken } from '../middleware/auth';
 import { CustomRequest } from '../types';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
+import { format } from 'date-fns';
 
 const upload = multer();
 const router = express.Router();
@@ -453,5 +454,87 @@ router.post('/change-password', verifyToken, async (req: CustomRequest, res: Res
     client.release();
   }
 });
+
+// Add this new endpoint for recent activities
+router.get('/recent-activities', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Get recent activities from different tables
+    const result = await client.query(`
+      (
+        -- Employee activities
+        SELECT 
+          'Employee Added' as type,
+          name,
+          created_at as time
+        FROM users 
+        WHERE group_admin_id = $1 
+        AND role = 'employee'
+        
+        UNION ALL
+        
+        -- Task activities
+        SELECT 
+          'Task Created' as type,
+          title as name,
+          created_at as time
+        FROM employee_tasks 
+        WHERE assigned_by = $1
+        
+        UNION ALL
+        
+        -- Expense activities
+        SELECT 
+          'Expense ' || CASE 
+            WHEN status = 'approved' THEN 'Approved'
+            WHEN status = 'rejected' THEN 'Rejected'
+            ELSE 'Updated'
+          END as type,
+          employee_name as name,
+          updated_at as time
+        FROM expenses 
+        WHERE group_admin_id = $1
+      )
+      ORDER BY time DESC
+      LIMIT 5
+    `, [req.user.id]);
+
+    // Format the response
+    const activities = result.rows.map(activity => ({
+      type: activity.type,
+      name: activity.name,
+      time: formatActivityTime(activity.time)
+    }));
+
+    res.json(activities);
+  } catch (error) {
+    console.error('Error fetching recent activities:', error);
+    res.status(500).json({ error: 'Failed to fetch recent activities' });
+  } finally {
+    client.release();
+  }
+});
+
+// Helper function to format time
+function formatActivityTime(timestamp: Date): string {
+  const now = new Date();
+  const activityTime = new Date(timestamp);
+  const diffInHours = Math.floor((now.getTime() - activityTime.getTime()) / (1000 * 60 * 60));
+  
+  if (diffInHours < 1) {
+    const diffInMinutes = Math.floor((now.getTime() - activityTime.getTime()) / (1000 * 60));
+    return `${diffInMinutes} minutes ago`;
+  } else if (diffInHours < 24) {
+    return `${diffInHours} hours ago`;
+  } else if (diffInHours < 48) {
+    return 'Yesterday';
+  } else {
+    return format(activityTime, 'MMM dd, yyyy');
+  }
+}
 
 export default router; 

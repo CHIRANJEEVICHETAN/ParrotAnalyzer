@@ -14,6 +14,8 @@ import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import axios from 'axios';
 import { format } from 'date-fns';
+import BottomNav from '../../components/BottomNav';
+import { groupAdminNavItems } from './utils/navigationItems';
 
 type ReportType = 'expense' | 'attendance' | 'activity';
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -128,7 +130,7 @@ export default function GroupAdminReports() {
         </View>
       </View>
 
-      <ScrollView className="flex-1 p-4">
+      <ScrollView className="flex-1 p-4 pb-20">
         {loading ? (
           <View className="flex-1 justify-center items-center">
             <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
@@ -158,7 +160,10 @@ export default function GroupAdminReports() {
             <TouchableOpacity
               key={`${report.type}-${report.id || index}`}
               className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
-              style={styles.reportCard}
+              style={[
+                styles.reportCard,
+                index === reports.length - 1 && { marginBottom: 30 }
+              ]}
               onPress={() => {/* Handle report press */}}
             >
               <View className="flex-row items-center">
@@ -187,6 +192,8 @@ export default function GroupAdminReports() {
           ))
         )}
       </ScrollView>
+
+      <BottomNav items={groupAdminNavItems} />
     </View>
   );
 }
@@ -205,5 +212,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+    marginBottom: 12,
   }
 });

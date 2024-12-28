@@ -17,6 +17,8 @@ import AuthContext from '../../context/AuthContext';
 import { format } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import BottomNav from '../../components/BottomNav';
+import { employeeNavItems } from './utils/navigationItems';
 
 import type { IconProps } from '@expo/vector-icons/build/createIconSet';
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -285,6 +287,8 @@ export default function Profile() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <BottomNav items={employeeNavItems} />
     </View>
   );
 }

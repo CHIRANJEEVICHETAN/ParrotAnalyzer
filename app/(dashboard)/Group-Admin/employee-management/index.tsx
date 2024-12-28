@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
+import BottomNav from '../../../components/BottomNav';
+import { groupAdminNavItems } from '../utils/navigationItems';
 
 interface Employee {
   id: number;
@@ -145,18 +147,50 @@ export default function EmployeeManagement() {
       <View className="flex-row justify-between p-4">
         <TouchableOpacity
           onPress={() => router.push('/Group-Admin/employee-management/individual')}
-          className={`flex-1 mr-2 p-4 rounded-lg ${isDark ? 'bg-blue-600' : 'bg-blue-500'}`}
-          style={styles.actionButton}
+          className={`flex-1 mr-2 p-4 rounded-xl ${isDark ? 'bg-blue-600' : 'bg-blue-500'}`}
+          style={[styles.actionButton, { elevation: 4 }]}
         >
-          <Text className="text-white text-center font-semibold">Add Individual</Text>
+          <View className="flex-row items-center justify-center">
+            <View className={`w-8 h-8 rounded-full items-center justify-center bg-white/20 mr-2`}>
+              <Ionicons 
+                name="person-add-outline" 
+                size={18} 
+                color="white" 
+              />
+            </View>
+            <View>
+              <Text className="text-white text-base font-semibold">
+                Add Individual
+              </Text>
+              <Text className="text-white/80 text-xs">
+                Create single employee
+              </Text>
+            </View>
+          </View>
         </TouchableOpacity>
         
         <TouchableOpacity
           onPress={() => router.push('/Group-Admin/employee-management/bulk')}
-          className={`flex-1 ml-2 p-4 rounded-lg ${isDark ? 'bg-green-600' : 'bg-green-500'}`}
-          style={styles.actionButton}
+          className={`flex-1 ml-2 p-4 rounded-xl ${isDark ? 'bg-green-600' : 'bg-green-500'}`}
+          style={[styles.actionButton, { elevation: 4 }]}
         >
-          <Text className="text-white text-center font-semibold">Bulk Upload</Text>
+          <View className="flex-row items-center justify-center">
+            <View className={`w-8 h-8 rounded-full items-center justify-center bg-white/20 mr-2`}>
+              <Ionicons 
+                name="people-outline" 
+                size={18} 
+                color="white" 
+              />
+            </View>
+            <View>
+              <Text className="text-white text-base font-semibold">
+                Bulk Upload
+              </Text>
+              <Text className="text-white/80 text-xs">
+                Import multiple employees
+              </Text>
+            </View>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -181,7 +215,7 @@ export default function EmployeeManagement() {
       </View>
 
       {/* Employee List */}
-      <ScrollView className="flex-1 px-4">
+      <ScrollView className="flex-1 px-4 pb-20">
         {error ? (
           <View className="p-4 bg-red-100 rounded-lg">
             <Text className="text-red-800">{error}</Text>
@@ -253,6 +287,7 @@ export default function EmployeeManagement() {
           ))
         )}
       </ScrollView>
+      <BottomNav items={groupAdminNavItems} />
     </View>
   );
 }
@@ -267,10 +302,11 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   searchBar: {
     shadowColor: '#000',

@@ -21,6 +21,8 @@ import { format, differenceInSeconds } from 'date-fns';
 import axios from 'axios';
 import AuthContext from '../../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import BottomNav from '../../components/BottomNav';
+import { employeeNavItems } from './utils/navigationItems';
 
 interface ShiftData {
   date: string;
@@ -653,6 +655,8 @@ export default function EmployeeShiftTracker() {
           </View>
         </View>
       </Modal>
+
+      <BottomNav items={employeeNavItems} />
     </View>
   );
 }
