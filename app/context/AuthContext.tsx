@@ -18,7 +18,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (identifier: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<{ error?: string; errorType?: string }>;
   logout: () => void;
   refreshToken: () => Promise<string | null>;
   updateUser: (userData: Partial<User>) => void;
@@ -46,20 +46,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem('auth_token'),
           AsyncStorage.getItem('user_data')
         ]);
-        
+
         if (storedToken && storedUser) {
           // Set the token in axios defaults
           axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-          
+
           // Parse and set the stored user data
           const userData = JSON.parse(storedUser);
           setUser(userData);
           setToken(storedToken);
-          
+
           // Verify token validity
           try {
             const response = await axios.get(`${API_URL}/auth/check-role`);
-            
+
             // If successful, navigate to the appropriate dashboard
             switch (userData.role) {
               case 'employee':
@@ -100,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth();
   }, []);
 
-  const login = async (identifier: string, password: string) => {
+  const login = async (identifier: string, password: string): Promise<{ error?: string; errorType?: string }> => {
     setIsLoading(true);
     try {
       const response = await axios.post(`${API_URL}/auth/login`, {
@@ -139,20 +139,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         default:
           throw new Error('Invalid user role');
       }
+      return {};
     } catch (error: any) {
       console.error('Login error:', error);
-      
-      // Handle company disabled error
+
       if (error.response?.data?.code === 'COMPANY_DISABLED') {
-        await logout(); // Force logout
-        Alert.alert(
-          'Access Denied',
-          'Your company account has been disabled. Please contact the administrator.'
-        );
-        return;
+        return {
+          error: 'Your company account has been disabled. Please contact the administrator.',
+          errorType: 'COMPANY_DISABLED'
+        };
       }
-      
-      throw error;
+
+      if (error.response?.status === 401) {
+        return {
+          error: 'Invalid credentials. Please check your email/phone and password.',
+          errorType: 'INVALID_CREDENTIALS'
+        };
+      }
+
+      return {
+        error: 'An error occurred while logging in. Please try again.',
+        errorType: 'UNKNOWN'
+      };
     } finally {
       setIsLoading(false);
     }
@@ -164,7 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.removeItem('auth_token'),
         AsyncStorage.removeItem('user_data')
       ]);
-      
+
       delete axios.defaults.headers.common['Authorization'];
       setToken(null);
       setUser(null);
@@ -242,11 +250,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider 
-      value={{ 
-        user, 
+    <AuthContext.Provider
+      value={{
+        user,
         token,
-        login, 
+        login,
         logout,
         refreshToken,
         isLoading,
