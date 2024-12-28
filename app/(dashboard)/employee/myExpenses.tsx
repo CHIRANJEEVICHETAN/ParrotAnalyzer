@@ -15,6 +15,7 @@ import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import axios from 'axios';
 import { format } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface Expense {
   id: number;
@@ -60,6 +61,8 @@ export default function MyExpenses() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'all' | 'approved' | 'rejected'>('all');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
     fetchExpenses();
@@ -100,10 +103,29 @@ export default function MyExpenses() {
     }
   };
 
+  const handleDateChange = (event: any, selected?: Date) => {
+    setShowDatePicker(false);
+    if (selected) {
+      setSelectedDate(selected);
+    }
+  };
+
   const filteredExpenses = expenses.filter(expense => {
-    if (activeTab === 'approved') return expense.status === 'approved';
-    if (activeTab === 'rejected') return expense.status === 'rejected';
-    return true;
+    let matchesTab = true;
+    if (activeTab === 'approved') matchesTab = expense.status === 'approved';
+    if (activeTab === 'rejected') matchesTab = expense.status === 'rejected';
+
+    let matchesDate = true;
+    if (selectedDate) {
+      const expenseDate = new Date(expense.date);
+      matchesDate = (
+        expenseDate.getDate() === selectedDate.getDate() &&
+        expenseDate.getMonth() === selectedDate.getMonth() &&
+        expenseDate.getFullYear() === selectedDate.getFullYear()
+      );
+    }
+
+    return matchesTab && matchesDate;
   });
 
   const getStatusColor = (status: string) => {
@@ -230,10 +252,63 @@ export default function MyExpenses() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Add Date Filter after tab buttons */}
+        <View style={styles.dateFilterContainer}>
+          <TouchableOpacity
+            onPress={() => setShowDatePicker(true)}
+            style={[
+              styles.dateButton,
+              { backgroundColor: isDark ? '#374151' : '#FFFFFF' }
+            ]}
+          >
+            <Ionicons
+              name="calendar-outline"
+              size={20}
+              color={isDark ? '#60A5FA' : '#3B82F6'}
+              style={{ marginRight: 8 }}
+            />
+            <Text style={{ 
+              color: isDark ? '#FFFFFF' : '#111827',
+              fontSize: 14,
+            }}>
+              {selectedDate 
+                ? format(selectedDate, 'MMM dd, yyyy')
+                : 'Filter by Date'
+              }
+            </Text>
+            {selectedDate && (
+              <TouchableOpacity
+                onPress={() => setSelectedDate(null)}
+                style={{ marginLeft: 8 }}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={20}
+                  color={isDark ? '#9CA3AF' : '#6B7280'}
+                />
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={selectedDate || new Date()}
+            mode="date"
+            display="default"
+            onChange={handleDateChange}
+            maximumDate={new Date()}
+            minimumDate={new Date(2023, 0, 1)}
+          />
+        )}
       </View>
 
       {/* Expense List */}
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: 0 }}
+      >
         {loading ? (
           <ActivityIndicator 
             size="large" 
@@ -250,7 +325,7 @@ export default function MyExpenses() {
             </Text>
           </View>
         ) : (
-          filteredExpenses.map((expense) => (
+          filteredExpenses.map((expense, index) => (
             <TouchableOpacity
               key={expense.id}
               onPress={() => router.push({
@@ -259,7 +334,8 @@ export default function MyExpenses() {
               })}
               style={[
                 styles.expenseCard,
-                { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
+                { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' },
+                index === filteredExpenses.length - 1 && { marginBottom: 80 }
               ]}
             >
               <View style={styles.expenseHeader}>
@@ -462,5 +538,20 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 20,
     fontWeight: '600',
+  },
+  dateFilterContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
 }); 
