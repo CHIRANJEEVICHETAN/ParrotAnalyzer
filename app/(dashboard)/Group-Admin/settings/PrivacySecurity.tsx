@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Platform, StatusBar, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Platform, StatusBar, StyleSheet, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Switch } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type SecuritySettings = {
     passwordExpiry: boolean;
@@ -38,6 +39,22 @@ export default function PrivacySecurity() {
         // Notifications
         securityAlerts: true
     });
+
+    // Load saved settings when component mounts
+    useEffect(() => {
+        loadSavedSettings();
+    }, []);
+
+    const loadSavedSettings = async () => {
+        try {
+            const savedSettings = await AsyncStorage.getItem('securitySettings');
+            if (savedSettings) {
+                setSecuritySettings(JSON.parse(savedSettings));
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    };
 
     // Recent security events - Simplified
     const securityEvents = [
@@ -103,8 +120,26 @@ export default function PrivacySecurity() {
         }
     ];
 
-    const handleSettingChange = (key: keyof SecuritySettings, value: boolean) => {
-        setSecuritySettings(prev => ({ ...prev, [key]: value }));
+    const handleSettingChange = async (key: keyof SecuritySettings, value: boolean) => {
+        try {
+            const newSettings = {
+                ...securitySettings,
+                [key]: value
+            };
+            
+            // Update state immediately for responsive UI
+            setSecuritySettings(newSettings);
+            
+            // Save to AsyncStorage
+            await AsyncStorage.setItem('securitySettings', JSON.stringify(newSettings));
+
+            // API call would go here
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err) {
+            // Revert if save fails
+            setSecuritySettings(securitySettings);
+            Alert.alert('Error', 'Failed to update setting. Please try again.');
+        }
     };
 
     return (
