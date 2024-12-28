@@ -10,6 +10,7 @@ import {
   Platform,
   StatusBar,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -57,7 +58,7 @@ export default function TaskManagement() {
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [newTask, setNewTask] = useState<Omit<Task, 'id'>>({
     title: '',
     description: '',
@@ -101,13 +102,14 @@ export default function TaskManagement() {
 
   const fetchTasks = async () => {
     try {
+      setIsLoading(true);
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/admin`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-      console.log('Tasks response:', response.data); // Debug log
+      console.log('Tasks response:', response.data);
       setTasks(response.data);
     } catch (error) {
       console.error('Error fetching tasks:', error);
@@ -116,6 +118,8 @@ export default function TaskManagement() {
         console.error('Status code:', error.response?.status);
       }
       Alert.alert('Error', 'Failed to fetch tasks');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -557,12 +561,24 @@ export default function TaskManagement() {
 
         {/* Task list */}
         <View style={styles.taskList}>
-          {filteredTasks.length === 0 ? (
+          {isLoading ? (
+            <View style={[styles.emptyState, { 
+              backgroundColor: isDark ? '#1F2937' : '#FFFFFF' 
+            }]}>
+              <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
+              <Text style={[styles.emptyStateText, { 
+                color: isDark ? '#9CA3AF' : '#6B7280',
+                marginTop: 16 
+              }]}>
+                Loading tasks...
+              </Text>
+            </View>
+          ) : filteredTasks.length === 0 ? (
             <View style={[styles.emptyState, { 
               backgroundColor: isDark ? '#1F2937' : '#FFFFFF' 
             }]}>
               <Ionicons 
-                name="search-outline" 
+                name={tasks.length === 0 ? "list-outline" : "search-outline"} 
                 size={48} 
                 color={isDark ? '#4B5563' : '#9CA3AF'} 
               />
