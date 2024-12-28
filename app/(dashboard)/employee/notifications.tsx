@@ -18,6 +18,8 @@ import AuthContext from '../../context/AuthContext';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { LinearGradient } from 'expo-linear-gradient';
+import BottomNav from '../../components/BottomNav';
+import { employeeNavItems } from './utils/navigationItems';
 
 interface Notification {
   id: number;
@@ -254,6 +256,8 @@ export default function Notifications() {
         )}
         <View className="h-4" />
       </ScrollView>
+
+      <BottomNav items={employeeNavItems} />
     </View>
   );
 }

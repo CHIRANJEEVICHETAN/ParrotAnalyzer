@@ -20,6 +20,8 @@ import { useIsFocused } from '@react-navigation/native';
 import { format, differenceInSeconds } from 'date-fns';
 import axios from 'axios';
 import TaskList from './components/TaskList';
+import BottomNav from '../../components/BottomNav';
+import { employeeNavItems } from './utils/navigationItems';
 
 // Add Task interface
 interface Task {
@@ -418,93 +420,7 @@ export default function EmployeeDashboard() {
         </ScrollView>
 
         {/* Bottom Navigation */}
-        <View className={`flex-row justify-around items-center py-2 border-t ${
-          theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-        }`}>
-          <TouchableOpacity 
-            className="items-center px-4 py-2"
-            onPress={() => setActiveTab('home')}
-          >
-            <Ionicons
-              name={activeTab === 'home' ? 'home' : 'home-outline'}
-              size={24}
-              color={activeTab === 'home' 
-                ? (theme === 'dark' ? '#60A5FA' : '#2563EB')
-                : (theme === 'dark' ? '#9CA3AF' : '#6B7280')
-              }
-            />
-            <Text className={`text-xs mt-1 ${
-              activeTab === 'home'
-                ? (theme === 'dark' ? 'text-blue-400' : 'text-blue-600')
-                : (theme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-            }`}>
-              Home
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            className="items-center px-4 py-2"
-            onPress={() => router.push('/(dashboard)/employee/employeeShiftTracker')}
-          >
-            <Ionicons
-              name={activeTab === 'shift' ? 'time' : 'time-outline'}
-              size={24}
-              color={activeTab === 'shift' 
-                ? (theme === 'dark' ? '#60A5FA' : '#2563EB')
-                : (theme === 'dark' ? '#9CA3AF' : '#6B7280')
-              }
-            />
-            <Text className={`text-xs mt-1 ${
-              activeTab === 'shift'
-                ? (theme === 'dark' ? 'text-blue-400' : 'text-blue-600')
-                : (theme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-            }`}>
-              Shift Tracker
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            className="items-center px-4 py-2"
-            onPress={() => router.push('/(dashboard)/employee/notifications')}
-          >
-            <Ionicons
-              name={activeTab === 'notifications' ? 'notifications' : 'notifications-outline'}
-              size={24}
-              color={activeTab === 'notifications' 
-                ? (theme === 'dark' ? '#60A5FA' : '#2563EB')
-                : (theme === 'dark' ? '#9CA3AF' : '#6B7280')
-              }
-            />
-            <Text className={`text-xs mt-1 ${
-              activeTab === 'notifications'
-                ? (theme === 'dark' ? 'text-blue-400' : 'text-blue-600')
-                : (theme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-            }`}>
-              Notifications
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            className="items-center px-4 py-2"
-            onPress={() => router.push('/(dashboard)/employee/profile')}
-          >
-            <Ionicons
-              name={activeTab === 'profile' ? 'person' : 'person-outline'}
-              size={24}
-              color={activeTab === 'profile' 
-                ? (theme === 'dark' ? '#60A5FA' : '#2563EB')
-                : (theme === 'dark' ? '#9CA3AF' : '#6B7280')
-              }
-            />
-            <Text className={`text-xs mt-1 ${
-              activeTab === 'profile'
-                ? (theme === 'dark' ? 'text-blue-400' : 'text-blue-600')
-                : (theme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-            }`}>
-              Profile
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <BottomNav items={employeeNavItems} />
       </KeyboardAvoidingView>
     </View>
   );

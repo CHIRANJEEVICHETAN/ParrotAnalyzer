@@ -1,31 +1,60 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar, ActivityIndicator } from 'react-native';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import type { NavItem } from '../../types/nav';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import AuthContext from '../../context/AuthContext';
+import { groupAdminNavItems } from './utils/navigationItems';
+
+// Add new interface for activities
+interface RecentActivity {
+  type: string;
+  name: string;
+  time: string;
+}
 
 export default function GroupAdminDashboard() {
+    // Add state for activities
+    const [activities, setActivities] = useState<RecentActivity[]>([]);
+    const [loadingActivities, setLoadingActivities] = useState(true);
     const { theme } = ThemeContext.useTheme();
+    const { token } = AuthContext.useAuth();
     const router = useRouter();
     const isDark = theme === 'dark';
 
-    const navItems: NavItem[] = [
-        { icon: 'home-outline', label: 'Home', href: '/(dashboard)/Group-Admin/group-admin' },
-        { icon: 'people-outline', label: 'Employees', href: '/(dashboard)/Group-Admin/employee-management' },
-        { icon: 'list-outline', label: 'Tasks', href: '/(dashboard)/Group-Admin/task-management' },
-        { icon: 'document-text-outline', label: 'Reports', href: '/(dashboard)/Group-Admin/reports' },
-        { icon: 'settings-outline', label: 'Settings', href: '/(dashboard)/Group-Admin/settings' },
-    ];
+    // Add useEffect to fetch activities
+    useEffect(() => {
+        fetchRecentActivities();
+    }, []);
+
+    const fetchRecentActivities = async () => {
+        try {
+            setLoadingActivities(true);
+            const response = await axios.get(
+                `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin/recent-activities`,
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+            setActivities(response.data);
+        } catch (error) {
+            console.error('Error fetching recent activities:', error);
+        } finally {
+            setLoadingActivities(false);
+        }
+    };
 
     // Quick action cards data
     const quickActions = [
         {
-            title: 'Add Employee',
-            icon: 'person-add-outline',
+            title: 'Employee Management',
+            icon: 'people-outline',
             color: '#3B82F6',
-            route: '/(dashboard)/Group-Admin/employee-management/individual',
-            description: 'Create new employee account'
+            route: '/(dashboard)/Group-Admin/employee-management',
+            description: 'Manage your employees'
         },
         {
             title: 'Expense Management',
@@ -209,57 +238,107 @@ export default function GroupAdminDashboard() {
                 </View>
 
                 {/* Recent Activity Section */}
-                <View style={styles.section}>
-                    <Text style={[
-                        styles.sectionTitle,
-                        { color: isDark ? '#FFFFFF' : '#111827' }
-                    ]}>
-                        Recent Activity
-                    </Text>
-                    <View style={[
-                        styles.activityList,
-                        { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
-                    ]}>
-                        {[
-                            { type: 'New Employee', name: 'John Doe', time: '2 hours ago' },
-                            { type: 'Access Updated', name: 'Jane Smith', time: '4 hours ago' },
-                            { type: 'Bulk Upload', name: '5 employees added', time: 'Yesterday' },
-                        ].map((activity, index) => (
-                            <View 
-                                key={index}
-                                style={[
-                                    styles.activityItem,
-                                    index !== 2 && styles.borderBottom,
-                                    { borderColor: isDark ? '#374151' : '#E5E7EB' }
-                                ]}
-                            >
-                                <View style={styles.activityContent}>
-                                    <Text style={[
-                                        styles.activityType,
-                                        { color: isDark ? '#60A5FA' : '#3B82F6' }
-                                    ]}>
-                                        {activity.type}
-                                    </Text>
-                                    <Text style={[
-                                        styles.activityName,
-                                        { color: isDark ? '#FFFFFF' : '#111827' }
-                                    ]}>
-                                        {activity.name}
-                                    </Text>
-                                </View>
-                                <Text style={[
-                                    styles.activityTime,
-                                    { color: isDark ? '#9CA3AF' : '#6B7280' }
-                                ]}>
-                                    {activity.time}
-                                </Text>
+                <View 
+                    className={`mt-6 mx-4 p-4 rounded-xl mb-10 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+                    style={styles.activityCard}
+                >
+                    {/* Header */}
+                    <View className="flex-row items-center justify-between mb-4">
+                        <View className="flex-row items-center">
+                            <View className={`w-8 h-8 rounded-full items-center justify-center mr-2 ${
+                                isDark ? 'bg-blue-500/20' : 'bg-blue-100'
+                            }`}>
+                                <Ionicons 
+                                    name="time-outline" 
+                                    size={20} 
+                                    color={isDark ? '#60A5FA' : '#3B82F6'} 
+                                />
                             </View>
-                        ))}
+                            <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                Recent Activity
+                            </Text>
+                        </View>
                     </View>
+                    
+                    {loadingActivities ? (
+                        <View className="py-8">
+                            <ActivityIndicator size="small" color={isDark ? '#60A5FA' : '#3B82F6'} />
+                        </View>
+                    ) : activities.length === 0 ? (
+                        <View className="py-8 items-center">
+                            <Ionicons 
+                                name="notifications-outline" 
+                                size={40} 
+                                color={isDark ? '#4B5563' : '#9CA3AF'} 
+                            />
+                            <Text className={`mt-2 text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                No recent activities
+                            </Text>
+                        </View>
+                    ) : (
+                        activities.map((activity, index) => {
+                            // Determine icon based on activity type
+                            let icon: keyof typeof Ionicons.glyphMap = 'ellipse-outline';
+                            let iconColor = isDark ? '#60A5FA' : '#3B82F6';
+                            
+                            if (activity.type.includes('Employee')) {
+                                icon = 'person-add-outline';
+                                iconColor = '#10B981'; // Green
+                            } else if (activity.type.includes('Task')) {
+                                icon = 'list-outline';
+                                iconColor = '#8B5CF6'; // Purple
+                            } else if (activity.type.includes('Expense')) {
+                                icon = 'receipt-outline';
+                                iconColor = activity.type.includes('Approved') ? '#10B981' : '#EF4444';
+                            }
+
+                            return (
+                                <View 
+                                    key={index}
+                                    className={`py-3 ${
+                                        index !== activities.length - 1 ? 'border-b' : ''
+                                    } ${isDark ? 'border-gray-700' : 'border-gray-200'}`}
+                                >
+                                    <View className="flex-row items-center">
+                                        <View className={`w-8 h-8 rounded-full items-center justify-center mr-3 ${
+                                            isDark ? 'bg-gray-700' : 'bg-gray-100'
+                                        }`}>
+                                            <Ionicons 
+                                                name={icon} 
+                                                size={16} 
+                                                color={iconColor}
+                                            />
+                                        </View>
+                                        <View className="flex-1">
+                                            <View className="flex-row justify-between items-start">
+                                                <View className="flex-1">
+                                                    <Text className={`text-sm font-medium ${
+                                                        isDark ? 'text-gray-300' : 'text-gray-700'
+                                                    }`}>
+                                                        {activity.type}
+                                                    </Text>
+                                                    <Text className={`text-base font-semibold ${
+                                                        isDark ? 'text-white' : 'text-gray-900'
+                                                    }`}>
+                                                        {activity.name}
+                                                    </Text>
+                                                </View>
+                                                <Text className={`text-xs ${
+                                                    isDark ? 'text-gray-400' : 'text-gray-600'
+                                                }`}>
+                                                    {activity.time}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                </View>
+                            );
+                        })
+                    )}
                 </View>
             </ScrollView>
 
-            <BottomNav items={navItems} />
+            <BottomNav items={groupAdminNavItems} />
         </View>
     );
 }
@@ -366,5 +445,12 @@ const styles = StyleSheet.create({
     },
     activityTime: {
         fontSize: 12,
+    },
+    activityCard: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 2,
     },
 }); 

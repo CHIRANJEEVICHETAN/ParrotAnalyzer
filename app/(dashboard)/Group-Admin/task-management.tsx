@@ -21,6 +21,8 @@ import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import TaskCard from './components/TaskCard';
 import { format } from 'date-fns';
+import BottomNav from '../../components/BottomNav';
+import { groupAdminNavItems } from './utils/navigationItems';
 
 interface Employee {
   id: number;
@@ -476,7 +478,7 @@ export default function TaskManagement() {
 
       {/* Task creation form */}
       <ScrollView 
-        style={styles.content}
+        style={[styles.content, { paddingBottom: 80 }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -560,7 +562,7 @@ export default function TaskManagement() {
         </View>
 
         {/* Task list */}
-        <View style={styles.taskList}>
+        <View style={[styles.taskList, { marginBottom: 20 }]}>
           {isLoading ? (
             <View style={[styles.emptyState, { 
               backgroundColor: isDark ? '#1F2937' : '#FFFFFF' 
@@ -607,6 +609,7 @@ export default function TaskManagement() {
           )}
         </View>
       </ScrollView>
+      <BottomNav items={groupAdminNavItems} />
     </View>
   );
 }
@@ -636,6 +639,7 @@ const styles = StyleSheet.create({
   },
   taskList: {
     gap: 12,
+    marginBottom: 20,
   },
   taskCard: {
     padding: 16,

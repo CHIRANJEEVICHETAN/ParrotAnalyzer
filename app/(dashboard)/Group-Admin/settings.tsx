@@ -5,6 +5,8 @@ import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import BottomNav from '../../components/BottomNav';
+import { groupAdminNavItems } from './utils/navigationItems';
 
 interface SettingsItem {
     icon: string;
@@ -249,6 +251,8 @@ export default function GroupAdminSettings() {
                     </Text>
                 </View>
             </ScrollView>
+
+            <BottomNav items={groupAdminNavItems} />
         </View>
     );
 }
