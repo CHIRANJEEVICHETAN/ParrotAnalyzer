@@ -314,9 +314,9 @@ export default function UserPermissions() {
                     </View>
                     
                     {role.isFixed && (
-                        <View className="mt-3 p-3 rounded-lg bg-gray-100 dark:bg-gray-700">
+                        <View className="mt-3 p-3 rounded-lg bg-blue-50 dark:bg-gray-700/50">
                             <Text className={`text-sm ${
-                                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                             }`}>
                                 Group Admin role has full access and cannot be modified
                             </Text>

@@ -24,6 +24,7 @@ import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
 
 interface ProfileData {
+  id: string;
   name: string;
   email: string;
   phone: string;
@@ -46,6 +47,7 @@ export default function ProfileSettings() {
   const isDark = theme === 'dark';
 
   const [profileData, setProfileData] = useState<ProfileData>({
+    id: '',
     name: '',
     email: '',
     phone: '',
@@ -417,11 +419,11 @@ export default function ProfileSettings() {
               </View>
             </View>
 
-            {/* Password Change Button */}
+            {/* Password Change Button - Added pb-6 for bottom padding */}
             <TouchableOpacity
               onPress={() => router.push('/(dashboard)/Group-Admin/settings/ChangePassword')}
               className={`p-4 rounded-xl mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
-              style={styles.formCard}
+              style={[styles.formCard, { marginBottom: 24 }]}  // Added extra bottom margin
             >
               <View className="flex-row items-center justify-between">
                 <View>
