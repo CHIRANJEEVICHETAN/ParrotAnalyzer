@@ -8,6 +8,7 @@ import {
   StatusBar,
   StyleSheet,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -46,6 +47,14 @@ export default function Profile() {
   const router = useRouter();
   const isDark = theme === 'dark';
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    totalHours: '0',
+    expenseCount: '0',
+    attendanceRate: '0%',
+    completedTasks: '0'
+  });
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (user?.id) {
@@ -67,62 +76,82 @@ export default function Profile() {
     }
   };
 
-  const stats: StatItem[] = [
+  const fetchProfileStats = async () => {
+    try {
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/profile-stats`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      setStats(response.data.stats);
+      setActivities(response.data.recentActivities.map((activity: any) => ({
+        type: activity.type,
+        title: activity.title,
+        description: activity.description,
+        time: format(new Date(activity.time), 'MMM dd, yyyy'),
+        icon: getActivityIcon(activity.type),
+        color: getActivityColor(activity.type)
+      })));
+    } catch (error) {
+      console.error('Error fetching profile stats:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfileStats();
+  }, []);
+
+  const getActivityIcon = (type: string): IconName => {
+    switch (type) {
+      case 'shift': return 'time-outline';
+      case 'expense': return 'receipt-outline';
+      case 'task': return 'checkmark-circle-outline';
+      default: return 'ellipse-outline';
+    }
+  };
+
+  const getActivityColor = (type: string): string => {
+    switch (type) {
+      case 'shift': return '#10B981';
+      case 'expense': return '#F59E0B';
+      case 'task': return '#8B5CF6';
+      default: return '#6B7280';
+    }
+  };
+
+  const statItems: StatItem[] = [
     { 
       label: 'Total Hours', 
-      value: '180.5', 
-      icon: 'time-outline', 
+      value: stats.totalHours, 
+      icon: 'time-outline' as IconName, 
       color: '#10B981',
       description: 'Hours worked this month'
     },
     { 
       label: 'Expenses', 
-      value: '12', 
-      icon: 'receipt-outline', 
+      value: stats.expenseCount, 
+      icon: 'receipt-outline' as IconName, 
       color: '#F59E0B',
       description: 'Expense claims submitted'
     },
     { 
       label: 'Attendance', 
-      value: '96%', 
-      icon: 'calendar-outline', 
+      value: stats.attendanceRate, 
+      icon: 'calendar-outline' as IconName, 
       color: '#8B5CF6',
       description: 'Monthly attendance rate'
     },
     { 
       label: 'Tasks', 
-      value: '45', 
-      icon: 'checkmark-circle-outline', 
+      value: stats.completedTasks, 
+      icon: 'checkmark-circle-outline' as IconName, 
       color: '#3B82F6',
       description: 'Tasks completed'
     },
-  ];
-
-  const recentActivity: ActivityItem[] = [
-    { 
-      type: 'shift',
-      title: 'Shift Completed',
-      description: 'Morning Shift - 8 hours',
-      time: '2 days ago',
-      icon: 'time-outline',
-      color: '#10B981'
-    },
-    {
-      type: 'expense',
-      title: 'Expense Submitted',
-      description: 'Travel Expenses - ₹1,200',
-      time: '3 days ago',
-      icon: 'receipt-outline',
-      color: '#F59E0B'
-    },
-    {
-      type: 'attendance',
-      title: 'Early Check-in',
-      description: 'Checked in at 8:45 AM',
-      time: '4 days ago',
-      icon: 'enter-outline',
-      color: '#8B5CF6'
-    }
   ];
 
   const formatRoleName = (role?: string) => {
@@ -194,7 +223,7 @@ export default function Profile() {
 
         {/* Stats Grid */}
         <View className="flex-row flex-wrap px-2">
-          {stats.map((stat, index) => (
+          {statItems.map((stat, index) => (
             <View key={index} className="w-1/2 p-2">
               <View 
                 className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
@@ -219,45 +248,12 @@ export default function Profile() {
           ))}
         </View>
 
-        {/* Recent Activity */}
-        <View className={`m-4 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.card}>
-          <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Recent Activity
-          </Text>
-          {recentActivity.map((activity, index) => (
-            <View key={index} className="mb-4 last:mb-0">
-              <View className="flex-row items-start">
-                <View 
-                  className={`p-2 rounded-full`} 
-                  style={{ backgroundColor: `${activity.color}20` }}
-                >
-                  <Ionicons name={activity.icon} size={20} color={activity.color} />
-                </View>
-                <View className="flex-1 ml-3">
-                  <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    {activity.title}
-                  </Text>
-                  <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {activity.description}
-                  </Text>
-                  <Text className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {activity.time}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          ))}
-        </View>
-
+        {/* My Expenses Section */}
         <View style={styles.quickActionsContainer}>
           <TouchableOpacity
             onPress={() => router.push('/(dashboard)/employee/myExpenses')}
-            style={[
-              styles.quickActionCard,
-              styles.card,
-              { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
-            ]}
-            className="p-4 rounded-xl"
+            style={[styles.quickActionCard, styles.card]}
+            className={`p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
           >
             <View 
               style={[
@@ -285,6 +281,44 @@ export default function Profile() {
               Track your expense claims
             </Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Recent Activity */}
+        <View className={`m-4 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.card}>
+          <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Recent Activity
+          </Text>
+          {isLoading ? (
+            <ActivityIndicator color={isDark ? '#60A5FA' : '#3B82F6'} />
+          ) : activities.length === 0 ? (
+            <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              No recent activities
+            </Text>
+          ) : (
+            activities.map((activity, index) => (
+              <View key={index} className="mb-4 last:mb-0">
+                <View className="flex-row items-start">
+                  <View 
+                    className={`p-2 rounded-full`} 
+                    style={{ backgroundColor: `${activity.color}20` }}
+                  >
+                    <Ionicons name={activity.icon} size={20} color={activity.color} />
+                  </View>
+                  <View className="flex-1 ml-3">
+                    <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {activity.title}
+                    </Text>
+                    <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {activity.description}
+                    </Text>
+                    <Text className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                      {activity.time}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
         </View>
       </ScrollView>
 
