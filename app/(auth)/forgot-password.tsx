@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../context/ThemeContext';
 import axios from 'axios';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function ForgotPassword() {
   const { theme } = ThemeContext.useTheme();
@@ -92,7 +93,7 @@ export default function ForgotPassword() {
       });
 
       Alert.alert('Success', 'Password has been reset successfully', [
-        { text: 'OK', onPress: () => router.replace('/login') }
+        { text: 'OK', onPress: () => router.replace('/(auth)/signin') }
       ]);
     } catch (error) {
       console.error('Error resetting password:', error);
@@ -112,168 +113,205 @@ export default function ForgotPassword() {
         backgroundColor={isDark ? '#111827' : '#F9FAFB'}
       />
 
-      <View className="flex-1 p-6">
-        {/* Header */}
-        <View className="mb-8">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 items-center justify-center rounded-full"
-            style={[styles.backButton, { backgroundColor: isDark ? '#374151' : '#F3F4F6' }]}
-          >
-            <Ionicons
-              name="arrow-back"
-              size={24}
-              color={isDark ? '#FFFFFF' : '#111827'}
-            />
-          </TouchableOpacity>
-
-          <Text
-            className={`text-2xl font-bold mt-6 ${
-              isDark ? 'text-white' : 'text-gray-900'
-            }`}
-          >
-            Reset Password
-          </Text>
-          <Text
-            className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}
-          >
-            {step === 'email'
-              ? 'Enter your email to receive a password reset code'
-              : step === 'otp'
-              ? 'Enter the verification code sent to your email'
-              : 'Create a new password'}
-          </Text>
-        </View>
-
-        {/* Form */}
-        <View className="space-y-6">
-          {step === 'email' && (
-            <View>
-              <Text
-                className={`text-sm font-medium mb-2 ${
-                  isDark ? 'text-gray-300' : 'text-gray-700'
-                }`}
-              >
-                Email Address
-              </Text>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Enter your email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                className={`p-4 rounded-lg ${
-                  isDark
-                    ? 'bg-gray-800 text-white'
-                    : 'bg-white text-gray-900'
-                }`}
-                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                style={styles.input}
+      <LinearGradient
+        colors={isDark ? ['#111827', '#1F2937'] : ['#F9FAFB', '#F3F4F6']}
+        className="flex-1"
+      >
+        <View className="flex-1 p-6">
+          {/* Header */}
+          <View className="mb-8">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-12 h-12 items-center justify-center rounded-full"
+              style={[styles.backButton, { backgroundColor: isDark ? 'rgba(55, 65, 81, 0.8)' : 'rgba(243, 244, 246, 0.8)' }]}
+            >
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color={isDark ? '#FFFFFF' : '#111827'}
               />
-            </View>
-          )}
+            </TouchableOpacity>
 
-          {step === 'otp' && (
-            <View>
-              <Text
-                className={`text-sm font-medium mb-2 ${
-                  isDark ? 'text-gray-300' : 'text-gray-700'
-                }`}
-              >
-                Verification Code
-              </Text>
-              <TextInput
-                value={otp}
-                onChangeText={setOtp}
-                placeholder="Enter OTP"
-                keyboardType="number-pad"
-                className={`p-4 rounded-lg ${
-                  isDark
-                    ? 'bg-gray-800 text-white'
-                    : 'bg-white text-gray-900'
-                }`}
-                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                style={styles.input}
-              />
-            </View>
-          )}
+            <Text
+              className={`text-3xl font-bold mt-6 ${
+                isDark ? 'text-white' : 'text-gray-900'
+              }`}
+            >
+              Reset Password
+            </Text>
+            <Text
+              className={`mt-3 text-base ${isDark ? 'text-gray-400' : 'text-gray-600'}`}
+            >
+              {step === 'email'
+                ? 'Enter your email to receive a password reset code'
+                : step === 'otp'
+                ? 'Enter the verification code sent to your email'
+                : 'Create a new password for your account'}
+            </Text>
+          </View>
 
-          {step === 'newPassword' && (
-            <>
-              <View>
+          {/* Form */}
+          <View className="space-y-8">
+            {step === 'email' && (
+              <View style={styles.inputContainer}>
                 <Text
                   className={`text-sm font-medium mb-2 ${
                     isDark ? 'text-gray-300' : 'text-gray-700'
                   }`}
                 >
-                  New Password
+                  Email Address
                 </Text>
-                <TextInput
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  placeholder="Enter new password"
-                  secureTextEntry
-                  className={`p-4 rounded-lg ${
-                    isDark
-                      ? 'bg-gray-800 text-white'
-                      : 'bg-white text-gray-900'
-                  }`}
-                  placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                  style={styles.input}
-                />
+                <View style={[
+                  styles.inputWrapper,
+                  { backgroundColor: isDark ? 'rgba(55, 65, 81, 0.8)' : 'rgba(255, 255, 255, 0.8)' }
+                ]}>
+                  <Ionicons
+                    name="mail-outline"
+                    size={20}
+                    color={isDark ? '#9CA3AF' : '#6B7280'}
+                    style={{ marginRight: 10 }}
+                  />
+                  <TextInput
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="Enter your email"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    className={`flex-1 ${
+                      isDark ? 'text-white' : 'text-gray-900'
+                    }`}
+                    placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                  />
+                </View>
               </View>
-
-              <View>
-                <Text
-                  className={`text-sm font-medium mb-2 ${
-                    isDark ? 'text-gray-300' : 'text-gray-700'
-                  }`}
-                >
-                  Confirm Password
-                </Text>
-                <TextInput
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  placeholder="Confirm new password"
-                  secureTextEntry
-                  className={`p-4 rounded-lg ${
-                    isDark
-                      ? 'bg-gray-800 text-white'
-                      : 'bg-white text-gray-900'
-                  }`}
-                  placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                  style={styles.input}
-                />
-              </View>
-            </>
-          )}
-
-          <TouchableOpacity
-            onPress={() => {
-              if (step === 'email') handleSendOTP();
-              else if (step === 'otp') handleVerifyOTP();
-              else handleResetPassword();
-            }}
-            disabled={isLoading}
-            className={`py-4 rounded-lg ${
-              isLoading ? 'opacity-50' : ''
-            }`}
-            style={[styles.button, { backgroundColor: '#3B82F6' }]}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text className="text-white text-center font-semibold text-lg">
-                {step === 'email'
-                  ? 'Send Code'
-                  : step === 'otp'
-                  ? 'Verify Code'
-                  : 'Reset Password'}
-              </Text>
             )}
-          </TouchableOpacity>
+
+            {step === 'otp' && (
+              <View style={styles.inputContainer}>
+                <Text
+                  className={`text-sm font-medium mb-2 ${
+                    isDark ? 'text-gray-300' : 'text-gray-700'
+                  }`}
+                >
+                  Verification Code
+                </Text>
+                <View style={[
+                  styles.inputWrapper,
+                  { backgroundColor: isDark ? 'rgba(55, 65, 81, 0.8)' : 'rgba(255, 255, 255, 0.8)' }
+                ]}>
+                  <Ionicons
+                    name="key-outline"
+                    size={20}
+                    color={isDark ? '#9CA3AF' : '#6B7280'}
+                    style={{ marginRight: 10 }}
+                  />
+                  <TextInput
+                    value={otp}
+                    onChangeText={setOtp}
+                    placeholder="Enter OTP"
+                    keyboardType="number-pad"
+                    className={`flex-1 ${
+                      isDark ? 'text-white' : 'text-gray-900'
+                    }`}
+                    placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                  />
+                </View>
+              </View>
+            )}
+
+            {step === 'newPassword' && (
+              <>
+                <View style={styles.inputContainer}>
+                  <Text
+                    className={`text-sm font-medium mb-2 ${
+                      isDark ? 'text-gray-300' : 'text-gray-700'
+                    }`}
+                  >
+                    New Password
+                  </Text>
+                  <View style={[
+                    styles.inputWrapper,
+                    { backgroundColor: isDark ? 'rgba(55, 65, 81, 0.8)' : 'rgba(255, 255, 255, 0.8)' }
+                  ]}>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={20}
+                      color={isDark ? '#9CA3AF' : '#6B7280'}
+                      style={{ marginRight: 10 }}
+                    />
+                    <TextInput
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      placeholder="Enter new password"
+                      secureTextEntry
+                      className={`flex-1 ${
+                        isDark ? 'text-white' : 'text-gray-900'
+                      }`}
+                      placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text
+                    className={`text-sm font-medium mb-2 ${
+                      isDark ? 'text-gray-300' : 'text-gray-700'
+                    }`}
+                  >
+                    Confirm Password
+                  </Text>
+                  <View style={[
+                    styles.inputWrapper,
+                    { backgroundColor: isDark ? 'rgba(55, 65, 81, 0.8)' : 'rgba(255, 255, 255, 0.8)' }
+                  ]}>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={20}
+                      color={isDark ? '#9CA3AF' : '#6B7280'}
+                      style={{ marginRight: 10 }}
+                    />
+                    <TextInput
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      placeholder="Confirm new password"
+                      secureTextEntry
+                      className={`flex-1 ${
+                        isDark ? 'text-white' : 'text-gray-900'
+                      }`}
+                      placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                    />
+                  </View>
+                </View>
+              </>
+            )}
+
+            <TouchableOpacity
+              onPress={() => {
+                if (step === 'email') handleSendOTP();
+                else if (step === 'otp') handleVerifyOTP();
+                else handleResetPassword();
+              }}
+              disabled={isLoading}
+              className={`py-4 rounded-xl mt-8 ${
+                isLoading ? 'opacity-50' : ''
+              }`}
+              style={[styles.button, { backgroundColor: '#3B82F6' }]}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text className="text-white text-center font-semibold text-lg">
+                  {step === 'email'
+                    ? 'Send Code'
+                    : step === 'otp'
+                    ? 'Verify Code'
+                    : 'Reset Password'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </LinearGradient>
     </KeyboardAvoidingView>
   );
 }
@@ -285,8 +323,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1.41,
+    backdropFilter: 'blur(10px)',
   },
-  input: {
+  inputContainer: {
+    marginBottom: 16,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -294,10 +340,10 @@ const styles = StyleSheet.create({
     shadowRadius: 1.41,
   },
   button: {
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    elevation: 4,
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
   },
 });
