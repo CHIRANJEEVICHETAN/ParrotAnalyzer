@@ -117,42 +117,32 @@ router.get('/employee', verifyToken, async (req: CustomRequest, res: Response) =
 router.get('/admin', verifyToken, adminMiddleware, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    const result = await client.query(
-      `SELECT 
-        t.*,
+    const result = await client.query(`
+      SELECT 
+        t.id,
+        t.title,
+        t.description,
+        t.assigned_to,
+        t.assigned_by,
+        t.priority,
+        t.status,
+        TO_CHAR(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "createdAt",
+        t.status_history,
         u1.name as employee_name,
-        u2.name as assigned_by_name,
-        COALESCE(
-          (
-            SELECT jsonb_agg(
-              jsonb_build_object(
-                'status', (sh->>'status'),
-                'updatedAt', (sh->>'updatedAt'),
-                'updatedBy', (sh->>'updatedBy')::integer,
-                'updatedByName', u3.name
-              )
-            )
-            FROM jsonb_array_elements(t.status_history) sh
-            LEFT JOIN users u3 ON (sh->>'updatedBy')::integer = u3.id
-          ),
-          '[]'::jsonb
-        ) as status_history
-       FROM employee_tasks t
-       LEFT JOIN users u1 ON t.assigned_to = u1.id
-       LEFT JOIN users u2 ON t.assigned_by = u2.id
-       WHERE t.assigned_by = $1
-       ORDER BY t.created_at DESC`,
+        u1.employee_number,
+        u2.name as assigned_by_name
+      FROM employee_tasks t
+      LEFT JOIN users u1 ON t.assigned_to = u1.id
+      LEFT JOIN users u2 ON t.assigned_by = u2.id
+      WHERE t.assigned_by = $1
+      ORDER BY t.created_at DESC`,
       [req.user?.id]
     );
 
-    console.log('Tasks query result:', result.rows); // Debug log
     res.json(result.rows);
   } catch (error) {
-    console.error('Detailed error in tasks fetch:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch tasks',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
   } finally {
     client.release();
   }

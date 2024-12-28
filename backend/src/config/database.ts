@@ -330,6 +330,9 @@ export const initDB = async () => {
       END $$;
     `);
 
+    // Add these lines after other table creation
+    await initEmployeeShiftsTable();
+    
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -386,5 +389,48 @@ export const seedUsers = async () => {
     console.log('Test users created successfully');
   } catch (error) {
     console.error('Error seeding users:', error);
+  }
+};
+
+// Add this function to create employee_shifts_daily table
+export const initEmployeeShiftsTable = async () => {
+  const client = await pool.connect();
+  try {
+    // First create the employee_shifts table if it doesn't exist
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employee_shifts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP,
+        duration INTERVAL,
+        total_kilometers DECIMAL DEFAULT 0,
+        total_expenses DECIMAL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Then create the employee_shifts_daily table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employee_shifts_daily (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        date DATE NOT NULL,
+        shifts JSONB DEFAULT '[]',
+        total_hours DECIMAL DEFAULT 0,
+        total_distance DECIMAL DEFAULT 0,
+        total_expenses DECIMAL DEFAULT 0,
+        shift_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, date)
+      )
+    `);
+
+    console.log('Employee shifts tables initialized');
+  } catch (error) {
+    console.error('Error initializing employee shifts tables:', error);
+    throw error;
+  } finally {
+    client.release();
   }
 }; 

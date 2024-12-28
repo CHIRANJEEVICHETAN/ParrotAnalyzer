@@ -9,6 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -49,6 +50,8 @@ export default function ExpenseManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [selectedExpenseId, setSelectedExpenseId] = useState<number | null>(null);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const checkUserRole = async () => {
     try {
@@ -140,6 +143,7 @@ export default function ExpenseManagement() {
 
   const handleApprove = async (id: number) => {
     try {
+      setActionLoading(id);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
         { approved: true },
@@ -165,11 +169,14 @@ export default function ExpenseManagement() {
       } else {
         Alert.alert('Error', 'An unexpected error occurred. Please try again.');
       }
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleReject = async (id: number, reason: string) => {
     try {
+      setActionLoading(id);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
         { 
@@ -196,6 +203,8 @@ export default function ExpenseManagement() {
           ? error.response?.data?.details || 'Failed to reject expense'
           : 'Failed to reject expense'
       );
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -215,6 +224,17 @@ export default function ExpenseManagement() {
         return false;
     }
   });
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchExpenses();
+    } catch (error) {
+      console.error('Error refreshing expenses:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
@@ -295,7 +315,18 @@ export default function ExpenseManagement() {
       </View>
 
       {/* Expense List */}
-      <ScrollView className="flex-1 px-4">
+      <ScrollView 
+        className="flex-1 px-4"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']}
+            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
+            progressBackgroundColor={isDark ? '#1F2937' : '#F3F4F6'}
+          />
+        }
+      >
         {loading ? (
           <View className="flex-1 justify-center items-center p-4">
             <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
@@ -352,13 +383,20 @@ export default function ExpenseManagement() {
                 <View className="flex-row justify-end mt-4">
                   <TouchableOpacity
                     onPress={(e) => {
-                      e.stopPropagation(); // Prevent navigation
+                      e.stopPropagation();
                       handleApprove(expense.id);
                     }}
-                    className="bg-green-500 px-4 py-2 rounded-lg mr-3"
+                    disabled={actionLoading === expense.id}
+                    className={`bg-green-500 px-4 py-2 rounded-lg mr-3 ${
+                      actionLoading === expense.id ? 'opacity-50' : ''
+                    }`}
                     style={styles.actionButton}
                   >
-                    <Text className="text-white font-medium text-center">Approve</Text>
+                    {actionLoading === expense.id ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <Text className="text-white font-medium text-center">Approve</Text>
+                    )}
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={(e) => {
@@ -366,10 +404,17 @@ export default function ExpenseManagement() {
                       setSelectedExpenseId(expense.id);
                       setRejectModalVisible(true);
                     }}
-                    className="bg-red-500 px-4 py-2 rounded-lg"
+                    disabled={actionLoading === expense.id}
+                    className={`bg-red-500 px-4 py-2 rounded-lg ${
+                      actionLoading === expense.id ? 'opacity-50' : ''
+                    }`}
                     style={styles.actionButton}
                   >
-                    <Text className="text-white font-medium text-center">Reject</Text>
+                    {actionLoading === expense.id ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <Text className="text-white font-medium text-center">Reject</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               )}

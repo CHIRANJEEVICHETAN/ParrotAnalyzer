@@ -1,12 +1,24 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
+
+interface Task {
+  id: number;
+  title: string;
+  description: string;
+  assignedTo?: number;
+  priority: 'low' | 'medium' | 'high';
+  status: 'pending' | 'in_progress' | 'completed';
+  createdAt: string;
+  employee_name: string;
+  employee_number: string;
+  assigned_by_name: string;
+  status_history: StatusHistory[];
+}
 
 interface StatusHistory {
   status: string;
@@ -16,233 +28,86 @@ interface StatusHistory {
 }
 
 interface TaskCardProps {
-  task: {
-    id: number;
-    title: string;
-    description: string;
-    priority: 'low' | 'medium' | 'high';
-    status: 'pending' | 'in_progress' | 'completed';
-    employee_name: string;
-    status_history: StatusHistory[];
-  };
+  task: Task;
   isDark: boolean;
 }
 
+// Add helper functions for colors
+const getPriorityColor = (priority: string) => {
+  switch (priority.toLowerCase()) {
+    case 'high': return 'bg-red-500';
+    case 'medium': return 'bg-amber-500';
+    case 'low': return 'bg-green-500';
+    default: return 'bg-gray-500';
+  }
+};
+
+const getStatusColor = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'completed': return 'bg-green-500';
+    case 'in_progress': return 'bg-amber-500';
+    case 'pending': return 'bg-red-500';
+    default: return 'bg-gray-500';
+  }
+};
+
+// Add a helper function for safe date formatting
+const formatDate = (dateString: string | null | undefined) => {
+  if (!dateString) return 'Not set';
+  try {
+    return format(new Date(dateString), 'MMM dd, yyyy');
+  } catch (error) {
+    return 'Invalid date';
+  }
+};
+
 export default function TaskCard({ task, isDark }: TaskCardProps) {
-  const [showHistory, setShowHistory] = useState(false);
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority.toLowerCase()) {
-      case 'low': return '#10B981';
-      case 'medium': return '#F59E0B';
-      case 'high': return '#EF4444';
-      default: return '#6B7280';
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'completed': return '#10B981';
-      case 'in_progress': return '#F59E0B';
-      case 'pending': return '#EF4444';
-      default: return '#6B7280';
-    }
-  };
-
   return (
-    <View style={[styles.card, { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
-          {task.title}
-        </Text>
-        <View style={[
-          styles.priorityBadge,
-          { backgroundColor: `${getPriorityColor(task.priority)}20` }
-        ]}>
-          <Text style={[styles.priorityText, { color: getPriorityColor(task.priority) }]}>
+    <View
+      className={`p-4 rounded-xl mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+      style={styles.card}
+    >
+      <View className="flex-row justify-between items-start mb-3">
+        <View className="flex-1">
+          <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            {task.title}
+          </Text>
+          <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Assigned to: {task.employee_name}
+          </Text>
+          <Text className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Created: {formatDate(task.createdAt)}
+          </Text>
+        </View>
+        <View className={`px-2 py-1 rounded-lg ${getPriorityColor(task.priority)}`}>
+          <Text className="text-white text-xs font-medium">
             {task.priority.toUpperCase()}
           </Text>
         </View>
       </View>
 
-      <Text style={[styles.description, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
+      <Text className={`mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
         {task.description}
       </Text>
 
-      <View style={styles.metaInfo}>
-        <View style={styles.assignedTo}>
-          <Text style={[styles.label, { color: isDark ? '#D1D5DB' : '#374151' }]}>
-            Assigned to:
-          </Text>
-          <Text style={[styles.value, { color: isDark ? '#FFFFFF' : '#111827' }]}>
-            {task.employee_name}
-          </Text>
-        </View>
-
-        <View style={styles.status}>
-          <Text style={[styles.label, { color: isDark ? '#D1D5DB' : '#374151' }]}>
-            Current Status:
-          </Text>
-          <Text style={[styles.statusText, { color: getStatusColor(task.status) }]}>
-            {task.status.replace('_', ' ').toUpperCase()}
+      <View className="flex-row justify-end items-center">
+        <View className={`px-2 py-1 rounded-lg ${getStatusColor(task.status)}`}>
+          <Text className="text-white text-xs font-medium">
+            {task.status === 'in_progress' ? 'In Progress' : 
+             task.status.charAt(0).toUpperCase() + task.status.slice(1)}
           </Text>
         </View>
       </View>
-
-      {/* Status History Section */}
-      <TouchableOpacity 
-        style={styles.historyButton}
-        onPress={() => setShowHistory(!showHistory)}
-      >
-        <Ionicons 
-          name={showHistory ? 'chevron-up' : 'chevron-down'} 
-          size={20} 
-          color={isDark ? '#9CA3AF' : '#6B7280'} 
-        />
-        <Text style={[styles.historyButtonText, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
-          {showHistory ? 'Hide Status History' : 'Show Status History'}
-        </Text>
-      </TouchableOpacity>
-
-      {showHistory && (
-        <View style={[
-          styles.historyContainer,
-          { borderTopColor: isDark ? '#374151' : '#E5E7EB' }
-        ]}>
-          {task.status_history.map((history, index) => (
-            <View key={index} style={styles.historyItem}>
-              <View style={styles.historyDot}>
-                <View style={[
-                  styles.dot,
-                  { backgroundColor: getStatusColor(history.status) }
-                ]} />
-                <View style={[
-                  styles.line,
-                  { 
-                    backgroundColor: isDark ? '#374151' : '#E5E7EB',
-                    display: index === task.status_history.length - 1 ? 'none' : 'flex'
-                  }
-                ]} />
-              </View>
-              <View style={styles.historyContent}>
-                <Text style={[styles.historyStatus, { color: isDark ? '#FFFFFF' : '#111827' }]}>
-                  {history.status.replace('_', ' ').toUpperCase()}
-                </Text>
-                <Text style={[styles.historyMeta, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
-                  Updated by {history.updatedByName} on {format(new Date(history.updatedAt), 'MMM dd, yyyy HH:mm')}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowRadius: 2,
     elevation: 2,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    flex: 1,
-    marginRight: 12,
-  },
-  priorityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  priorityText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  description: {
-    fontSize: 14,
-    marginBottom: 16,
-  },
-  metaInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  assignedTo: {
-    flex: 1,
-  },
-  status: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  label: {
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  value: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  statusText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  historyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-  },
-  historyButtonText: {
-    marginLeft: 8,
-    fontSize: 14,
-  },
-  historyContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
-  historyItem: {
-    flexDirection: 'row',
-    marginBottom: 16,
-  },
-  historyDot: {
-    alignItems: 'center',
-    width: 20,
-    marginRight: 12,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  line: {
-    width: 2,
-    flex: 1,
-    marginTop: 4,
-  },
-  historyContent: {
-    flex: 1,
-  },
-  historyStatus: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  historyMeta: {
-    fontSize: 12,
   },
 }); 
