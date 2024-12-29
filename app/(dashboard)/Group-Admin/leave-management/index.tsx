@@ -121,7 +121,10 @@ export default function LeaveManagement() {
         </View>
       </View>
 
-      <ScrollView className="flex-1 p-4">
+      <ScrollView 
+        className="flex-1 p-4" 
+        contentContainerStyle={{ paddingBottom: 20 }}
+      >
         {loading ? (
           <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
         ) : leaveRequests.length === 0 ? (
@@ -131,10 +134,12 @@ export default function LeaveManagement() {
             </Text>
           </View>
         ) : (
-          leaveRequests.map((request) => (
+          leaveRequests.map((request, index) => (
             <View 
               key={request.id} 
-              className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} ${
+                index === leaveRequests.length - 1 ? 'mb-4' : ''
+              }`}
               style={styles.card}
             >
               <View className="flex-row justify-between items-start mb-2">
