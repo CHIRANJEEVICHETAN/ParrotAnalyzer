@@ -6,7 +6,8 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   StatusBar,
-  ActivityIndicator 
+  ActivityIndicator,
+  Alert 
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,8 +17,14 @@ import axios from 'axios';
 import { format } from 'date-fns';
 import BottomNav from '../../components/BottomNav';
 import { groupAdminNavItems } from './utils/navigationItems';
+import ExpenseReports from './reports/components/ExpenseReports';
+import AttendanceReports from './reports/components/AttendanceReports';
+import TaskReports from './reports/components/TaskReports';
+import TravelReports from './reports/components/TravelReports';
+import PerformanceReports from './reports/components/PerformanceReports';
+import LeaveReports from './reports/components/LeaveReports';
 
-type ReportType = 'expense' | 'attendance' | 'activity';
+type ReportType = 'expense' | 'attendance' | 'task' | 'travel' | 'performance' | 'leave';
 type IconName = keyof typeof Ionicons.glyphMap;
 
 interface Report {
@@ -29,6 +36,21 @@ interface Report {
   status: string | null;
 }
 
+interface ReportAnalytics {
+  total: number;
+  trend: string;
+  average: number;
+  lastUpdated: string;
+}
+
+interface ReportSection {
+  type: ReportType;
+  title: string;
+  icon: IconName;
+  analytics: ReportAnalytics;
+  color: string;
+}
+
 export default function GroupAdminReports() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -38,9 +60,112 @@ export default function GroupAdminReports() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<ReportType>('expense');
+  const [isExporting, setIsExporting] = useState(false);
+  const [analytics, setAnalytics] = useState<any>(null);
+
+  const calculateTrend = (currentValue: number, previousValue: number): string => {
+    if (previousValue === 0) return '0%';
+    
+    const percentageChange = ((currentValue - previousValue) / previousValue) * 100;
+    const sign = percentageChange > 0 ? '+' : '';
+    return `${sign}${Math.round(percentageChange)}%`;
+  };
+
+  const reportSections: ReportSection[] = [
+    {
+      type: 'expense',
+      title: 'Expense Reports',
+      icon: 'wallet-outline',
+      color: '#3B82F6',
+      analytics: analytics ? {
+        total: analytics.expense.total || 0,
+        trend: calculateTrend(
+          analytics.expense.currentMonthTotal || 0,  // Current month total
+          analytics.expense.previousMonthTotal || 0  // Previous month total
+        ),
+        average: analytics.expense.average || 0,
+        lastUpdated: analytics.expense.lastUpdated
+      } : {
+        total: 0,
+        trend: '0%',
+        average: 0,
+        lastUpdated: new Date().toISOString()
+      }
+    },
+    {
+      type: 'attendance',
+      title: 'Attendance Reports',
+      icon: 'calendar-outline',
+      color: '#8B5CF6',
+      analytics: analytics ? {
+        total: analytics.attendance.total || 0,
+        trend: calculateTrend(
+          analytics.attendance.currentMonthTotal || 0,  // Current month total
+          analytics.attendance.previousMonthTotal || 0  // Previous month total
+        ),
+        average: analytics.attendance.average || 0,
+        lastUpdated: analytics.attendance.lastUpdated
+      } : {
+        total: 0,
+        trend: '0%',
+        average: 0,
+        lastUpdated: new Date().toISOString()
+      }
+    },
+    {
+      type: 'task',
+      title: 'Task Reports',
+      icon: 'checkmark-circle-outline',
+      color: '#10B981',
+      analytics: {
+        total: 156,
+        trend: '+8%',
+        average: 45,
+        lastUpdated: '2024-03-15'
+      }
+    },
+    {
+      type: 'travel',
+      title: 'Travel Reports',
+      icon: 'car-outline',
+      color: '#F59E0B',
+      analytics: {
+        total: 32,
+        trend: '-5%',
+        average: 8,
+        lastUpdated: '2024-03-15'
+      }
+    },
+    {
+      type: 'performance',
+      title: 'Performance Reports',
+      icon: 'trending-up-outline',
+      color: '#EC4899',
+      analytics: {
+        total: 88,
+        trend: '+15%',
+        average: 82,
+        lastUpdated: '2024-03-15'
+      }
+    },
+    {
+      type: 'leave',
+      title: 'Leave Reports',
+      icon: 'time-outline',
+      color: '#6366F1',
+      analytics: {
+        total: 45,
+        trend: '+2%',
+        average: 12,
+        lastUpdated: '2024-03-15'
+      }
+    }
+  ];
 
   useEffect(() => {
     fetchReports();
+    fetchAnalytics();
   }, []);
 
   const fetchReports = async () => {
@@ -62,14 +187,34 @@ export default function GroupAdminReports() {
     }
   };
 
+  const fetchAnalytics = async () => {
+    try {
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/reports/analytics`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      setAnalytics(response.data);
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+    }
+  };
+
   const getIconName = (type: ReportType): IconName => {
     switch (type) {
       case 'expense':
         return 'receipt-outline';
       case 'attendance':
         return 'calendar-outline';
-      case 'activity':
+      case 'task':
         return 'bar-chart-outline';
+      case 'travel':
+        return 'car-outline';
+      case 'performance':
+        return 'trending-up-outline';
+      case 'leave':
+        return 'time-outline';
       default:
         return 'document-text-outline';
     }
@@ -94,6 +239,38 @@ export default function GroupAdminReports() {
     } catch (error) {
       console.error('Error formatting amount:', error, 'Amount:', amount);
       return '0.00';
+    }
+  };
+
+  const handleExportPDF = async (type: ReportType) => {
+    try {
+      setIsExporting(true);
+      // Implementation for PDF export
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulated delay
+      Alert.alert('Success', `${type} report exported successfully`);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to export report');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const renderReportSection = (section: ReportSection) => {
+    switch (section.type) {
+      case 'expense':
+        return <ExpenseReports section={section} isDark={isDark} />;
+      case 'attendance':
+        return <AttendanceReports section={section} isDark={isDark} />;
+      case 'task':
+        return <TaskReports section={section} isDark={isDark} />;
+      case 'travel':
+        return <TravelReports section={section} isDark={isDark} />;
+      case 'performance':
+        return <PerformanceReports section={section} isDark={isDark} />;
+      case 'leave':
+        return <LeaveReports section={section} isDark={isDark} />;
+      default:
+        return null;
     }
   };
 
@@ -130,67 +307,51 @@ export default function GroupAdminReports() {
         </View>
       </View>
 
-      <ScrollView className="flex-1 p-4 pb-20">
-        {loading ? (
-          <View className="flex-1 justify-center items-center">
-            <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
-          </View>
-        ) : error ? (
-          <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            <Text className={`text-center text-red-500`}>
-              {error}
-            </Text>
-            <TouchableOpacity 
-              onPress={fetchReports}
-              className="mt-4 bg-blue-500 p-3 rounded-lg"
+      <ScrollView className="flex-1">
+        {/* Report Type Selector */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          className="px-4 py-3"
+        >
+          {reportSections.map((section) => (
+            <TouchableOpacity
+              key={section.type}
+              onPress={() => setSelectedType(section.type)}
+              className={`mr-3 px-4 py-2 rounded-full flex-row items-center ${
+                selectedType === section.type 
+                  ? 'bg-blue-500' 
+                  : isDark ? 'bg-gray-800' : 'bg-white'
+              }`}
+              style={styles.chipButton}
             >
-              <Text className="text-white text-center font-medium">
-                Retry
+              <Ionicons 
+                name={section.icon} 
+                size={18} 
+                color={selectedType === section.type ? '#FFFFFF' : section.color} 
+                style={{ marginRight: 6 }}
+              />
+              <Text className={`${
+                selectedType === section.type 
+                  ? 'text-white' 
+                  : isDark ? 'text-gray-300' : 'text-gray-700'
+              }`}>
+                {section.title}
               </Text>
             </TouchableOpacity>
-          </View>
-        ) : reports.length === 0 ? (
-          <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              No reports found
-            </Text>
-          </View>
-        ) : (
-          reports.map((report, index) => (
-            <TouchableOpacity
-              key={`${report.type}-${report.id || index}`}
-              className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
-              style={[
-                styles.reportCard,
-                index === reports.length - 1 && { marginBottom: 30 }
-              ]}
-              onPress={() => {/* Handle report press */}}
-            >
-              <View className="flex-row items-center">
-                <View className={`w-12 h-12 rounded-full items-center justify-center bg-blue-100`}>
-                  <Ionicons 
-                    name={getIconName(report.type)}
-                    size={24}
-                    color="#3B82F6"
-                  />
-                </View>
-                <View className="ml-4 flex-1">
-                  <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    {report.title}
-                  </Text>
-                  <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {format(new Date(report.date), 'MMM dd, yyyy')}
-                  </Text>
-                </View>
-                {report.type === 'expense' && report.amount !== null && (
-                  <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    ₹{formatAmount(report.amount)}
-                  </Text>
-                )}
+          ))}
+        </ScrollView>
+
+        {/* Report Sections */}
+        <View className="p-4">
+          {reportSections.map((section) => 
+            selectedType === section.type ? (
+              <View key={section.type}>
+                {renderReportSection(section)}
               </View>
-            </TouchableOpacity>
-          ))
-        )}
+            ) : null
+          )}
+        </View>
       </ScrollView>
 
       <BottomNav items={groupAdminNavItems} />
@@ -213,5 +374,19 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
     marginBottom: 12,
+  },
+  chipButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  card: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   }
 });
