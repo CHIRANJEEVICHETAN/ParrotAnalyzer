@@ -1,3 +1,4 @@
+import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, StyleSheet, Platform, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,20 +7,32 @@ import AuthContext from '../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 
+interface SettingItem {
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    action: () => void;
+    showArrow?: boolean;
+    isSwitch?: boolean;
+    switchValue?: boolean;
+}
+
+interface SettingSection {
+    title: string;
+    items: SettingItem[];
+}
+
 export default function ManagementSettings() {
     const { theme, toggleTheme } = ThemeContext.useTheme();
     const { logout } = AuthContext.useAuth();
     const router = useRouter();
+    const isDark = theme === 'dark';
 
     const handleLogout = async () => {
         Alert.alert(
             'Logout',
             'Are you sure you want to logout?',
             [
-                {
-                    text: 'Cancel',
-                    style: 'cancel'
-                },
+                { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Logout',
                     style: 'destructive',
@@ -33,72 +46,65 @@ export default function ManagementSettings() {
         );
     };
 
-    const settingsSections = [
+    const settingsSections: SettingSection[] = [
         {
             title: 'Account',
             items: [
                 {
                     icon: 'person-outline',
                     label: 'Profile Settings',
-                    action: () => router.push('/(dashboard)/management/profile'),
-                    showArrow: true
-                },
-                {
-                    icon: 'notifications-outline',
-                    label: 'Notifications',
-                    action: () => router.push('/(dashboard)/management/notifications'),
+                    action: () => router.push('/(dashboard)/management/settings/profile'),
                     showArrow: true
                 },
                 {
                     icon: 'shield-outline',
                     label: 'Privacy & Security',
-                    action: () => router.push('/(dashboard)/management/privacy'),
+                    action: () => router.push('/(dashboard)/management/settings/privacy'),
                     showArrow: true
                 }
             ]
         },
         {
-            title: 'Management Controls',
+            title: 'Notifications',
             items: [
                 {
-                    icon: 'analytics-outline',
-                    label: 'Analytics Preferences',
-                    action: () => router.push('/(dashboard)/management/analytics-settings'),
+                    icon: 'notifications-outline',
+                    label: 'Notifications',
+                    action: () => router.push('/(dashboard)/management/settings/notifications'),
                     showArrow: true
-                },
+                }
+            ]
+        },
+        {
+            title: 'Management Tools',
+            items: [
                 {
                     icon: 'bar-chart-outline',
                     label: 'Report Settings',
-                    action: () => router.push('/(dashboard)/management/report-settings'),
-                    showArrow: true
-                },
-                {
-                    icon: 'cash-outline',
-                    label: 'Approval Thresholds',
-                    action: () => router.push('/(dashboard)/management/approval-settings'),
+                    action: () => router.push('/(dashboard)/management/settings/reports'),
                     showArrow: true
                 },
                 {
                     icon: 'people-outline',
                     label: 'Team Management',
-                    action: () => router.push('/(dashboard)/management/team-settings'),
+                    action: () => router.push('/(dashboard)/management/settings/team'),
                     showArrow: true
                 }
             ]
         },
         {
-            title: 'Communication',
+            title: 'Support',
             items: [
                 {
-                    icon: 'mail-outline',
-                    label: 'Email Preferences',
-                    action: () => router.push('/(dashboard)/management/email-settings'),
+                    icon: 'help-circle-outline',
+                    label: 'Help & Support',
+                    action: () => router.push('/(dashboard)/management/settings/help'),
                     showArrow: true
                 },
                 {
-                    icon: 'chatbubbles-outline',
-                    label: 'Message Settings',
-                    action: () => router.push('/(dashboard)/management/message-settings'),
+                    icon: 'information-circle-outline',
+                    label: 'About',
+                    action: () => router.push('/(dashboard)/management/settings/about'),
                     showArrow: true
                 }
             ]
@@ -109,107 +115,70 @@ export default function ManagementSettings() {
                 {
                     icon: theme === 'dark' ? 'moon' : 'sunny',
                     label: 'Dark Mode',
-                    action: toggleTheme,
                     isSwitch: true,
-                    switchValue: theme === 'dark'
-                },
-                {
-                    icon: 'color-palette-outline',
-                    label: 'Dashboard Layout',
-                    action: () => router.push('/(dashboard)/management/layout-settings'),
-                    showArrow: true
-                }
-            ]
-        },
-        {
-            title: 'System',
-            items: [
-                {
-                    icon: 'help-circle-outline',
-                    label: 'Help & Support',
-                    action: () => router.push('/(dashboard)/management/support'),
-                    showArrow: true
-                },
-                {
-                    icon: 'document-text-outline',
-                    label: 'Documentation',
-                    action: () => router.push('/(dashboard)/management/documentation'),
-                    showArrow: true
-                },
-                {
-                    icon: 'information-circle-outline',
-                    label: 'About',
-                    action: () => router.push('/(dashboard)/management/about'),
-                    showArrow: true
+                    switchValue: theme === 'dark',
+                    action: toggleTheme
                 }
             ]
         }
     ];
 
     return (
-        <View className="flex-1" style={styles.container}>
-            <LinearGradient
-                colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
-            >
-                <View className="flex-row items-center justify-between px-6">
-                    <View className="flex-row items-center">
-                        <TouchableOpacity
-                            onPress={() => router.back()}
-                            className="mr-4 p-2 rounded-full"
-                            style={[styles.backButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
-                        >
-                            <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
-                        </TouchableOpacity>
-                        <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}
-                              style={styles.headerTitle}>
-                            Settings
-                        </Text>
-                    </View>
+        <View className="flex-1 bg-[#F9FAFB]">
+            <StatusBar
+                backgroundColor="#F9FAFB"
+                barStyle="dark-content"
+            />
+
+            <View className="bg-[#F9FAFB]">
+                <View className="flex-row items-center px-5 pt-4 pb-5">
+                    <TouchableOpacity
+                        onPress={() => router.back()}
+                        className="w-11 h-11 rounded-full bg-white items-center justify-center shadow-sm"
+                    >
+                        <Ionicons 
+                            name="arrow-back" 
+                            size={26} 
+                            color="#000000"
+                            style={{ marginLeft: -1 }}
+                        />
+                    </TouchableOpacity>
+                    <Text className="text-[26px] font-bold text-[#111827] ml-4">
+                        Settings
+                    </Text>
                 </View>
-            </LinearGradient>
+            </View>
 
             <ScrollView 
-                className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
+                className="flex-1 bg-[#F9FAFB]"
                 showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 16 }}
                 style={styles.scrollView}
             >
                 {settingsSections.map((section, sectionIndex) => (
-                    <View key={section.title} 
-                          className={`mb-6 ${sectionIndex !== 0 ? 'mt-2' : ''}`}
-                          style={styles.section}>
-                        <Text className={`px-6 py-2 text-sm font-semibold ${
-                            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                        }`} style={styles.sectionTitle}>
+                    <View key={section.title} className="mb-7">
+                        <Text className="px-5 py-2.5 text-[13px] font-semibold text-[#6B7280] uppercase tracking-wide">
                             {section.title}
                         </Text>
-                        <View className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
-                              style={styles.sectionContent}>
+                        <View className="mx-5 rounded-2xl bg-white border border-[#F3F4F6]">
                             {section.items.map((item, index) => (
                                 <TouchableOpacity
                                     key={item.label}
                                     onPress={item.action}
-                                    className={`flex-row items-center justify-between px-6 py-4`}
-                                    style={[
-                                        styles.settingItem,
-                                        index !== section.items.length - 1 && styles.settingItemBorder,
-                                        { borderColor: theme === 'dark' ? '#374151' : '#E5E7EB' }
-                                    ]}
+                                    className={`flex-row items-center justify-between py-4 px-5 ${
+                                        index !== section.items.length - 1 ? 'border-b border-[#F3F4F6]' : ''
+                                    }`}
                                 >
-                                    <View className="flex-row items-center" style={styles.settingItemLeft}>
-                                        <View style={[
-                                            styles.iconContainer,
-                                            { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
-                                        ]}>
+                                    <View className="flex-row items-center flex-1">
+                                        <View className="w-[42px] h-[42px] rounded-full bg-[#F9FAFB] items-center justify-center">
                                             <Ionicons
-                                                name={item.icon as keyof typeof Ionicons.glyphMap}
-                                                size={22}
-                                                color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                                                name={item.icon}
+                                                size={24}
+                                                color="#000000"
+                                                style={{ opacity: 0.9 }}
                                             />
                                         </View>
-                                        <Text className={`text-base ${
-                                            theme === 'dark' ? 'text-white' : 'text-gray-900'
-                                        }`} style={styles.settingLabel}>
+                                        <Text className="ml-4 text-[16px] font-semibold text-[#111827]">
                                             {item.label}
                                         </Text>
                                     </View>
@@ -217,21 +186,16 @@ export default function ManagementSettings() {
                                         <Switch
                                             value={item.switchValue}
                                             onValueChange={item.action}
-                                            trackColor={{ 
-                                                false: theme === 'dark' ? '#4B5563' : '#D1D5DB',
-                                                true: '#60A5FA'
-                                            }}
-                                            thumbColor={item.switchValue ? '#3B82F6' : '#F3F4F6'}
-                                            style={styles.switch}
+                                            trackColor={{ false: '#E5E7EB', true: '#3B82F6' }}
+                                            thumbColor="#FFFFFF"
+                                            style={{ transform: [{ scale: 0.85 }] }}
                                         />
                                     ) : item.showArrow && (
-                                        <View style={styles.arrowContainer}>
-                                            <Ionicons
-                                                name="chevron-forward"
-                                                size={20}
-                                                color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                                            />
-                                        </View>
+                                        <Ionicons
+                                            name="chevron-forward"
+                                            size={22}
+                                            color="#9CA3AF"
+                                        />
                                     )}
                                 </TouchableOpacity>
                             ))}
@@ -239,25 +203,19 @@ export default function ManagementSettings() {
                     </View>
                 ))}
 
+                <View className="h-6" />
+
                 <TouchableOpacity
                     onPress={handleLogout}
-                    style={styles.logoutButtonContainer}
+                    className="mx-5 mb-5 bg-red-600 rounded-3xl"
                 >
-                    <LinearGradient
-                        colors={['#DC2626', '#B91C1C']}
-                        className="p-4 rounded-xl"
-                        style={styles.logoutGradient}
-                    >
-                        <Text className="text-white font-semibold text-base" style={styles.logoutText}>
-                            Logout
-                        </Text>
-                    </LinearGradient>
+                    <Text className="text-white font-bold text-[17px] text-center py-4">
+                        Logout
+                    </Text>
                 </TouchableOpacity>
 
-                <View style={styles.versionContainer}>
-                    <Text className={`text-center ${
-                        theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-                    }`} style={styles.versionText}>
+                <View className="mb-10 items-center">
+                    <Text className="text-[13px] font-medium text-gray-400">
                         Version 1.0.0
                     </Text>
                 </View>
@@ -267,103 +225,7 @@ export default function ManagementSettings() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    header: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 3,
-        paddingBottom: 16,
-    },
-    headerTitle: {
-        fontSize: 28,
-        letterSpacing: 0.5,
-    },
-    backButton: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-    },
     scrollView: {
-        bounces: true,
-    },
-    section: {
-        marginBottom: 16,
-    },
-    sectionTitle: {
-        letterSpacing: 0.5,
-        textTransform: 'uppercase',
-    },
-    sectionContent: {
-        borderRadius: 16,
-        marginHorizontal: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
-    },
-    settingItem: {
-        paddingVertical: 16,
-        paddingHorizontal: 16,
-    },
-    settingItemBorder: {
-        borderBottomWidth: 1,
-    },
-    settingItemLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
         flex: 1,
-    },
-    iconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    settingLabel: {
-        fontSize: 16,
-        fontWeight: '500',
-        flex: 1,
-    },
-    switch: {
-        transform: [{ scale: 0.9 }],
-    },
-    arrowContainer: {
-        padding: 4,
-    },
-    logoutButtonContainer: {
-        marginHorizontal: 16,
-        marginVertical: 8,
-    },
-    logoutGradient: {
-        borderRadius: 12,
-        shadowColor: '#DC2626',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-        elevation: 4,
-    },
-    logoutText: {
-        textAlign: 'center',
-        fontSize: 16,
-        fontWeight: '600',
-        letterSpacing: 0.5,
-    },
-    versionContainer: {
-        marginTop: 8,
-        marginBottom: 32,
-        alignItems: 'center',
-    },
-    versionText: {
-        fontSize: 14,
-        opacity: 0.7,
-    },
+    }
 });
