@@ -124,12 +124,12 @@ export default function GroupAdminReports() {
           analytics.task?.currentMonthTotal || 0,
           analytics.task?.previousMonthTotal || 0
         ),
-        average: Number(analytics.task?.avg_completion_time || 0).toFixed(1),
+        average: Number(analytics.task?.avg_completion_time || 0),
         lastUpdated: analytics.task?.lastUpdated || new Date().toISOString()
       } : {
         total: 0,
         trend: '0%',
-        average: '0.0',
+        average: 0,
         lastUpdated: new Date().toISOString()
       }
     },
@@ -144,12 +144,12 @@ export default function GroupAdminReports() {
           analytics.travel?.currentMonthTotal || 0,
           analytics.travel?.previousMonthTotal || 0
         ),
-        average: Number(analytics.travel?.average || 0).toFixed(2),
+        average: Number(analytics.travel?.average || 0),
         lastUpdated: analytics.travel?.lastUpdated || new Date().toISOString()
       } : {
         total: 0,
         trend: '0%',
-        average: '0.00',
+        average: 0,
         lastUpdated: new Date().toISOString()
       }
     },
@@ -161,12 +161,12 @@ export default function GroupAdminReports() {
       analytics: analytics ? {
         total: Number(analytics.performance?.total || 0),
         trend: analytics.performance?.trend || '0%',
-        average: Number(analytics.performance?.average || 0).toFixed(2),
+        average: Number(analytics.performance?.average || 0),
         lastUpdated: analytics.performance?.lastUpdated || new Date().toISOString()
       } : {
         total: 0,
         trend: '0%',
-        average: '0.00',
+        average: 0,
         lastUpdated: new Date().toISOString()
       }
     },
@@ -178,12 +178,12 @@ export default function GroupAdminReports() {
       analytics: analytics ? {
         total: Number(analytics.leave?.total || 0),
         trend: analytics.leave?.trend || '0%',
-        average: Number(analytics.leave?.average || 0).toFixed(2),
+        average: Number(analytics.leave?.average || 0),
         lastUpdated: analytics.leave?.lastUpdated || new Date().toISOString()
       } : {
         total: 0,
         trend: '0%',
-        average: '0.00',
+        average: 0,
         lastUpdated: new Date().toISOString()
       }
     }

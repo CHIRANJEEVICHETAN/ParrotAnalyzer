@@ -3,19 +3,95 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../context/ThemeContext';
+import { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 
 export default function ManagementProfile() {
     const { theme } = ThemeContext.useTheme();
     const router = useRouter();
+    const [profileData, setProfileData] = useState({
+        name: '',
+        email: '',
+        phone: '',
+        role: '',
+        company_name: '',
+        profile_image: '',
+    });
 
-    const profileData = {
-        name: 'Alex Johnson',
-        role: 'Senior Management',
-        email: 'alex.johnson@company.com',
-        department: 'Operations',
-        joinDate: 'Jan 2020',
-        teamsManaged: 5,
-        totalEmployees: 45,
+    useEffect(() => {
+        const checkStorage = async () => {
+            try {
+                const keys = await AsyncStorage.getAllKeys();
+                console.log('All AsyncStorage keys:', keys);
+                
+                // Log all items
+                for (let key of keys) {
+                    const value = await AsyncStorage.getItem(key);
+                    console.log(`${key}:`, value);
+                }
+            } catch (error) {
+                console.error('Error checking storage:', error);
+            }
+        };
+        
+        checkStorage();
+        fetchProfileData();
+    }, []);
+
+    const fetchProfileData = async () => {
+        try {
+            const token = await AsyncStorage.getItem('auth_token');
+            
+            if (!token) {
+                console.log('No token found in storage');
+                return; // Don't redirect immediately for debugging
+            }
+
+            console.log('Found token:', token);
+
+            // Fetch profile data
+            const response = await axios.get(
+                `${process.env.EXPO_PUBLIC_API_URL}/api/management/profile`,
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+
+            if (response.data) {
+                setProfileData({
+                    name: response.data.name || '',
+                    email: response.data.email || '',
+                    phone: response.data.phone || '',
+                    role: response.data.role || '',
+                    company_name: response.data.company_name || '',
+                    profile_image: response.data.profile_image || '',
+                });
+
+                // If profile image is not included in the main response, fetch it separately
+                if (!response.data.profile_image) {
+                    const imageResponse = await axios.get(
+                        `${process.env.EXPO_PUBLIC_API_URL}/api/users/profile-image/${response.data.id}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                    );
+                    if (imageResponse.data.image) {
+                        setProfileData(prev => ({
+                            ...prev,
+                            profile_image: imageResponse.data.image
+                        }));
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching profile:', error);
+            if (axios.isAxiosError(error)) {
+                console.log('Error response:', error.response?.data);
+                if (error.response?.status === 401) {
+                    await AsyncStorage.removeItem('auth_token');
+                    router.replace('/(auth)/signin');
+                }
+            }
+        }
     };
 
     return (
@@ -24,15 +100,15 @@ export default function ManagementProfile() {
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
                 style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
             >
-                <View className="flex-row items-center justify-between px-6">
-                    <View className="flex-row items-center">
-                        <TouchableOpacity
-                            onPress={() => router.back()}
-                            className="mr-4 p-2 rounded-full"
-                            style={[styles.backButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
-                        >
-                            <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
-                        </TouchableOpacity>
+                <View className="flex-row items-center px-6 relative">
+                    <TouchableOpacity
+                        onPress={() => router.back()}
+                        className="p-2 rounded-full absolute left-4"
+                        style={[styles.backButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
+                    >
+                        <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
+                    </TouchableOpacity>
+                    <View className="flex-1 items-center">
                         <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                             Profile
                         </Text>
@@ -44,79 +120,68 @@ export default function ManagementProfile() {
                 className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
                 showsVerticalScrollIndicator={false}
             >
-                {/* Profile Header */}
-                <View className={`p-6 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} style={styles.profileHeader}>
+                {/* Enhanced Profile Header */}
+                <View className={`p-8 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} style={styles.profileHeader}>
                     <View className="items-center">
-                        <Image
-                            source={{ uri: 'https://placekitten.com/200/200' }}
-                            style={styles.profileImage}
-                        />
-                        <Text className={`text-xl font-bold mt-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                        <View style={styles.imageContainer}>
+                            {profileData.profile_image ? (
+                                <Image
+                                    source={{ uri: `data:image/jpeg;base64,${profileData.profile_image}` }}
+                                    style={styles.profileImage}
+                                />
+                            ) : (
+                                <View style={[styles.profileImage, styles.defaultAvatar]}>
+                                    <Text style={styles.avatarText}>
+                                        {profileData.name
+                                            ? profileData.name
+                                                  .split(' ')
+                                                  .map(name => name[0])
+                                                  .slice(0, 2)
+                                                  .join('')
+                                                  .toUpperCase()
+                                            : 'U'}
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                        <Text className={`text-2xl font-bold mt-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                             {profileData.name}
                         </Text>
-                        <Text className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <Text className={`text-lg ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
                             {profileData.role}
+                        </Text>
+                        <Text className={`mt-2 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>
+                            {profileData.company_name}
                         </Text>
                     </View>
                 </View>
 
-                {/* Profile Details */}
+                {/* Enhanced Profile Details */}
                 <View className="p-6">
-                    <View className={`rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} style={styles.detailsCard}>
+                    <View className={`rounded-2xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} style={styles.detailsCard}>
                         {[
                             { label: 'Email', value: profileData.email, icon: 'mail' },
-                            { label: 'Department', value: profileData.department, icon: 'business' },
-                            { label: 'Join Date', value: profileData.joinDate, icon: 'calendar' },
-                            { label: 'Teams Managed', value: profileData.teamsManaged.toString(), icon: 'people' },
-                            { label: 'Total Employees', value: profileData.totalEmployees.toString(), icon: 'person' },
+                            { label: 'Phone', value: profileData.phone, icon: 'call' },
+                            { label: 'Company', value: profileData.company_name, icon: 'business' },
                         ].map((detail, index) => (
                             <View
                                 key={detail.label}
-                                className={`flex-row items-center p-4 ${
-                                    index !== 4 ? 'border-b' : ''
+                                className={`flex-row items-center p-5 ${
+                                    index !== 2 ? 'border-b' : ''
                                 } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}
                             >
-                                <Ionicons name={detail.icon as any} size={24} color="#3B82F6" />
-                                <View className="ml-4">
+                                <View style={styles.iconContainer}>
+                                    <Ionicons name={detail.icon as any} size={24} color="#3B82F6" />
+                                </View>
+                                <View className="ml-4 flex-1">
                                     <Text className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
                                         {detail.label}
                                     </Text>
-                                    <Text className={`text-base font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                    <Text className={`text-base font-medium mt-1 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                                         {detail.value}
                                     </Text>
                                 </View>
                             </View>
-                        ))}
-                    </View>
-                </View>
-
-                {/* Quick Actions */}
-                <View className="p-6">
-                    <Text className={`text-lg font-bold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                        Quick Actions
-                    </Text>
-                    <View className="space-y-3">
-                        {[
-                            { label: 'Edit Profile', icon: 'create' },
-                            { label: 'Change Password', icon: 'key' },
-                            { label: 'Notification Settings', icon: 'notifications' },
-                        ].map((action) => (
-                            <TouchableOpacity
-                                key={action.label}
-                                className={`flex-row items-center p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
-                                style={styles.actionButton}
-                            >
-                                <Ionicons name={action.icon as any} size={24} color="#3B82F6" />
-                                <Text className={`ml-4 font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                                    {action.label}
-                                </Text>
-                                <Ionicons
-                                    name="chevron-forward"
-                                    size={24}
-                                    color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                                    style={{ marginLeft: 'auto' }}
-                                />
-                            </TouchableOpacity>
                         ))}
                     </View>
                 </View>
@@ -151,10 +216,23 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 2,
     },
+    imageContainer: {
+        width: 140,
+        height: 140,
+        borderRadius: 70,
+        backgroundColor: '#F3F4F6',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 8,
+    },
     profileImage: {
-        width: 120,
-        height: 120,
-        borderRadius: 60,
+        width: 140,
+        height: 140,
+        borderRadius: 70,
+        borderWidth: 4,
+        borderColor: '#FFFFFF',
     },
     detailsCard: {
         shadowColor: '#000',
@@ -163,11 +241,24 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 2,
     },
-    actionButton: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
+    iconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#EBF5FF',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    defaultAvatar: {
+        backgroundColor: '#3B82F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 4,
+        borderColor: '#FFFFFF',
+    },
+    avatarText: {
+        fontSize: 48,
+        fontWeight: 'bold',
+        color: '#FFFFFF',
     },
 });

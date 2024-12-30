@@ -5,7 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 
 interface SettingItem {
     icon: keyof typeof Ionicons.glyphMap;
@@ -26,6 +25,20 @@ export default function ManagementSettings() {
     const { logout } = AuthContext.useAuth();
     const router = useRouter();
     const isDark = theme === 'dark';
+
+    // Handle theme toggle with AsyncStorage persistence
+    const handleThemeToggle = async () => {
+        // Toggle theme immediately first
+        toggleTheme();
+        
+        // Then save the new theme preference in the background
+        try {
+            const newTheme = theme === 'dark' ? 'light' : 'dark';
+            await AsyncStorage.setItem('theme', newTheme);
+        } catch (error) {
+            console.error('Error saving theme preference:', error);
+        }
+    };
 
     const handleLogout = async () => {
         Alert.alert(
@@ -113,72 +126,91 @@ export default function ManagementSettings() {
             title: 'Appearance',
             items: [
                 {
-                    icon: theme === 'dark' ? 'moon' : 'sunny',
+                    icon: isDark ? 'moon' : 'sunny',
                     label: 'Dark Mode',
                     isSwitch: true,
-                    switchValue: theme === 'dark',
-                    action: toggleTheme
+                    switchValue: isDark,
+                    action: () => {
+                        // Call handleThemeToggle directly without any additional wrapping
+                        handleThemeToggle();
+                    }
                 }
             ]
         }
     ];
 
     return (
-        <View className="flex-1 bg-[#F9FAFB]">
+        <View className={`flex-1 paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 0, ${isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}`}>
             <StatusBar
-                backgroundColor="#F9FAFB"
-                barStyle="dark-content"
+                backgroundColor={isDark ? '#111827' : '#F9FAFB'}
+                barStyle={isDark ? 'light-content' : 'dark-content'}
             />
 
-            <View className="bg-[#F9FAFB]">
+            <View className={isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}>
                 <View className="flex-row items-center px-5 pt-4 pb-5">
                     <TouchableOpacity
                         onPress={() => router.back()}
-                        className="w-11 h-11 rounded-full bg-white items-center justify-center shadow-sm"
+                        className={`w-11 h-11 rounded-full items-center justify-center shadow-sm ${
+                            isDark ? 'bg-gray-800' : 'bg-white'
+                        }`}
                     >
                         <Ionicons 
                             name="arrow-back" 
                             size={26} 
-                            color="#000000"
+                            color={isDark ? '#FFFFFF' : '#000000'}
                             style={{ marginLeft: -1 }}
                         />
                     </TouchableOpacity>
-                    <Text className="text-[26px] font-bold text-[#111827] ml-4">
+                    <Text className={`text-[26px] font-bold ml-4 ${
+                        isDark ? 'text-white' : 'text-[#111827]'
+                    }`}>
                         Settings
                     </Text>
                 </View>
             </View>
 
             <ScrollView 
-                className="flex-1 bg-[#F9FAFB]"
+                className={isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 16 }}
                 style={styles.scrollView}
             >
                 {settingsSections.map((section, sectionIndex) => (
                     <View key={section.title} className="mb-7">
-                        <Text className="px-5 py-2.5 text-[13px] font-semibold text-[#6B7280] uppercase tracking-wide">
+                        <Text className={`px-5 py-2.5 text-[13px] font-semibold uppercase tracking-wide ${
+                            isDark ? 'text-gray-400' : 'text-[#6B7280]'
+                        }`}>
                             {section.title}
                         </Text>
-                        <View className="mx-5 rounded-2xl bg-white border border-[#F3F4F6]">
+                        <View className={`mx-5 rounded-2xl border ${
+                            isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-[#F3F4F6]'
+                        }`}>
                             {section.items.map((item, index) => (
                                 <TouchableOpacity
                                     key={item.label}
-                                    onPress={item.action}
+                                    onPress={item.isSwitch ? undefined : item.action}
                                     className={`flex-row items-center justify-between py-4 px-5 ${
-                                        index !== section.items.length - 1 ? 'border-b border-[#F3F4F6]' : ''
+                                        index !== section.items.length - 1 
+                                            ? isDark 
+                                                ? 'border-b border-gray-700' 
+                                                : 'border-b border-[#F3F4F6]'
+                                            : ''
                                     }`}
                                 >
                                     <View className="flex-row items-center flex-1">
-                                        <View className="w-[42px] h-[42px] rounded-full bg-[#F9FAFB] items-center justify-center">
+                                        <View className={`w-[42px] h-[42px] rounded-full items-center justify-center ${
+                                            isDark ? 'bg-gray-700' : 'bg-[#F9FAFB]'
+                                        }`}>
                                             <Ionicons
                                                 name={item.icon}
                                                 size={24}
-                                                color="#000000"
+                                                color={isDark ? '#FFFFFF' : '#000000'}
                                                 style={{ opacity: 0.9 }}
                                             />
                                         </View>
-                                        <Text className="ml-4 text-[16px] font-semibold text-[#111827]">
+                                        <Text className={`ml-4 text-[16px] font-semibold ${
+                                            isDark ? 'text-white' : 'text-[#111827]'
+                                        }`}>
                                             {item.label}
                                         </Text>
                                     </View>
@@ -186,15 +218,19 @@ export default function ManagementSettings() {
                                         <Switch
                                             value={item.switchValue}
                                             onValueChange={item.action}
-                                            trackColor={{ false: '#E5E7EB', true: '#3B82F6' }}
+                                            trackColor={{ 
+                                                false: isDark ? '#4B5563' : '#E5E7EB', 
+                                                true: '#3B82F6' 
+                                            }}
                                             thumbColor="#FFFFFF"
+                                            ios_backgroundColor={isDark ? '#4B5563' : '#E5E7EB'}
                                             style={{ transform: [{ scale: 0.85 }] }}
                                         />
                                     ) : item.showArrow && (
                                         <Ionicons
                                             name="chevron-forward"
                                             size={22}
-                                            color="#9CA3AF"
+                                            color={isDark ? '#9CA3AF' : '#9CA3AF'}
                                         />
                                     )}
                                 </TouchableOpacity>
@@ -207,7 +243,7 @@ export default function ManagementSettings() {
 
                 <TouchableOpacity
                     onPress={handleLogout}
-                    className="mx-5 mb-5 bg-red-600 rounded-3xl"
+                    className="mx-5 mb-5 bg-red-600 rounded-2xl"
                 >
                     <Text className="text-white font-bold text-[17px] text-center py-4">
                         Logout
@@ -215,7 +251,9 @@ export default function ManagementSettings() {
                 </TouchableOpacity>
 
                 <View className="mb-10 items-center">
-                    <Text className="text-[13px] font-medium text-gray-400">
+                    <Text className={`text-[13px] font-medium ${
+                        isDark ? 'text-gray-500' : 'text-gray-400'
+                    }`}>
                         Version 1.0.0
                     </Text>
                 </View>
