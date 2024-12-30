@@ -33,7 +33,7 @@ interface User {
   email: string;
   phone: string;
   role: string;
-  company_name: string;
+  company_name?: string;
 }
 
 interface Theme {
