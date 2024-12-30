@@ -118,11 +118,19 @@ export default function GroupAdminReports() {
       title: 'Task Reports',
       icon: 'checkmark-circle-outline',
       color: '#10B981',
-      analytics: {
-        total: 156,
-        trend: '+8%',
-        average: 45,
-        lastUpdated: '2024-03-15'
+      analytics: analytics ? {
+        total: analytics.task?.total_tasks || 0,
+        trend: calculateTrend(
+          analytics.task?.currentMonthTotal || 0,
+          analytics.task?.previousMonthTotal || 0
+        ),
+        average: Number(analytics.task?.avg_completion_time || 0).toFixed(1),
+        lastUpdated: analytics.task?.lastUpdated || new Date().toISOString()
+      } : {
+        total: 0,
+        trend: '0%',
+        average: '0.0',
+        lastUpdated: new Date().toISOString()
       }
     },
     {
@@ -130,11 +138,19 @@ export default function GroupAdminReports() {
       title: 'Travel Reports',
       icon: 'car-outline',
       color: '#F59E0B',
-      analytics: {
-        total: 32,
-        trend: '-5%',
-        average: 8,
-        lastUpdated: '2024-03-15'
+      analytics: analytics ? {
+        total: analytics.travel?.total || 0,
+        trend: calculateTrend(
+          analytics.travel?.currentMonthTotal || 0,
+          analytics.travel?.previousMonthTotal || 0
+        ),
+        average: Number(analytics.travel?.average || 0).toFixed(2),
+        lastUpdated: analytics.travel?.lastUpdated || new Date().toISOString()
+      } : {
+        total: 0,
+        trend: '0%',
+        average: '0.00',
+        lastUpdated: new Date().toISOString()
       }
     },
     {
@@ -142,11 +158,16 @@ export default function GroupAdminReports() {
       title: 'Performance Reports',
       icon: 'trending-up-outline',
       color: '#EC4899',
-      analytics: {
-        total: 88,
-        trend: '+15%',
-        average: 82,
-        lastUpdated: '2024-03-15'
+      analytics: analytics ? {
+        total: Number(analytics.performance?.total || 0),
+        trend: analytics.performance?.trend || '0%',
+        average: Number(analytics.performance?.average || 0).toFixed(2),
+        lastUpdated: analytics.performance?.lastUpdated || new Date().toISOString()
+      } : {
+        total: 0,
+        trend: '0%',
+        average: '0.00',
+        lastUpdated: new Date().toISOString()
       }
     },
     {
@@ -154,11 +175,16 @@ export default function GroupAdminReports() {
       title: 'Leave Reports',
       icon: 'time-outline',
       color: '#6366F1',
-      analytics: {
-        total: 45,
-        trend: '+2%',
-        average: 12,
-        lastUpdated: '2024-03-15'
+      analytics: analytics ? {
+        total: Number(analytics.leave?.total || 0),
+        trend: analytics.leave?.trend || '0%',
+        average: Number(analytics.leave?.average || 0).toFixed(2),
+        lastUpdated: analytics.leave?.lastUpdated || new Date().toISOString()
+      } : {
+        total: 0,
+        trend: '0%',
+        average: '0.00',
+        lastUpdated: new Date().toISOString()
       }
     }
   ];

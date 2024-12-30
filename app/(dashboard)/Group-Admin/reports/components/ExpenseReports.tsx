@@ -344,13 +344,12 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
             </View>
           );
         }
-
         // Calculate total for percentage
-        const total = data.categoryData.reduce((sum, item) => sum + Number(item.population), 0);
+        const total = data.categoryData.reduce((sum: number, item: CategoryDataItem) => sum + Number(item.population), 0);
         
         const pieChartData = data.categoryData
-          .filter(item => Number(item.population) > 0)
-          .map(item => ({
+          .filter((item: CategoryDataItem) => Number(item.population) > 0)
+          .map((item: CategoryDataItem) => ({
             name: `${item.name} (${((Number(item.population) / total) * 100).toFixed(0)}%)`,
             population: Number(item.population),
             color: getCategoryColor(item.name),
@@ -528,13 +527,13 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
         />
         <View className="flex-row justify-between mt-2">
           <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-            Total Claims: {employeeStats.reduce((acc, curr) => acc + parseInt(curr.expense_count), 0)}
+            Total Claims: {employeeStats.reduce((acc, curr) => acc + Number(curr.expense_count), 0)}
           </Text>
           <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
             Approval Rate: {
               Math.round(
-                (employeeStats.reduce((acc, curr) => acc + parseInt(curr.approved_count), 0) /
-                employeeStats.reduce((acc, curr) => acc + parseInt(curr.expense_count), 0)) * 100
+                (employeeStats.reduce((acc, curr) => acc + Number(curr.approved_count), 0) /
+                employeeStats.reduce((acc, curr) => acc + Number(curr.expense_count), 0)) * 100
               )}%
           </Text>
         </View>
