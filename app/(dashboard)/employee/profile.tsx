@@ -106,7 +106,8 @@ export default function Profile() {
     totalHours: '0',
     expenseCount: '0',
     attendanceRate: '0%',
-    completedTasks: '0'
+    completedTasks: '0',
+    groupAdminName: null as string | null
   });
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -272,12 +273,19 @@ export default function Profile() {
             <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
               {user?.phone}
             </Text>
-            <View className="flex-row items-center mt-2">
-              <View className={`px-3 py-1 rounded-full ${isDark ? 'bg-blue-900' : 'bg-blue-100'}`}>
+            <View className="flex-col items-center mt-2">
+              <View className={`px-3 py-1 rounded-full mb-2 ${isDark ? 'bg-blue-900' : 'bg-blue-100'}`}>
                 <Text className={isDark ? 'text-blue-300' : 'text-blue-800'}>
                   {formatRoleName(user?.role)}
                 </Text>
               </View>
+              {stats.groupAdminName && (
+                <View className={`px-3 py-1 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                  <Text className={isDark ? 'text-gray-300' : 'text-gray-800'}>
+                    Reports to: {stats.groupAdminName}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>

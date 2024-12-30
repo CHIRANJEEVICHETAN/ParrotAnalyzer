@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar, ActivityIndicator, Alert } from 'react-native';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
 import { Ionicons } from '@expo/vector-icons';
@@ -81,8 +81,21 @@ export default function GroupAdminDashboard() {
             title: 'Live Tracking',
             icon: 'location-outline',
             color: '#EF4444', // Red color
-            route: '/(dashboard)/Group-Admin/live-tracking',
-            description: 'Real-time employee location'
+            route: '', // Remove the route
+            description: 'Real-time employee location',
+            onPress: () => Alert.alert(
+                "Coming Soon!", 
+                "Live tracking feature is under development. Stay tuned for updates!", 
+                [
+                    { 
+                        text: "OK",
+                        style: "default"
+                    }
+                ],
+                {
+                    cancelable: true
+                }
+            )
         },
         {
             title: 'View Reports',
@@ -163,7 +176,7 @@ export default function GroupAdminDashboard() {
                                     styles.quickActionCard,
                                     { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
                                 ]}
-                                onPress={() => router.push(action.route as any)}
+                                onPress={action.onPress || (() => router.push(action.route as any))}
                             >
                                 <View style={[
                                     styles.iconCircle,
