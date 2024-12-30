@@ -120,6 +120,8 @@ export default function LeaveReports({ section, isDark }: { section: ReportSecti
               marginVertical: 8,
             }}
             showValuesOnTopOfBars
+            yAxisLabel=""
+            yAxisSuffix=""
           />
         );
 

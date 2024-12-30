@@ -488,7 +488,7 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: CustomRequ
       attendanceAnalytics = await client.query(`
         WITH employee_count AS (
           SELECT COUNT(*) as total_employees
-          FROM users 
+        FROM users 
           WHERE group_admin_id = $1 AND role = 'employee'
         ),
         attendance_data AS (
@@ -851,7 +851,7 @@ router.get('/attendance-analytics',
 
       console.log('Sending response for attendance analytics');
       res.json(response);
-    } catch (error) {
+  } catch (error) {
       console.error('Error in attendance analytics:', error);
       res.status(500).json({ 
         error: 'Failed to fetch attendance analytics',

@@ -14,6 +14,7 @@ import tasksRoutes from './src/routes/tasks';
 import notificationsRouter from './src/routes/notifications';
 import leaveRoutes from './src/routes/leave';
 import reportsRoutes from './src/routes/reports';
+import managementRoutes from './src/routes/management';
 import { errorLogger, errorHandler } from './src/middleware/errorHandler';
 
 dotenv.config();
@@ -42,6 +43,7 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api', leaveRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/management', managementRoutes);
 
 // Test route at root level
 app.get('/api/test', (req, res) => {

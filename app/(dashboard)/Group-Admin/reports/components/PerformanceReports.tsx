@@ -129,6 +129,7 @@ export default function PerformanceReports({ section, isDark }: { section: Repor
             showValuesOnTopOfBars
             yAxisSuffix="%"
             fromZero
+            yAxisLabel=""
           />
         );
 
@@ -158,6 +159,7 @@ export default function PerformanceReports({ section, isDark }: { section: Repor
             showValuesOnTopOfBars
             yAxisSuffix="%"
             fromZero
+            yAxisLabel=""
           />
         );
 
