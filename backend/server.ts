@@ -91,6 +91,10 @@ initDB()
       console.log('- /api/group-admins/*');
       console.log('- /api/tasks/*');
       console.log('- /api/notifications/*');
+      console.log('- /api/leave/*');
+      console.log('- /api/reports/*');
+      console.log('- /api/management/*');
+      console.log('- /pdf-reports/*');
     });
   })
   .catch(error => {

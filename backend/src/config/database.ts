@@ -47,26 +47,6 @@ export const initExpensesTable = async () => {
   }
 };
 
-export const initScheduleTable = async () => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS schedule (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        title VARCHAR(255) NOT NULL,
-        description TEXT,
-        location VARCHAR(255),
-        date DATE NOT NULL,
-        time TIME NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('Schedule table initialized successfully');
-  } catch (error) {
-    console.error('Error initializing schedule table:', error);
-  }
-};
-
 export const initDB = async () => {
   try {
     // First create companies table
@@ -127,20 +107,6 @@ export const initDB = async () => {
         status VARCHAR(20) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Update schedule table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS schedule (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        title VARCHAR(255) NOT NULL,
-        description TEXT,
-        location VARCHAR(255),
-        date DATE NOT NULL,
-        time TIME NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -332,6 +298,7 @@ export const initDB = async () => {
 
     // Add these lines after other table creation
     await initEmployeeShiftsTable();
+    await seedUsers();
     
     console.log('Database initialized successfully');
   } catch (error) {
@@ -349,31 +316,34 @@ export const seedUsers = async () => {
     }
 
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash('Password@123', salt);
 
     const users = [
       {
-        name: 'John Employee',
-        email: 'employee@test.com',
-        phone: '+919876543210',
+        name: 'Loginware Employee',
+        email: 'employee1@loginwaresofttec.com',
+        phone: '+919876543974',
+        hashedPassword: await bcrypt.hash('Loginware_employee1', salt),
         role: 'employee'
       },
       {
-        name: 'Sarah Admin',
-        email: 'admin@test.com',
-        phone: '+919876543211',
+        name: 'Loginware Admin',
+        email: 'admin@loginwaresofttec.com',
+        phone: '+919876543288',
+        hashedPassword: await bcrypt.hash('Loginware_admin1', salt),
         role: 'group-admin'
       },
       {
-        name: 'Mike Manager',
-        email: 'manager@test.com',
-        phone: '+919876543212',
+        name: 'Loginware Manager',
+        email: 'manager@loginwaresofttec.com',
+        phone: '+919876543839',
+        hashedPassword: await bcrypt.hash('Loginware_manager1', salt),
         role: 'management'
       },
       {
-        name: 'Lisa Super',
-        email: 'super@test.com',
-        phone: '+919876543213',
+        name: 'Loginware Super Admin',
+        email: 'super@loginwaresofttec.com',
+        phone: '+919876543253',
+        hashedPassword: await bcrypt.hash('Loginware_super1', salt),
         role: 'super-admin'
       }
     ];
@@ -382,7 +352,7 @@ export const seedUsers = async () => {
       await pool.query(
         `INSERT INTO users (name, email, phone, password, role)
          VALUES ($1, $2, $3, $4, $5)`,
-        [user.name, user.email, user.phone, hashedPassword, user.role]
+        [user.name, user.email, user.phone, user.hashedPassword, user.role]
       );
     }
 
