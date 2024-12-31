@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Platform, StatusBar, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Platform, StatusBar as RNStatusBar, Alert, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../context/ThemeContext';
 import axios from 'axios';
 import Modal from 'react-native-modal';
+import { StatusBar } from 'expo-status-bar';
 
 interface Company {
   id: number;
@@ -42,6 +43,13 @@ export default function CompanyManagement() {
   useEffect(() => {
     fetchCompanies();
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      RNStatusBar.setBackgroundColor(theme === 'dark' ? '#1F2937' : '#FFFFFF');
+      RNStatusBar.setBarStyle(theme === 'dark' ? 'light-content' : 'dark-content');
+    }
+  }, [theme]);
 
   const fetchCompanies = async () => {
     setError(null);
@@ -151,11 +159,23 @@ export default function CompanyManagement() {
   });
 
   return (
-    <View className="flex-1">
+    <View className="flex-1" style={{ 
+      backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' 
+    }}>
+      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+      
+      <View style={{ 
+        height: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 0,
+        backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF'
+      }} />
+
       <LinearGradient
         colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
         className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: 10 }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
@@ -185,15 +205,28 @@ export default function CompanyManagement() {
       <View className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
         {/* Search and Filter */}
         <View className="p-4">
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search companies..."
-            className={`mb-4 p-4 rounded-lg ${
-              theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-            }`}
-            placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-          />
+          {/* Search Input with Icon */}
+          <View className="relative mb-4">
+            <View className="absolute left-4 top-[14px] z-10">
+              <Ionicons 
+                name="search-outline" 
+                size={20} 
+                color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
+              />
+            </View>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search companies..."
+              className={`pl-12 p-4 rounded-lg ${
+                theme === 'dark' 
+                  ? 'bg-gray-800 text-white' 
+                  : 'bg-white text-gray-900'
+              }`}
+              style={styles.searchInput}
+              placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+            />
+          </View>
 
           <View className="flex-row mb-4">
             {['all', 'active', 'disabled'].map((status) => (
@@ -460,6 +493,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1.41,
+    elevation: 2,
+  },
+  searchInput: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
     elevation: 2,
   }
 });

@@ -17,6 +17,7 @@ import reportsRoutes from './src/routes/reports';
 import managementRoutes from './src/routes/management';
 import { errorLogger, errorHandler } from './src/middleware/errorHandler';
 import pdfReportRoutes from './src/routes/pdf-reports';
+import superAdminRoutes from './src/routes/super';
 
 dotenv.config();
 
@@ -46,6 +47,7 @@ app.use('/api', leaveRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/management', managementRoutes);
 app.use('/pdf-reports', pdfReportRoutes);
+app.use('/api/super-admin', superAdminRoutes);
 
 // Test route at root level
 app.get('/api/test', (req, res) => {
