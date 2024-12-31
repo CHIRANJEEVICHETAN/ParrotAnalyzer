@@ -42,30 +42,30 @@ export default function GroupAdminsList() {
     }
   };
 
-  const handleDeleteGroupAdmin = async (id: number) => {
-    Alert.alert(
-      'Delete Group Admin',
-      'Are you sure you want to delete this group admin?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await axios.delete(
-                `${process.env.EXPO_PUBLIC_API_URL}/api/group-admins/${id}`,
-                { headers: { Authorization: `Bearer ${token}` } }
-              );
-              fetchGroupAdmins();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete group admin');
-            }
-          }
-        }
-      ]
-    );
-  };
+  // const handleDeleteGroupAdmin = async (id: number) => {
+  //   Alert.alert(
+  //     'Delete Group Admin',
+  //     'Are you sure you want to delete this group admin?',
+  //     [
+  //       { text: 'Cancel', style: 'cancel' },
+  //       {
+  //         text: 'Delete',
+  //         style: 'destructive',
+  //         onPress: async () => {
+  //           try {
+  //             await axios.delete(
+  //               `${process.env.EXPO_PUBLIC_API_URL}/api/group-admins/${id}`,
+  //               { headers: { Authorization: `Bearer ${token}` } }
+  //             );
+  //             fetchGroupAdmins();
+  //           } catch (error) {
+  //             Alert.alert('Error', 'Failed to delete group admin');
+  //           }
+  //         }
+  //       }
+  //     ]
+  //   );
+  // };
 
   const filteredAdmins = groupAdmins.filter(admin => 
     admin.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -115,22 +115,30 @@ export default function GroupAdminsList() {
             </View>
 
             <View className="relative mb-6">
-              <Ionicons
-                name="search-outline"
-                size={20}
-                color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                style={{ position: 'absolute', left: 16, top: 14 }}
-              />
-              <TextInput
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search group admins..."
-                className={`pl-12 pr-4 py-4 rounded-lg ${
-                  theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-                }`}
-                placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                style={styles.searchInput}
-              />
+              <View className="relative">
+                <Ionicons
+                  name="search"
+                  size={20}
+                  color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
+                  style={{
+                    position: 'absolute',
+                    left: 16,
+                    top: '50%',
+                    transform: [{ translateY: -10 }],
+                    zIndex: 1
+                  }}
+                />
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search group admins..."
+                  className={`pl-12 pr-4 py-3 rounded-lg ${
+                    theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+                  }`}
+                  placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                  style={[styles.searchInput, {paddingLeft: 48}]}
+                />
+              </View>
             </View>
 
             {loading ? (
@@ -179,7 +187,7 @@ export default function GroupAdminsList() {
                       </Text>
                     </View>
                     
-                    <TouchableOpacity
+                    {/* <TouchableOpacity
                       onPress={() => handleDeleteGroupAdmin(admin.id)}
                       className="p-2 rounded-full bg-red-100 dark:bg-red-900/30"
                     >
@@ -188,7 +196,7 @@ export default function GroupAdminsList() {
                         size={20} 
                         color={theme === 'dark' ? '#FCA5A5' : '#DC2626'} 
                       />
-                    </TouchableOpacity>
+                    </TouchableOpacity> */}
                   </View>
                 </View>
               ))

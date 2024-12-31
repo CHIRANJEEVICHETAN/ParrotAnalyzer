@@ -193,30 +193,30 @@ export default function ManageGroupAdmins() {
     }
   };
 
-  const handleDeleteGroupAdmin = async (id: number) => {
-    Alert.alert(
-      'Delete Group Admin',
-      'Are you sure you want to delete this group admin?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await axios.delete(
-                `${process.env.EXPO_PUBLIC_API_URL}/api/group-admins/${id}`,
-                { headers: { Authorization: `Bearer ${token}` } }
-              );
-              fetchGroupAdmins();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete group admin');
-            }
-          }
-        }
-      ]
-    );
-  };
+  // const handleDeleteGroupAdmin = async (id: number) => {
+  //   Alert.alert(
+  //     'Delete Group Admin',
+  //     'Are you sure you want to delete this group admin?',
+  //     [
+  //       { text: 'Cancel', style: 'cancel' },
+  //       {
+  //         text: 'Delete',
+  //         style: 'destructive',
+  //         onPress: async () => {
+  //           try {
+  //             await axios.delete(
+  //               `${process.env.EXPO_PUBLIC_API_URL}/api/group-admins/${id}`,
+  //               { headers: { Authorization: `Bearer ${token}` } }
+  //             );
+  //             fetchGroupAdmins();
+  //           } catch (error) {
+  //             Alert.alert('Error', 'Failed to delete group admin');
+  //           }
+  //         }
+  //       }
+  //     ]
+  //   );
+  // };
 
   const filteredAdmins = groupAdmins.filter(admin => 
     admin.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -481,7 +481,7 @@ export default function ManageGroupAdmins() {
                       </Text>
                     </View>
                     
-                    <TouchableOpacity
+                    {/* <TouchableOpacity
                       onPress={() => handleDeleteGroupAdmin(admin.id)}
                       className="p-2 rounded-full bg-red-100 dark:bg-red-900/30"
                     >
@@ -490,7 +490,7 @@ export default function ManageGroupAdmins() {
                         size={20} 
                         color={theme === 'dark' ? '#FCA5A5' : '#DC2626'} 
                       />
-                    </TouchableOpacity>
+                    </TouchableOpacity> */}
                   </View>
                 </View>
               ))
