@@ -13,11 +13,12 @@ interface ExpenseData {
     percentage: string;
   }>;
   recentExpenses: Array<{
-    id: number;
     employeeName: string;
     date: string;
     amount: number;
     status: string;
+    category: string;
+    description?: string;
   }>;
   companyInfo: {
     name: string;
@@ -70,12 +71,14 @@ export const generateExpenseReport = (data: ExpenseData, theme: 'light' | 'dark'
         </tbody>
       </table>
 
-      <h2>Recent Expenses</h2>
+      <h2>All Expenses</h2>
       <table>
         <thead>
           <tr>
             <th>Employee</th>
             <th>Date</th>
+            <th>Category</th>
+            <th>Description</th>
             <th>Amount</th>
             <th>Status</th>
           </tr>
@@ -85,6 +88,8 @@ export const generateExpenseReport = (data: ExpenseData, theme: 'light' | 'dark'
             <tr>
               <td>${exp.employeeName}</td>
               <td>${exp.date}</td>
+              <td>${exp.category}</td>
+              <td>${exp.description || '-'}</td>
               <td>₹${exp.amount.toLocaleString()}</td>
               <td>${exp.status}</td>
             </tr>
