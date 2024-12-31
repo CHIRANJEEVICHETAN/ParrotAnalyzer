@@ -52,7 +52,7 @@ export default function SuperAdminSettings() {
                 {
                     icon: 'settings-outline',
                     label: 'Manage Companies',
-                    action: () => router.push('/super-admin/settings/manage-companiesSettings'),
+                    action: () => router.push('/(dashboard)/super-admin/settings/manage-companiesSettings'),
                     showArrow: true
                 }
             ]
@@ -63,7 +63,7 @@ export default function SuperAdminSettings() {
                 {
                     icon: 'people-outline',
                     label: 'View All Users',
-                    action: () => router.push('/super-admin/settings/usersSettings'),
+                    action: () => router.push('/(dashboard)/super-admin/settings/usersSettings'),
                     showArrow: true
                 }
             ]
@@ -74,7 +74,7 @@ export default function SuperAdminSettings() {
                 {
                     icon: 'card-outline',
                     label: 'View Subscription Plans',
-                    action: () => router.push('/super-admin/settings/subscriptionsSettings'),
+                    action: () => router.push('/(dashboard)/super-admin/settings/subscriptionsSettings'),
                     showArrow: true
                 }
             ]
