@@ -157,18 +157,24 @@ async function getExpenseReportData(client: PoolClient, adminId: string) {
   );
 
   // Get recent expenses
-  const recentResult = await client.query(`
+  const recentExpenses = await client.query(`
     SELECT 
-      e.id,
       u.name as employee_name,
       e.date,
-      e.total_amount,
-      e.status
+      e.total_amount as amount,
+      e.status,
+      CASE 
+        WHEN e.lodging_expenses > 0 THEN 'Lodging'
+        WHEN e.daily_allowance > 0 THEN 'Daily Allowance'
+        WHEN e.diesel > 0 THEN 'Fuel'
+        WHEN e.toll_charges > 0 THEN 'Toll'
+        ELSE 'Other'
+      END as category,
+      e.comments
     FROM expenses e
     JOIN users u ON e.user_id = u.id
     WHERE e.group_admin_id = $1
-    ORDER BY e.created_at DESC
-    LIMIT 10`,
+    ORDER BY e.date DESC`,
     [adminId]
   );
 
@@ -187,12 +193,13 @@ async function getExpenseReportData(client: PoolClient, adminId: string) {
       amount: parseFloat(row.amount),
       percentage: ((parseFloat(row.amount) / total) * 100).toFixed(1)
     })),
-    recentExpenses: recentResult.rows.map(row => ({
-      id: row.id,
+    recentExpenses: recentExpenses.rows.map(row => ({
       employeeName: row.employee_name,
       date: new Date(row.date).toLocaleDateString(),
-      amount: parseFloat(row.total_amount),
-      status: row.status
+      amount: parseFloat(row.amount || '0'),
+      status: row.status,
+      category: row.category,
+      description: row.comments || ''
     }))
   };
 }
