@@ -12,6 +12,7 @@ import {
   InteractionManager,
   Platform,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -443,7 +444,6 @@ export default function EmployeeShiftTracker() {
         barStyle={isDark ? 'light-content' : 'dark-content'}
       />
 
-      {/* Updated Header */}
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
         className="pb-4"
@@ -465,7 +465,6 @@ export default function EmployeeShiftTracker() {
       </LinearGradient>
 
       <ScrollView className="flex-1 p-4">
-        {/* Enhanced Time Display */}
         <View className={`rounded-lg p-6 mb-6 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
           <Text className={`text-center text-4xl font-bold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
             {format(currentTime, 'HH:mm:ss')}
@@ -475,7 +474,6 @@ export default function EmployeeShiftTracker() {
           </Text>
         </View>
 
-        {/* Enhanced Shift Control */}
         <View className="items-center mb-6">
           <Animated.View style={{
             transform: [{ scale: pulseAnim }]
@@ -511,7 +509,6 @@ export default function EmployeeShiftTracker() {
           )}
         </View>
 
-        {/* Recent Shifts */}
         <View className="mt-4">
           <View className="flex-row justify-between items-center mb-4">
             <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -596,7 +593,6 @@ export default function EmployeeShiftTracker() {
           )}
         </View>
 
-        {/* Attendance Management Button */}
         <TouchableOpacity
           onPress={() => router.push('/(dashboard)/employee/attendanceManagement')}
           className={`mx-4 my-6 p-4 rounded-xl flex-row items-center justify-center ${
@@ -611,7 +607,6 @@ export default function EmployeeShiftTracker() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Custom Modal */}
       <Modal
         visible={showModal}
         transparent

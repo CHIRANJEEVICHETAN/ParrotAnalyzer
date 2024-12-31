@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   TextInput,
   StatusBar,
+  RefreshControl,
+  Modal as RNModal,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +18,8 @@ import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
+import { format, isWithinInterval, parseISO } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface LeaveRequest {
   id: number;
@@ -30,6 +34,15 @@ interface LeaveRequest {
   rejection_reason?: string;
 }
 
+interface Filters {
+  status: 'all' | 'pending' | 'approved' | 'rejected';
+  searchQuery: string;
+  dateRange: {
+    startDate: Date | null;
+    endDate: Date | null;
+  };
+}
+
 export default function LeaveManagement() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -42,6 +55,18 @@ export default function LeaveManagement() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<number | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<Filters>({
+    status: 'all',
+    searchQuery: '',
+    dateRange: {
+      startDate: null,
+      endDate: null,
+    },
+  });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerType, setDatePickerType] = useState<'start' | 'end'>('start');
 
   useEffect(() => {
     fetchLeaveRequests();
@@ -88,6 +113,181 @@ export default function LeaveManagement() {
     }
   };
 
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchLeaveRequests();
+    } catch (error) {
+      console.error('Error refreshing:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const filteredRequests = React.useMemo(() => {
+    return leaveRequests.filter(request => {
+      if (filters.status !== 'all' && request.status !== filters.status) {
+        return false;
+      }
+
+      const searchLower = filters.searchQuery.toLowerCase();
+      if (searchLower && !request.user_name.toLowerCase().includes(searchLower) &&
+          !request.employee_number.toLowerCase().includes(searchLower) &&
+          !request.department.toLowerCase().includes(searchLower)) {
+        return false;
+      }
+
+      if (filters.dateRange.startDate && filters.dateRange.endDate) {
+        const requestDate = parseISO(request.start_date);
+        if (!isWithinInterval(requestDate, {
+          start: filters.dateRange.startDate,
+          end: filters.dateRange.endDate
+        })) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [leaveRequests, filters]);
+
+  const renderFilters = () => (
+    <View className={`px-4 py-2 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+      <View className="flex-row items-center justify-between mb-2">
+        <TextInput
+          placeholder="Search requests..."
+          placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+          value={filters.searchQuery}
+          onChangeText={(text) => setFilters(prev => ({ ...prev, searchQuery: text }))}
+          className={`flex-1 mr-2 px-4 py-2 rounded-lg ${
+            isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
+          }`}
+        />
+        <TouchableOpacity
+          onPress={() => setShowFilters(true)}
+          className={`p-2 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+        >
+          <Ionicons 
+            name="options-outline" 
+            size={24} 
+            color={isDark ? '#FFFFFF' : '#111827'} 
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderFilterModal = () => (
+    <RNModal
+      visible={showFilters}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setShowFilters(false)}
+    >
+      <View className="flex-1 justify-end">
+        <View 
+          className={`rounded-t-3xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+          style={styles.filterModal}
+        >
+          <View className="p-4">
+            <View className="flex-row justify-between items-center mb-6">
+              <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Filters
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowFilters(false)}
+                className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+              >
+                <Ionicons name="close" size={24} color={isDark ? '#FFFFFF' : '#111827'} />
+              </TouchableOpacity>
+            </View>
+
+            <View className="mb-6">
+              <Text className={`text-base font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Status
+              </Text>
+              <View className="flex-row flex-wrap gap-2">
+                {['all', 'pending', 'approved', 'rejected'].map((status) => (
+                  <TouchableOpacity
+                    key={status}
+                    onPress={() => setFilters(prev => ({ ...prev, status: status as any }))}
+                    className={`px-4 py-2 rounded-lg ${
+                      filters.status === status
+                        ? isDark ? 'bg-blue-600' : 'bg-blue-500'
+                        : isDark ? 'bg-gray-700' : 'bg-gray-100'
+                    }`}
+                  >
+                    <Text className={
+                      filters.status === status
+                        ? 'text-white'
+                        : isDark ? 'text-gray-300' : 'text-gray-700'
+                    }>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View className="mb-6">
+              <Text className={`text-base font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Date Range
+              </Text>
+              <View className="flex-row gap-2">
+                <TouchableOpacity
+                  onPress={() => {
+                    setDatePickerType('start');
+                    setShowDatePicker(true);
+                  }}
+                  className={`flex-1 p-3 rounded-lg border ${
+                    isDark ? 'border-gray-700 bg-gray-700' : 'border-gray-200 bg-gray-50'
+                  }`}
+                >
+                  <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                    {filters.dateRange.startDate 
+                      ? format(filters.dateRange.startDate, 'MMM dd, yyyy')
+                      : 'Start Date'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setDatePickerType('end');
+                    setShowDatePicker(true);
+                  }}
+                  className={`flex-1 p-3 rounded-lg border ${
+                    isDark ? 'border-gray-700 bg-gray-700' : 'border-gray-200 bg-gray-50'
+                  }`}
+                >
+                  <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                    {filters.dateRange.endDate 
+                      ? format(filters.dateRange.endDate, 'MMM dd, yyyy')
+                      : 'End Date'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                setFilters({
+                  status: 'all',
+                  searchQuery: '',
+                  dateRange: { startDate: null, endDate: null }
+                });
+                setShowFilters(false);
+              }}
+              className={`p-3 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+            >
+              <Text className={`text-center ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Reset Filters
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </RNModal>
+  );
+
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
       <StatusBar
@@ -122,23 +322,34 @@ export default function LeaveManagement() {
       </View>
 
       <ScrollView 
-        className="flex-1 p-4" 
+        className="flex-1" 
         contentContainerStyle={{ paddingBottom: 20 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']}
+            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
+            title="Pull to refresh"
+            titleColor={isDark ? '#60A5FA' : '#3B82F6'}
+          />
+        }
       >
+        {renderFilters()}
         {loading ? (
           <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
-        ) : leaveRequests.length === 0 ? (
+        ) : filteredRequests.length === 0 ? (
           <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
             <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
               No leave requests found
             </Text>
           </View>
         ) : (
-          leaveRequests.map((request, index) => (
+          filteredRequests.map((request, index) => (
             <View 
               key={request.id} 
               className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} ${
-                index === leaveRequests.length - 1 ? 'mb-4' : ''
+                index === filteredRequests.length - 1 ? 'mb-4' : ''
               }`}
               style={styles.card}
             >
@@ -280,6 +491,31 @@ export default function LeaveManagement() {
           </View>
         </View>
       </Modal>
+
+      {renderFilterModal()}
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={datePickerType === 'start' 
+            ? filters.dateRange.startDate || new Date()
+            : filters.dateRange.endDate || new Date()
+          }
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowDatePicker(false);
+            if (selectedDate) {
+              setFilters(prev => ({
+                ...prev,
+                dateRange: {
+                  ...prev.dateRange,
+                  [datePickerType === 'start' ? 'startDate' : 'endDate']: selectedDate
+                }
+              }));
+            }
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -298,5 +534,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  filterModal: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 5,
   }
 }); 

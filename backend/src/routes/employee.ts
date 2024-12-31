@@ -408,6 +408,16 @@ router.get('/profile-stats', verifyToken, async (req: CustomRequest, res: Respon
       return res.status(401).json({ error: 'User ID not found' });
     }
 
+    // Get user's group admin name
+    const groupAdminResult = await client.query(`
+      SELECT 
+        ga.name as group_admin_name 
+      FROM users u
+      JOIN users ga ON u.group_admin_id = ga.id
+      WHERE u.id = $1`,
+      [userId]
+    );
+
     // Get total hours worked this month
     const hoursResult = await client.query(`
       SELECT COALESCE(
@@ -512,7 +522,8 @@ router.get('/profile-stats', verifyToken, async (req: CustomRequest, res: Respon
       totalHours: hoursResult.rows[0].total_hours.toString(),
       expenseCount: expensesResult.rows[0].expense_count.toString(),
       attendanceRate: attendanceRate,
-      completedTasks: tasksResult.rows[0].completed_tasks.toString()
+      completedTasks: tasksResult.rows[0].completed_tasks.toString(),
+      groupAdminName: groupAdminResult.rows[0]?.group_admin_name || null
     };
 
     res.json({
@@ -526,6 +537,54 @@ router.get('/profile-stats', verifyToken, async (req: CustomRequest, res: Respon
       error: 'Failed to fetch profile stats',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
+  } finally {
+    client.release();
+  }
+});
+
+// Add this new endpoint to check shift access
+router.get('/check-shift-access', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Check if user has any active shift and their expense submission permission
+    const result = await client.query(`
+      SELECT 
+        u.can_submit_expenses_anytime,
+        EXISTS (
+          SELECT 1 
+          FROM employee_shifts 
+          WHERE user_id = u.id 
+          AND status = 'active'
+          AND end_time IS NULL
+        ) as has_active_shift
+      FROM users u
+      WHERE u.id = $1
+    `, [req.user.id]);
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { can_submit_expenses_anytime, has_active_shift } = result.rows[0];
+
+    // User can access if they either:
+    // 1. Have permission to submit anytime, OR
+    // 2. Have an active shift
+    const canAccess = can_submit_expenses_anytime || has_active_shift;
+
+    res.json({
+      canAccess,
+      has_active_shift,
+      can_submit_expenses_anytime
+    });
+
+  } catch (error) {
+    console.error('Error checking shift access:', error);
+    res.status(500).json({ error: 'Failed to check shift access' });
   } finally {
     client.release();
   }

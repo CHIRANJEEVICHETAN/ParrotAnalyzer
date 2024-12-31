@@ -9,6 +9,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -78,6 +79,7 @@ export default function AdminAttendanceManagement() {
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(format(new Date(), 'yyyy-MM'));
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchEmployees();
@@ -267,6 +269,31 @@ export default function AdminAttendanceManagement() {
     };
   }, [error]);
 
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // Clear the cache for this specific data
+      const keys = await AsyncStorage.getAllKeys();
+      const cacheKeys = keys.filter(key => 
+        key.startsWith(CACHE_KEYS.ATTENDANCE) || 
+        key.startsWith(CACHE_KEYS.LAST_FETCH) ||
+        key === CACHE_KEYS.EMPLOYEES
+      );
+      await AsyncStorage.multiRemove(cacheKeys);
+
+      // Fetch fresh data
+      await Promise.all([
+        fetchEmployees(),
+        fetchAttendanceData(format(selectedDate, 'yyyy-MM'))
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      Alert.alert('Error', 'Failed to refresh data');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [selectedDate]);
+
   return (
     <View className="flex-1">
       <LinearGradient
@@ -356,6 +383,16 @@ export default function AdminAttendanceManagement() {
       <ScrollView
         className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']}
+            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
+            title="Pull to refresh"
+            titleColor={isDark ? '#60A5FA' : '#3B82F6'}
+          />
+        }
       >
         {/* Monthly Stats */}
         <View className="flex-row flex-wrap p-4">

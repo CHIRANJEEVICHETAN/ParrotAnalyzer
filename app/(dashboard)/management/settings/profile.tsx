@@ -392,7 +392,7 @@ export default function ManagementProfileSettings() {
               Company Name
             </Text>
             <Text className={`text-base font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              {user?.company_name as string || 'N/A'}
+              {user?.company_name || 'N/A'}
             </Text>
           </View>
 

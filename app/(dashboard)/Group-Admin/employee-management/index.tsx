@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput, StyleSheet, Alert, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, TextInput, StyleSheet, Alert, StatusBar, RefreshControl, ActivityIndicator } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
@@ -17,6 +17,10 @@ interface Employee {
   can_submit_expenses_anytime: boolean;
 }
 
+interface LoadingToggles {
+  [key: number]: boolean;
+}
+
 export default function EmployeeManagement() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -27,6 +31,8 @@ export default function EmployeeManagement() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingToggles, setLoadingToggles] = useState<LoadingToggles>({});
 
   useEffect(() => {
     fetchEmployees();
@@ -51,6 +57,8 @@ export default function EmployeeManagement() {
 
   const handleToggleAccess = async (employeeId: number, currentValue: boolean) => {
     try {
+      setLoadingToggles(prev => ({ ...prev, [employeeId]: true }));
+
       const response = await axios.patch(
         `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin/employees/${employeeId}/access`,
         { can_submit_expenses_anytime: !currentValue },
@@ -63,7 +71,6 @@ export default function EmployeeManagement() {
       );
 
       if (response.data) {
-        // Update local state
         setEmployees(prev => prev.map(emp => 
           emp.id === employeeId 
             ? { ...emp, can_submit_expenses_anytime: !currentValue }
@@ -76,6 +83,8 @@ export default function EmployeeManagement() {
         'Error',
         error.response?.data?.details || 'Failed to update access permission'
       );
+    } finally {
+      setLoadingToggles(prev => ({ ...prev, [employeeId]: false }));
     }
   };
 
@@ -109,6 +118,17 @@ export default function EmployeeManagement() {
     emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     emp.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchEmployees();
+    } catch (error) {
+      console.error('Error refreshing:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
@@ -215,12 +235,24 @@ export default function EmployeeManagement() {
       </View>
 
       {/* Employee List */}
-      <ScrollView className="flex-1 px-4 pb-20">
+      <ScrollView 
+        className="flex-1 px-4 pb-20"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']}
+            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
+            titleColor={isDark ? '#60A5FA' : '#3B82F6'}
+            title="Pull to refresh"
+          />
+        }
+      >
         {error ? (
           <View className="p-4 bg-red-100 rounded-lg">
             <Text className="text-red-800">{error}</Text>
           </View>
-        ) : loading ? (
+        ) : loading && !refreshing ? (
           <View className="p-4">
             <Text className={isDark ? 'text-gray-300' : 'text-gray-600'}>
               Loading employees...
@@ -262,17 +294,22 @@ export default function EmployeeManagement() {
                       employee.id,
                       employee.can_submit_expenses_anytime
                     )}
+                    disabled={loadingToggles[employee.id]}
                     className={`mr-4 p-2 rounded-lg ${
                       employee.can_submit_expenses_anytime
                         ? (isDark ? 'bg-green-600' : 'bg-green-500')
                         : (isDark ? 'bg-gray-600' : 'bg-gray-400')
                     }`}
                   >
-                    <Ionicons
-                      name={employee.can_submit_expenses_anytime ? 'checkmark' : 'close'}
-                      size={20}
-                      color="white"
-                    />
+                    {loadingToggles[employee.id] ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <Ionicons
+                        name={employee.can_submit_expenses_anytime ? 'checkmark' : 'close'}
+                        size={20}
+                        color="white"
+                      />
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity
