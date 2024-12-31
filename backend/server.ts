@@ -16,6 +16,7 @@ import leaveRoutes from './src/routes/leave';
 import reportsRoutes from './src/routes/reports';
 import managementRoutes from './src/routes/management';
 import { errorLogger, errorHandler } from './src/middleware/errorHandler';
+import pdfReportRoutes from './src/routes/pdf-reports';
 
 dotenv.config();
 
@@ -44,6 +45,7 @@ app.use('/api/notifications', notificationsRouter);
 app.use('/api', leaveRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/management', managementRoutes);
+app.use('/pdf-reports', pdfReportRoutes);
 
 // Test route at root level
 app.get('/api/test', (req, res) => {

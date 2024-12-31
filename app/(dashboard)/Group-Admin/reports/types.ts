@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 export type ReportType = 'expense' | 'attendance' | 'task' | 'travel' | 'performance' | 'leave';
 export type IconName = keyof typeof Ionicons.glyphMap;
+export type Theme = 'light' | 'dark';
 
 export interface ReportAnalytics {
   total: number;
@@ -11,11 +12,9 @@ export interface ReportAnalytics {
 }
 
 export interface ReportSection {
-  type: ReportType;
+  type: 'expense' | 'attendance' | 'task' | 'travel' | 'performance' | 'leave';
   title: string;
-  icon: IconName;
-  analytics: ReportAnalytics;
-  color: string;
+  description: string;
 }
 
 export interface Report {

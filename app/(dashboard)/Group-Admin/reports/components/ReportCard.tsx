@@ -1,7 +1,15 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ReportSection } from '../types';
+import { PDFGenerator } from '../services/PDFGenerator';
+import { generateExpenseReport } from './pdf-templates/ExpenseTemplate';
+import { generateAttendanceReport } from './pdf-templates/AttendanceTemplate';
+import { generateTaskReport } from './pdf-templates/TaskTemplate';
+import { generateTravelReport } from './pdf-templates/TravelTemplate';
+import { generatePerformanceReport } from './pdf-templates/PerformanceTemplate';
+import { generateLeaveReport } from './pdf-templates/LeaveTemplate';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface ReportCardProps {
   section: ReportSection;
@@ -12,49 +20,127 @@ interface ReportCardProps {
 export default function ReportCard({ section, isDark, children }: ReportCardProps) {
   const [isExporting, setIsExporting] = React.useState(false);
 
+  const generateSectionContent = async (section: ReportSection) => {
+    try {
+      // Get the auth token from wherever you store it (AsyncStorage, context, etc.)
+      const token = await AsyncStorage.getItem('auth_token');
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/${section.type}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Response not OK:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Received data:', data); // Debug log
+
+      // Generate content based on section type
+      switch (section.type) {
+        case 'expense':
+          return generateExpenseReport(data, isDark ? 'dark' : 'light');
+        case 'attendance':
+          return generateAttendanceReport(data, isDark ? 'dark' : 'light');
+        case 'task':
+          return generateTaskReport(data, isDark ? 'dark' : 'light');
+        case 'travel':
+          return generateTravelReport(data, isDark ? 'dark' : 'light');
+        case 'performance':
+          return generatePerformanceReport(data, isDark ? 'dark' : 'light');
+        case 'leave':
+          return generateLeaveReport(data, isDark ? 'dark' : 'light');
+        default:
+          throw new Error(`Unsupported report type: ${section.type}`);
+      }
+    } catch (error) {
+      console.error('Error generating content:', error);
+      throw error;
+    }
+  };
+
   const handleExportPDF = async () => {
-    // Export logic here
+    try {
+      setIsExporting(true);
+      
+      // Generate content based on section type
+      const content = await generateSectionContent(section);
+      
+      await PDFGenerator.generatePDF(
+        section.title,
+        content,
+        section.type,
+        isDark ? 'dark' : 'light'
+      );
+    } catch (error) {
+      console.error('Error exporting PDF:', error);
+      Alert.alert('Error', 'Failed to generate PDF report');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
-    <View className={`p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.card}>
-      <View className="flex-row items-center justify-between mb-4">
-        <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-          {section.title} Analytics
-        </Text>
+    <View style={[
+      styles.card,
+      {
+        backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 16,
+      }
+    ]}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View>
+          <Text style={{ 
+            fontSize: 18, 
+            fontWeight: '600',
+            color: isDark ? '#FFFFFF' : '#111827',
+            marginBottom: 4
+          }}>
+            {section.title}
+          </Text>
+          <Text style={{ 
+            fontSize: 14,
+            color: isDark ? '#9CA3AF' : '#6B7280'
+          }}>
+            {section.description}
+          </Text>
+        </View>
         <TouchableOpacity
           onPress={handleExportPDF}
           disabled={isExporting}
-          className={`flex-row items-center py-2 px-3 rounded-lg bg-blue-500 ${isExporting ? 'opacity-70' : ''}`}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: '#3B82F6',
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderRadius: 6,
+          }}
         >
           {isExporting ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <>
-              <Ionicons name="download-outline" size={18} color="#FFFFFF" style={{ marginRight: 4 }} />
-              <Text className="text-white font-medium">Export PDF</Text>
+              <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+              <Text style={{ 
+                color: '#FFFFFF', 
+                marginLeft: 6,
+                fontSize: 14,
+                fontWeight: '500'
+              }}>
+                Export PDF
+              </Text>
             </>
           )}
         </TouchableOpacity>
-      </View>
-
-      {/* Standard Analytics - Now with 2 columns */}
-      <View className="flex-row justify-between mb-4">
-        {[
-          { label: 'Total', value: section.analytics.total },
-          { label: 'Average', value: section.analytics.average },
-        ].map((stat, index) => (
-          <View key={index} className="w-[48%]">
-            <View className={`p-4 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}>
-              <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                {stat.label}
-              </Text>
-              <Text className={`text-lg font-semibold mt-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                {stat.value}
-              </Text>
-            </View>
-          </View>
-        ))}
       </View>
 
       {children}
