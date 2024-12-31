@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar as RNStatusBar, ViewStyle, TextStyle } from 'react-native';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,14 +6,23 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { NavItem } from '../../types/nav';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 
 export default function SuperAdminDashboard() {
     const { theme } = ThemeContext.useTheme();
     const router = useRouter();
 
+    useEffect(() => {
+        if (Platform.OS === 'android') {
+            RNStatusBar.setBackgroundColor(theme === 'dark' ? '#1F2937' : '#FFFFFF');
+            RNStatusBar.setBarStyle(theme === 'dark' ? 'light-content' : 'dark-content');
+        }
+    }, [theme]);
+
     const navItems: NavItem[] = [
         { icon: 'home-outline', label: 'Home', href: '/(dashboard)/super-admin' },
-        { icon: 'people-outline', label: 'Users', href: '/(dashboard)/super-admin/create-user' },
+        { icon: 'people-outline', label: 'Users', href: '/(dashboard)/super-admin/company_management' },
         { icon: 'settings-outline', label: 'Config', href: '/(dashboard)/super-admin/system-config' },
         { icon: 'document-outline', label: 'Reports', href: '/(dashboard)/super-admin/reports' },
         { icon: 'shield-outline', label: 'Security', href: '/(dashboard)/super-admin/security' },
@@ -28,19 +37,30 @@ export default function SuperAdminDashboard() {
     ];
 
     return (
-        <View className="flex-1" style={styles.container as ViewStyle}>
+        <View 
+            className="flex-1" 
+            style={[
+                styles.container,
+                { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+            ] as ViewStyle}
+        >
+            <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+            
+            {/* Spacer View */}
+            <View style={{ 
+                height: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 0,
+                backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF'
+            }} />
+
             {/* Enhanced Header with Gradient */}
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={{
-                    paddingBottom: 16,
-                    paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 3,
-                    elevation: 3,
-                }}
+                style={[
+                    styles.header,
+                    { 
+                        paddingTop: 10  // Just add 10 padding for the gap
+                    }
+                ]}
             >
                 <View className="flex-row items-center justify-between px-6">
                     <View>

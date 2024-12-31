@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, StyleSheet, Platform, StatusBar } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, StyleSheet, Platform, StatusBar as RNStatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import axios from 'axios';
+import { StatusBar } from 'expo-status-bar';
 
 interface CompanyFormData {
   companyName: string;
@@ -76,6 +77,13 @@ export default function AddCompany() {
 
     checkAuth();
   }, [user, token]);
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      RNStatusBar.setBackgroundColor(theme === 'dark' ? '#1F2937' : '#FFFFFF');
+      RNStatusBar.setBarStyle(theme === 'dark' ? 'light-content' : 'dark-content');
+    }
+  }, [theme]);
 
   const validateForm = () => {
     const newErrors: Partial<CompanyFormData> = {};
@@ -229,11 +237,23 @@ export default function AddCompany() {
   ];
 
   return (
-    <View className="flex-1">
+    <View className="flex-1" style={{ 
+      backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' 
+    }}>
+      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+      
+      <View style={{ 
+        height: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 0,
+        backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF'
+      }} />
+
       <LinearGradient
         colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
         className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: 10 }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity

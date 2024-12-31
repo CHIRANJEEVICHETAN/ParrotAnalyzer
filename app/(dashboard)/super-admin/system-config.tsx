@@ -81,7 +81,7 @@ export default function SystemConfig() {
         <View style={styles.container}>
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight ?? 44 : (StatusBar.currentHeight ?? 0) + 10 }]}
             >
                 <View className="flex-row items-center justify-between px-6">
                     <View className="flex-row items-center">

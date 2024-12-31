@@ -6,6 +6,15 @@ import AuthContext from '../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 
+interface SettingItem {
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    action: () => void;
+    showArrow?: boolean;
+    isSwitch?: boolean;
+    value?: boolean;
+}
+
 export default function SuperAdminSettings() {
     const { theme, toggleTheme } = ThemeContext.useTheme();
     const { logout } = AuthContext.useAuth();
@@ -30,145 +39,136 @@ export default function SuperAdminSettings() {
         );
     };
 
-    const settingsSections = [
+    const settingsSections: { title: string; items: SettingItem[] }[] = [
         {
-            title: 'Account',
+            title: 'Company Management',
             items: [
                 {
-                    icon: 'person-outline',
-                    label: 'Profile Settings',
-                    action: () => router.push('/(dashboard)/super-admin/profile'),
+                    icon: 'business-outline',
+                    label: 'Add New Company',
+                    action: () => router.push('/(dashboard)/super-admin/add-company'),
                     showArrow: true
                 },
                 {
-                    icon: 'notifications-outline',
-                    label: 'Notifications',
-                    action: () => router.push('/(dashboard)/super-admin/notifications'),
-                    showArrow: true
-                },
-                {
-                    icon: 'shield-outline',
-                    label: 'Security',
-                    action: () => router.push('/(dashboard)/super-admin/security'),
+                    icon: 'settings-outline',
+                    label: 'Manage Companies',
+                    action: () => router.push('/(dashboard)/super-admin/company_management'),
                     showArrow: true
                 }
             ]
         },
         {
-            title: 'System',
+            title: 'User Management',
             items: [
                 {
-                    icon: 'server-outline',
-                    label: 'Database Management',
-                    action: () => router.push('/(dashboard)/super-admin/database'),
+                    icon: 'people-outline',
+                    label: 'View All Users',
+                    action: () => router.push('/(dashboard)/super-admin/settings/usersSettings'),
                     showArrow: true
-                },
+                }
+            ]
+        },
+        {
+            title: 'Subscription Management',
+            items: [
                 {
-                    icon: 'code-working-outline',
-                    label: 'API Configuration',
-                    action: () => router.push('/(dashboard)/super-admin/api-config'),
+                    icon: 'card-outline',
+                    label: 'View Subscription Plans',
+                    action: () => router.push('/(dashboard)/super-admin/settings/subscriptionsSettings'),
                     showArrow: true
-                },
+                }
+            ]
+        },
+        {
+            title: 'Security Settings',
+            items: [
                 {
-                    icon: 'moon-outline',
+                    icon: 'lock-closed-outline',
+                    label: 'Change Password',
+                    action: () => router.push('/super-admin/settings/change-passwordSettings'),
+                    showArrow: true
+                }
+            ]
+        },
+        {
+            title: 'Appearance',
+            items: [
+                {
+                    icon: theme === 'dark' ? 'moon' : 'sunny',
                     label: 'Dark Mode',
                     action: toggleTheme,
                     isSwitch: true,
                     value: theme === 'dark'
                 }
             ]
-        },
-        {
-            title: 'Support',
-            items: [
-                {
-                    icon: 'help-circle-outline',
-                    label: 'Help Center',
-                    action: () => router.push('/(dashboard)/super-admin/help'),
-                    showArrow: true
-                },
-                {
-                    icon: 'document-text-outline',
-                    label: 'Documentation',
-                    action: () => router.push('/(dashboard)/super-admin/docs'),
-                    showArrow: true
-                },
-                {
-                    icon: 'information-circle-outline',
-                    label: 'About',
-                    action: () => router.push('/(dashboard)/super-admin/about'),
-                    showArrow: true
-                }
-            ]
         }
     ];
 
     return (
-        <View style={styles.container}>
-            <LinearGradient
-                colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
-            >
-                <View className="flex-row items-center justify-between px-6">
-                    <View className="flex-row items-center">
-                        <TouchableOpacity
-                            onPress={() => router.back()}
-                            className="mr-4 p-2 rounded-full"
-                            style={[styles.backButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
-                        >
-                            <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
-                        </TouchableOpacity>
-                        <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                            Settings
-                        </Text>
-                    </View>
-                </View>
-            </LinearGradient>
+        <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }}>
+            <StatusBar
+                backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
+                barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+            />
 
-            <ScrollView
+            <View 
+                className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
+                style={styles.header}
+            >
+                <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+                    <TouchableOpacity
+                        onPress={() => router.back()}
+                        className={`p-2 rounded-full ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'}`}
+                        style={styles.backButton}
+                    >
+                        <Ionicons 
+                            name="arrow-back" 
+                            size={24} 
+                            color={theme === 'dark' ? '#FFFFFF' : '#111827'} 
+                        />
+                    </TouchableOpacity>
+                    <Text className={`text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                        Settings
+                    </Text>
+                    <View style={{ width: 40 }} />
+                </View>
+            </View>
+
+            <ScrollView 
                 className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
                 showsVerticalScrollIndicator={false}
+                style={styles.scrollView}
             >
                 {settingsSections.map((section, sectionIndex) => (
-                    <View key={section.title} className="mb-6">
-                        <Text
-                            className={`px-6 py-2 text-sm font-medium ${
-                                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                            }`}
-                        >
+                    <View key={section.title} 
+                          className={`mb-6 ${sectionIndex !== 0 ? 'mt-2' : ''}`}
+                          style={styles.section}>
+                        <Text className={`px-6 py-2 text-sm font-semibold ${
+                            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                        }`}>
                             {section.title}
                         </Text>
-                        <View
-                            className={`mx-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
-                            style={styles.settingSection}
-                        >
+                        <View className={`mx-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
+                              style={styles.sectionContent}>
                             {section.items.map((item, index) => (
                                 <TouchableOpacity
                                     key={item.label}
                                     onPress={item.action}
-                                    className={`p-4 flex-row items-center justify-between ${
-                                        index !== section.items.length - 1
-                                            ? 'border-b border-gray-200'
-                                            : ''
-                                    }`}
+                                    className="p-4 flex-row items-center justify-between"
                                 >
                                     <View className="flex-row items-center flex-1">
-                                        <View
-                                            className={`w-8 h-8 rounded-full items-center justify-center ${
-                                                theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
-                                            }`}
-                                        >
+                                        <View className={`w-10 h-10 rounded-xl items-center justify-center ${
+                                            theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
+                                        }`}>
                                             <Ionicons
                                                 name={item.icon as any}
-                                                size={20}
+                                                size={22}
                                                 color={theme === 'dark' ? '#FFFFFF' : '#000000'}
                                             />
                                         </View>
-                                        <Text
-                                            className={`ml-3 text-base ${
-                                                theme === 'dark' ? 'text-white' : 'text-gray-900'
-                                            }`}
-                                        >
+                                        <Text className={`ml-3 text-base font-medium ${
+                                            theme === 'dark' ? 'text-white' : 'text-gray-900'
+                                        }`}>
                                             {item.label}
                                         </Text>
                                     </View>
@@ -176,36 +176,42 @@ export default function SuperAdminSettings() {
                                         <Switch
                                             value={item.value}
                                             onValueChange={item.action}
-                                            trackColor={{ false: '#767577', true: '#3B82F6' }}
-                                            thumbColor={theme === 'dark' ? '#FFFFFF' : '#F3F4F6'}
+                                            trackColor={{ 
+                                                false: theme === 'dark' ? '#4B5563' : '#D1D5DB',
+                                                true: '#60A5FA'
+                                            }}
+                                            thumbColor={item.value ? '#3B82F6' : '#F3F4F6'}
                                         />
-                                    ) : item.showArrow ? (
+                                    ) : item.showArrow && (
                                         <Ionicons
                                             name="chevron-forward"
                                             size={20}
                                             color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
                                         />
-                                    ) : null}
+                                    )}
                                 </TouchableOpacity>
                             ))}
                         </View>
                     </View>
                 ))}
 
-                {/* Logout Button */}
                 <View className="px-4 mb-8">
                     <TouchableOpacity
                         onPress={handleLogout}
-                        className="w-full p-4 rounded-xl bg-red-500"
                         style={styles.logoutButton}
+                        className="rounded-3xl"
                     >
-                        <Text className="text-white text-center font-semibold">
-                            Logout
-                        </Text>
+                        <LinearGradient
+                            colors={['#DC2626', '#B91C1C']}
+                            className="p-4 rounded-3xl"
+                        >
+                            <Text className="text-white text-center font-semibold text-base">
+                                Logout
+                            </Text>
+                        </LinearGradient>
                     </TouchableOpacity>
                 </View>
 
-                {/* Version Info */}
                 <View className="items-center mb-8">
                     <Text className={theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}>
                         Version 1.0.0
@@ -217,25 +223,32 @@ export default function SuperAdminSettings() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
     header: {
+        paddingTop: Platform.OS === 'ios' ? 44 : StatusBar.currentHeight,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
         shadowRadius: 3,
         elevation: 3,
-        paddingBottom: 16,
     },
     backButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.1,
         shadowRadius: 2,
         elevation: 2,
     },
-    settingSection: {
+    scrollView: {
+        flex: 1,
+    },
+    section: {
+        marginBottom: 8,
+    },
+    sectionContent: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
@@ -243,10 +256,12 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     logoutButton: {
-        shadowColor: '#EF4444',
+        shadowColor: '#DC2626',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
-        elevation: 2,
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 4,
+        borderRadius: 24,
+        marginTop: 15,
     },
 });

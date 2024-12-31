@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, Switch } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, Switch, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -99,7 +99,7 @@ export default function Security() {
         <View style={styles.container}>
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : (StatusBar.currentHeight ?? 0) + 10 }]}
             >
                 <View className="flex-row items-center justify-between px-6">
                     <View className="flex-row items-center">
@@ -120,7 +120,7 @@ export default function Security() {
                         </View>
                     </View>
                     <TouchableOpacity
-                        onPress={() => router.push('/(dashboard)/super-admin/security-logs')}
+                        onPress={() => router.push('/(dashboard)/super-admin/reports')}
                         className="p-2 rounded-full"
                         style={[styles.logButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
                     >
@@ -148,7 +148,11 @@ export default function Security() {
                             </Text>
                             <TouchableOpacity 
                                 className="bg-green-500 px-4 py-2 rounded-lg"
-                                onPress={() => router.push('/(dashboard)/super-admin/security-recommendations')}
+                                onPress={() => Alert.alert(
+                                    'Security Recommendations',
+                                    'The security recommendations feature is coming soon. This will provide detailed suggestions to improve your security score.',
+                                    [{ text: 'OK', style: 'default' }]
+                                )}
                             >
                                 <Text className="text-white font-medium">View Recommendations</Text>
                             </TouchableOpacity>
