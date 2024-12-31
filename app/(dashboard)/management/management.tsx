@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
@@ -26,9 +26,12 @@ export default function ManagementDashboard() {
         }
     });
 
+    const [isLoading, setIsLoading] = useState(true);
+
     useEffect(() => {
         const fetchDashboardData = async () => {
             try {
+                setIsLoading(true);
                 const response = await axios.get(
                     `${process.env.EXPO_PUBLIC_API_URL}/api/management/dashboard-stats`,
                     {
@@ -42,7 +45,6 @@ export default function ManagementDashboard() {
                     response: error.response?.data,
                     status: error.response?.status
                 });
-                // Set default values if the request fails
                 setDashboardData({
                     totalTeams: 0,
                     userLimit: 0,
@@ -54,6 +56,8 @@ export default function ManagementDashboard() {
                         expenseOverview: { value: 0, trend: '0%' }
                     }
                 });
+            } finally {
+                setIsLoading(false);
             }
         };
 
@@ -105,57 +109,63 @@ export default function ManagementDashboard() {
             >
                 {/* Quick Stats */}
                 <View className="px-6 py-4">
-                    <View className="flex-row flex-wrap justify-between">
-                        {[
-                            { 
-                                label: 'Total Teams', 
-                                value: dashboardData.totalTeams.toString(), 
-                                icon: 'people', 
-                                trend: '+2' 
-                            },
-                            { 
-                                label: 'Total Users Allowed', 
-                                value: dashboardData.userLimit.toString(), 
-                                icon: 'people-circle', 
-                                trend: null 
-                            }
-                        ].map((metric) => (
-                            <TouchableOpacity
-                                key={metric.label}
-                                onPress={metric.onPress}
-                                className={`w-[48%] p-4 rounded-xl mb-4
+                    {isLoading ? (
+                        <View className="h-[100px] flex items-center justify-center">
+                            <ActivityIndicator size="large" color="#3B82F6" />
+                        </View>
+                    ) : (
+                        <View className="flex-row flex-wrap justify-between">
+                            {[
+                                { 
+                                    label: 'Total Teams', 
+                                    value: dashboardData.totalTeams.toString(), 
+                                    icon: 'people', 
+                                    trend: '+2' 
+                                },
+                                { 
+                                    label: 'Total Users Allowed', 
+                                    value: dashboardData.userLimit.toString(), 
+                                    icon: 'people-circle', 
+                                    trend: null 
+                                }
+                            ].map((metric) => (
+                                <TouchableOpacity
+                                    key={metric.label}
+                                    onPress={metric.onPress}
+                                    className={`w-[48%] p-4 rounded-xl mb-4
                 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
-                            >
-                                <View className="flex-row justify-between items-center">
-                                    <Ionicons
-                                        name={metric.icon as keyof typeof Ionicons.glyphMap}
-                                        size={24}
-                                        color="#3B82F6"
-                                    />
-                                    {metric.trend && (
-                                        <Text
-                                            className={`text-sm ${
-                                                metric.trend.startsWith('+') ? 'text-green-500' : 'text-red-500'
-                                            }`}
-                                        >
-                                            {metric.trend}
-                                        </Text>
-                                    )}
-                                </View>
-                                <Text
-                                    className={`text-2xl font-bold mt-2
+                                >
+                                    <View className="flex-row justify-between items-center">
+                                        <Ionicons
+                                            name={metric.icon as keyof typeof Ionicons.glyphMap}
+                                            size={24}
+                                            color="#3B82F6"
+                                        />
+                                        {metric.trend && (
+                                            <Text
+                                                className={`text-sm ${
+                                                    metric.trend.startsWith('+') ? 'text-green-500' : 'text-red-500'
+                                                }`}
+                                            >
+                                                {metric.trend}
+                                            </Text>
+                                        )}
+                                    </View>
+                                    <Text
+                                        className={`text-2xl font-bold mt-2
                   ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}
-                                >
-                                    {metric.value}
-                                </Text>
-                                <Text
-                                    className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}
-                                >
-                                    {metric.label}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
+                                    >
+                                        {metric.value}
+                                    </Text>
+                                    <Text
+                                        className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}
+                                    >
+                                        {metric.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
                 </View>
 
                 {/* Enhanced Group Analytics Section */}
@@ -163,75 +173,81 @@ export default function ManagementDashboard() {
                     <Text className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
                         Group Analytics
                     </Text>
-                    <ScrollView 
-                        horizontal 
-                        showsHorizontalScrollIndicator={false} 
-                        className="space-x-4"
-                        contentContainerStyle={styles.analyticsContainer as ViewStyle}
-                    >
-                        {[
-                            { 
-                                title: 'Team Performance', 
-                                icon: 'trending-up', 
-                                count: `${dashboardData.analytics.teamPerformance.value}%`, 
-                                trend: dashboardData.analytics.teamPerformance.trend 
-                            },
-                            { 
-                                title: 'Attendance Rate', 
-                                icon: 'calendar', 
-                                count: `${dashboardData.analytics.attendanceRate.value}%`, 
-                                trend: dashboardData.analytics.attendanceRate.trend 
-                            },
-                            { 
-                                title: 'Travel Efficiency', 
-                                icon: 'car', 
-                                count: `₹${dashboardData.analytics.travelEfficiency.value}/km`, 
-                                trend: dashboardData.analytics.travelEfficiency.trend 
-                            },
-                            { 
-                                title: 'Expense Overview', 
-                                icon: 'wallet', 
-                                count: `₹${dashboardData.analytics.expenseOverview.value}`, 
-                                trend: dashboardData.analytics.expenseOverview.trend 
-                            },
-                        ].map((item) => (
-                            <TouchableOpacity
-                                key={item.title}
-                                style={[
-                                    styles.analyticsCard,
-                                    { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
-                                ]}
-                                className="relative overflow-hidden"
-                            >
-                                <LinearGradient
-                                    colors={theme === 'dark' ? 
-                                        ['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)'] : 
-                                        ['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.02)']}
-                                    style={styles.cardGradient as ViewStyle}
-                                />
-                                <View className="flex-row justify-between items-center mb-3">
-                                    <View className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-800' : 'bg-blue-50'}`}>
-                                        <Ionicons 
-                                            name={item.icon as any} 
-                                            size={24} 
-                                            color="#3B82F6"
-                                        />
+                    {isLoading ? (
+                        <View className="h-[150px] flex items-center justify-center">
+                            <ActivityIndicator size="large" color="#3B82F6" />
+                        </View>
+                    ) : (
+                        <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={false} 
+                            className="space-x-4"
+                            contentContainerStyle={styles.analyticsContainer as ViewStyle}
+                        >
+                            {[
+                                { 
+                                    title: 'Team Performance', 
+                                    icon: 'trending-up', 
+                                    count: `${dashboardData.analytics.teamPerformance.value}%`, 
+                                    trend: dashboardData.analytics.teamPerformance.trend 
+                                },
+                                { 
+                                    title: 'Attendance Rate', 
+                                    icon: 'calendar', 
+                                    count: `${dashboardData.analytics.attendanceRate.value}%`, 
+                                    trend: dashboardData.analytics.attendanceRate.trend 
+                                },
+                                { 
+                                    title: 'Travel Efficiency', 
+                                    icon: 'car', 
+                                    count: `₹${dashboardData.analytics.travelEfficiency.value}/km`, 
+                                    trend: dashboardData.analytics.travelEfficiency.trend 
+                                },
+                                { 
+                                    title: 'Expense Overview', 
+                                    icon: 'wallet', 
+                                    count: `₹${dashboardData.analytics.expenseOverview.value}`, 
+                                    trend: dashboardData.analytics.expenseOverview.trend 
+                                },
+                            ].map((item) => (
+                                <TouchableOpacity
+                                    key={item.title}
+                                    style={[
+                                        styles.analyticsCard,
+                                        { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+                                    ]}
+                                    className="relative overflow-hidden"
+                                >
+                                    <LinearGradient
+                                        colors={theme === 'dark' ? 
+                                            ['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.05)'] : 
+                                            ['rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.02)']}
+                                        style={styles.cardGradient as ViewStyle}
+                                    />
+                                    <View className="flex-row justify-between items-center mb-3">
+                                        <View className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-800' : 'bg-blue-50'}`}>
+                                            <Ionicons 
+                                                name={item.icon as any} 
+                                                size={24} 
+                                                color="#3B82F6"
+                                            />
+                                        </View>
+                                        <Text className={`text-sm ${
+                                            item.trend.startsWith('+') ? 'text-green-500' : 'text-red-500'
+                                        } font-medium`}>
+                                            {item.trend}
+                                        </Text>
                                     </View>
-                                    <Text className={`text-sm ${
-                                        item.trend.startsWith('+') ? 'text-green-500' : 'text-red-500'
-                                    } font-medium`}>
-                                        {item.trend}
+                                    <Text className={`text-2xl font-bold mb-1 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                        {item.count}
                                     </Text>
-                                </View>
-                                <Text className={`text-2xl font-bold mb-1 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                                    {item.count}
-                                </Text>
-                                <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
-                                    {item.title}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
+                                    <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                                        {item.title}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    )}
                 </View>
 
                 {/* Recent Activities Section */}
@@ -241,66 +257,80 @@ export default function ManagementDashboard() {
                             Recent Activities
                         </Text>
                     </View>
-                    <View 
-                        className={`rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} 
-                        style={styles.approvalSection}
-                    >
-                        {dashboardData.recentActivities.map((activity, index) => {
-                            // The description is already an object, no need to parse
-                            const description = activity.description;
-                            
-                            return (
-                                <View
-                                    key={index}
-                                    className={`py-4 px-4 ${
-                                        index !== dashboardData.recentActivities.length - 1 ? 'border-b' : ''
-                                    } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}
-                                >
-                                    <View className="flex-row justify-between items-start mb-2">
-                                        <View className="flex-1 mr-3">
-                                            <Text className={`font-medium mb-1 ${
-                                                theme === 'dark' ? 'text-white' : 'text-gray-800'
-                                            }`}>
-                                                {activity.title}
-                                            </Text>
-                                            {activity.type === 'expense' ? (
-                                                <View>
-                                                    <Text className={`text-sm ${
-                                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                    {isLoading ? (
+                        <View className="h-[200px] flex items-center justify-center">
+                            <ActivityIndicator size="large" color="#3B82F6" />
+                        </View>
+                    ) : (
+                        <View 
+                            className={`rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} 
+                            style={styles.approvalSection}
+                        >
+                            {dashboardData.recentActivities.length > 0 ? (
+                                dashboardData.recentActivities.map((activity, index) => {
+                                    // The description is already an object, no need to parse
+                                    const description = activity.description;
+                                    
+                                    return (
+                                        <View
+                                            key={index}
+                                            className={`py-4 px-4 ${
+                                                index !== dashboardData.recentActivities.length - 1 ? 'border-b' : ''
+                                            } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}
+                                        >
+                                            <View className="flex-row justify-between items-start mb-2">
+                                                <View className="flex-1 mr-3">
+                                                    <Text className={`font-medium mb-1 ${
+                                                        theme === 'dark' ? 'text-white' : 'text-gray-800'
                                                     }`}>
-                                                        {description.employee_name} - ₹{description.amount}
+                                                        {activity.title}
                                                     </Text>
-                                                    <Text className={`text-xs ${
-                                                        theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
-                                                    }`}>
-                                                        {description.department} • {description.group_admin}
-                                                    </Text>
-                                                    <Text className={`text-xs mt-1 ${
-                                                        description.status === 'pending' ? 'text-yellow-500' :
-                                                        description.status === 'approved' ? 'text-green-500' :
-                                                        'text-red-500'
-                                                    }`}>
-                                                        {description.status.toUpperCase()}
-                                                    </Text>
+                                                    {activity.type === 'expense' ? (
+                                                        <View>
+                                                            <Text className={`text-sm ${
+                                                                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                                            }`}>
+                                                                {description.employee_name} - ₹{description.amount}
+                                                            </Text>
+                                                            <Text className={`text-xs ${
+                                                                theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                                            }`}>
+                                                                {description.department} • {description.group_admin}
+                                                            </Text>
+                                                            <Text className={`text-xs mt-1 ${
+                                                                description.status === 'pending' ? 'text-yellow-500' :
+                                                                description.status === 'approved' ? 'text-green-500' :
+                                                                'text-red-500'
+                                                            }`}>
+                                                                {description.status.toUpperCase()}
+                                                            </Text>
+                                                        </View>
+                                                    ) : (
+                                                        <Text className={`text-sm ${
+                                                            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                                        }`}>
+                                                            {description.name}
+                                                            {description.department && ` - ${description.department}`}
+                                                            {description.group_admin && ` • ${description.group_admin}`}
+                                                        </Text>
+                                                    )}
                                                 </View>
-                                            ) : (
-                                                <Text className={`text-sm ${
-                                                    theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                                                }`}>
-                                                    {description.name}
-                                                    {description.department && ` - ${description.department}`}
-                                                    {description.group_admin && ` • ${description.group_admin}`}
+                                                <Text className="text-sm text-gray-500">
+                                                    {new Date(activity.time).toLocaleDateString()}
                                                 </Text>
-                                            )}
+                                            </View>
                                         </View>
-                                        <Text className="text-sm text-gray-500">
-                                            {new Date(activity.time).toLocaleDateString()}
-                                        </Text>
-                                    </View>
+                                    );
+                                })
+                            ) : (
+                                <View className="py-4 px-4">
+                                    <Text className={`text-center ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        No recent activities
+                                    </Text>
                                 </View>
-                            );
-                        })}
-                    </View>
+                            )}
+                        </View>
+                    )}
                 </View>
 
                 {/* New Section: Report Generation */}
