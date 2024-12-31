@@ -207,9 +207,12 @@ router.delete('/:id', verifyToken, requireSuperAdmin, async (req: CustomRequest,
 
     // Delete all related data in correct order
     await client.query('DELETE FROM expenses WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM employee_shifts WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
     await client.query('DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
-    await client.query('DELETE FROM schedules WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
-    await client.query('DELETE FROM tasks WHERE assigned_to IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM expense_documents WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM leave_requests WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM employee_schedule WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)', [id]);
+    await client.query('DELETE FROM employee_tasks WHERE assigned_to IN (SELECT id FROM users WHERE company_id = $1)', [id]);
     await client.query('DELETE FROM users WHERE company_id = $1', [id]);
     await client.query('DELETE FROM companies WHERE id = $1', [id]);
 

@@ -90,27 +90,27 @@ export default function CompanyManagement() {
     }
   };
 
-  const handleDeleteCompany = async (companyId: number) => {
-    Alert.alert(
-      'Delete Company',
-      'Are you sure? This will permanently delete the company and all associated users.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await axios.delete(`${process.env.EXPO_PUBLIC_API_URL}/api/companies/${companyId}`);
-              fetchCompanies();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete company');
-            }
-          }
-        }
-      ]
-    );
-  };
+  // const handleDeleteCompany = async (companyId: number) => {
+  //   Alert.alert(
+  //     'Delete Company',
+  //     'Are you sure? This will permanently delete the company and all associated users.',
+  //     [
+  //       { text: 'Cancel', style: 'cancel' },
+  //       {
+  //         text: 'Delete',
+  //         style: 'destructive',
+  //         onPress: async () => {
+  //           try {
+  //             await axios.delete(`${process.env.EXPO_PUBLIC_API_URL}/api/companies/${companyId}`);
+  //             fetchCompanies();
+  //           } catch (error) {
+  //             Alert.alert('Error', 'Failed to delete company');
+  //           }
+  //         }
+  //       }
+  //     ]
+  //   );
+  // };
 
   const handleUpdateUserLimit = async () => {
     if (!selectedCompany || !newUserLimit) return;
@@ -310,19 +310,19 @@ export default function CompanyManagement() {
                       ) : (
                         <Ionicons
                           name={company.status === 'active' ? 'checkmark' : 'close'}
-                          size={16}
+                          size={20}
                           color="white"
                         />
                       )}
                     </TouchableOpacity>
                     
-                    <TouchableOpacity
+                    {/* <TouchableOpacity
                       onPress={() => handleDeleteCompany(company.id)}
                       className="p-2 rounded-full bg-red-500"
                       style={styles.actionButton}
                     >
                       <Ionicons name="trash" size={20} color="white" />
-                    </TouchableOpacity>
+                    </TouchableOpacity> */}
                   </View>
                 </View>
 
@@ -361,7 +361,7 @@ export default function CompanyManagement() {
                   >
                     <Ionicons 
                       name="pencil" 
-                      size={16} 
+                      size={20} 
                       color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
                     />
                   </TouchableOpacity>
