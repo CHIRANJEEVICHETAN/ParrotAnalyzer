@@ -426,6 +426,207 @@ router.get('/dashboard-stats', authMiddleware, async (req: CustomRequest, res: R
   }
 });
 
+// Add this new endpoint for analytics data
+router.get('/analytics-data', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id || req.user.role !== 'management') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const companyId = req.user.company_id;
+
+    // Get performance data for last 6 months
+    const performanceData = await client.query(`
+      WITH RECURSIVE months AS (
+        SELECT 
+          date_trunc('month', CURRENT_DATE) as month
+        UNION ALL
+        SELECT 
+          date_trunc('month', month - interval '1 month')
+        FROM months
+        WHERE date_trunc('month', month - interval '1 month') >= 
+              date_trunc('month', CURRENT_DATE - interval '5 months')
+      ),
+      monthly_performance AS (
+        SELECT 
+          date_trunc('month', t.created_at) as month,
+          COUNT(t.id) as total_tasks,
+          COUNT(CASE WHEN t.status = 'completed' THEN 1 END) as completed_tasks
+        FROM employee_tasks t
+        JOIN users u ON t.assigned_to = u.id
+        WHERE u.company_id = $1
+        AND t.created_at >= CURRENT_DATE - interval '6 months'
+        GROUP BY date_trunc('month', t.created_at)
+      )
+      SELECT 
+        to_char(m.month, 'Mon') as month,
+        COALESCE(
+          ROUND((mp.completed_tasks::float / NULLIF(mp.total_tasks, 0) * 100))::integer,
+          0
+        ) as performance
+      FROM months m
+      LEFT JOIN monthly_performance mp ON m.month = mp.month
+      ORDER BY m.month
+    `, [companyId]);
+
+    // Get attendance data for last 5 days
+    const attendanceData = await client.query(`
+      WITH RECURSIVE days AS (
+        SELECT CURRENT_DATE as day
+        UNION ALL
+        SELECT day - 1
+        FROM days
+        WHERE day - 1 >= CURRENT_DATE - 4
+      ),
+      daily_attendance AS (
+        SELECT 
+          DATE(es.start_time) as day,
+          COUNT(DISTINCT es.user_id) as present_users,
+          (
+            SELECT COUNT(DISTINCT u.id) 
+            FROM users u
+            LEFT JOIN users ga ON u.group_admin_id = ga.id
+            WHERE u.company_id = $1 
+            AND u.role = 'employee'
+            AND ga.role = 'group-admin'
+          ) as total_users
+        FROM employee_shifts es
+        JOIN users u ON es.user_id = u.id
+        JOIN users ga ON u.group_admin_id = ga.id
+        WHERE ga.company_id = $1
+        AND es.start_time >= CURRENT_DATE - interval '5 days'
+        AND es.end_time IS NOT NULL
+        AND es.status = 'completed'
+        GROUP BY DATE(es.start_time)
+      )
+      SELECT 
+        to_char(d.day, 'Dy') as day,
+        COALESCE(
+          ROUND((da.present_users::float / NULLIF(da.total_users, 0) * 100))::integer,
+          0
+        ) as attendance_rate
+      FROM days d
+      LEFT JOIN daily_attendance da ON d.day = da.day
+      ORDER BY d.day
+    `, [companyId]);
+
+    // Get key metrics
+    const keyMetrics = await client.query(`
+      WITH performance_stats AS (
+        SELECT 
+          ROUND(AVG(
+            CASE 
+              WHEN t.status = 'completed' THEN 100
+              ELSE 0 
+            END
+          ))::integer as avg_performance
+        FROM employee_tasks t
+        JOIN users u ON t.assigned_to = u.id
+        WHERE u.company_id = $1
+        AND t.created_at >= CURRENT_DATE - interval '30 days'
+      ),
+      attendance_stats AS (
+        SELECT 
+          ROUND(
+            (COUNT(DISTINCT CASE 
+              WHEN es.end_time IS NOT NULL AND es.status = 'completed' 
+              THEN es.user_id 
+            END)::float / 
+            NULLIF((
+              SELECT COUNT(DISTINCT u.id) 
+              FROM users u
+              LEFT JOIN users ga ON u.group_admin_id = ga.id
+              WHERE u.company_id = $1 
+              AND u.role = 'employee'
+              AND ga.role = 'group-admin'
+            ), 0) * 100)
+          )::integer as attendance_rate
+        FROM employee_shifts es
+        JOIN users u ON es.user_id = u.id
+        JOIN users ga ON u.group_admin_id = ga.id
+        WHERE ga.company_id = $1
+        AND es.start_time >= CURRENT_DATE - interval '30 days'
+      ),
+      task_stats AS (
+        SELECT 
+          ROUND(
+            (COUNT(CASE WHEN t.status = 'completed' THEN 1 END)::float / 
+            NULLIF(COUNT(*), 0) * 100)
+          )::integer as completion_rate
+        FROM employee_tasks t
+        JOIN users u ON t.assigned_to = u.id
+        WHERE u.company_id = $1
+        AND t.created_at >= CURRENT_DATE - interval '30 days'
+      ),
+      efficiency_stats AS (
+        SELECT 
+          ROUND(AVG(
+            CASE 
+              WHEN total_kilometers > 0 AND total_amount > 0 
+              THEN (total_amount / total_kilometers)
+              ELSE NULL 
+            END
+          ))::integer as efficiency_score
+        FROM expenses e
+        JOIN users u ON e.user_id = u.id
+        WHERE u.company_id = $1
+        AND e.created_at >= CURRENT_DATE - interval '30 days'
+      )
+      SELECT 
+        ps.avg_performance,
+        ast.attendance_rate,
+        ts.completion_rate,
+        LEAST(100, GREATEST(0, 
+          ROUND(((es.efficiency_score - 10) / 20.0 * 100))
+        ))::integer as team_efficiency
+      FROM performance_stats ps
+      CROSS JOIN attendance_stats ast
+      CROSS JOIN task_stats ts
+      CROSS JOIN efficiency_stats es
+    `, [companyId]);
+
+    res.json({
+      performanceData: {
+        labels: performanceData.rows.map(row => row.month),
+        datasets: [{
+          data: performanceData.rows.map(row => Number(row.performance) || 0)
+        }]
+      },
+      attendanceData: {
+        labels: attendanceData.rows.map(row => row.day),
+        datasets: [{
+          data: attendanceData.rows.map(row => Number(row.attendance_rate) || 0)
+        }]
+      },
+      keyMetrics: {
+        avgPerformance: {
+          value: Number(keyMetrics.rows[0]?.avg_performance || 0),
+          trend: '+2.5%'
+        },
+        attendanceRate: {
+          value: Number(keyMetrics.rows[0]?.attendance_rate || 0),
+          trend: '+1.2%'
+        },
+        taskCompletion: {
+          value: Number(keyMetrics.rows[0]?.completion_rate || 0),
+          trend: '+3.7%'
+        },
+        teamEfficiency: {
+          value: Number(keyMetrics.rows[0]?.team_efficiency || 0),
+          trend: '+1.5%'
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching analytics data:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics data' });
+  } finally {
+    client.release();
+  }
+});
+
 // Helper function to calculate trend percentage
 function calculateTrend(previous: number, current: number): string {
   if (!previous) return '+0%';
