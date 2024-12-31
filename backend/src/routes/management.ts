@@ -193,45 +193,68 @@ router.get('/dashboard-stats', authMiddleware, async (req: CustomRequest, res: R
       console.error('Table check failed:', error);
     }
 
-    // Simplify the activities query for now
+    // Update the activities query
     const activitiesResult = await client.query(`
       (
-        -- New group admin activities
+        -- Pending Expense Approvals
+        SELECT 
+          'expense' as type,
+          CASE 
+            WHEN e.status = 'pending' THEN 'Pending Approval'
+            WHEN e.status = 'approved' THEN 'Approved'
+            WHEN e.status = 'rejected' THEN 'Rejected'
+          END as title,
+          jsonb_build_object(
+            'employee_name', e.employee_name,
+            'amount', e.total_amount,
+            'group_admin', ga.name,
+            'department', e.department,
+            'date', TO_CHAR(e.date, 'DD-MM-YYYY'),
+            'status', e.status
+          ) as description,
+          e.created_at as time
+        FROM expenses e
+        JOIN users ga ON e.group_admin_id = ga.id
+        WHERE ga.company_id = $1 
+        AND e.created_at >= CURRENT_DATE - INTERVAL '30 days'
+        ORDER BY e.created_at DESC
+        LIMIT 5
+      )
+      UNION ALL
+      (
+        -- New Employee Activities
+        SELECT 
+          'employee' as type,
+          'New Employee Added' as title,
+          jsonb_build_object(
+            'name', u.name,
+            'department', u.department,
+            'group_admin', ga.name
+          ) as description,
+          u.created_at as time
+        FROM users u
+        JOIN users ga ON u.group_admin_id = ga.id
+        WHERE u.company_id = $1 
+        AND u.role = 'employee'
+        AND u.created_at >= CURRENT_DATE - INTERVAL '30 days'
+        LIMIT 5
+      )
+      UNION ALL
+      (
+        -- Group Admin Activities
         SELECT 
           'team' as type,
-          'New Team Added' as title,
-          u.name as description,
+          'Team Activity' as title,
+          jsonb_build_object(
+            'name', u.name,
+            'action', 'Added as Group Admin'
+          ) as description,
           u.created_at as time
         FROM users u
         WHERE u.company_id = $1 
         AND u.role = 'group-admin'
         AND u.created_at >= CURRENT_DATE - INTERVAL '30 days'
-
-        UNION ALL
-
-        -- Expense approval activities
-        SELECT 
-          'expense' as type,
-          'Expense ' || e.status as title,  -- Specify e.status
-          'Amount: ₹' || e.total_amount::text as description,
-          e.updated_at as time
-        FROM expenses e
-        JOIN users u ON e.user_id = u.id
-        WHERE u.company_id = $1
-        AND e.updated_at >= CURRENT_DATE - INTERVAL '30 days'
-
-        UNION ALL
-
-        -- Employee addition activities
-        SELECT 
-          'employee' as type,
-          'New Employee Added' as title,
-          u.name as description,
-          u.created_at as time
-        FROM users u
-        WHERE u.company_id = $1 
-        AND u.role = 'employee'
-        AND u.created_at >= CURRENT_DATE - INTERVAL '30 days'
+        LIMIT 5
       )
       ORDER BY time DESC
       LIMIT 10

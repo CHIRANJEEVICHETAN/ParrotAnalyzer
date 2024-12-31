@@ -63,7 +63,7 @@ export default function ManagementDashboard() {
     const navItems: NavItem[] = [
         { icon: 'home-outline', label: 'Home', href: '/(dashboard)/management' },
         { icon: 'analytics-outline', label: 'Analytics', href: '/(dashboard)/management/analytics' },
-        { icon: 'checkmark-circle-outline', label: 'Approvals', href: '/(dashboard)/management/approvals' },
+        // { icon: 'checkmark-circle-outline', label: 'Approvals', href: '/(dashboard)/management/approvals' },
         { icon: 'people-circle-outline', label: 'Group Admins', href: 'management/group-admin-management' },
         { icon: 'person-outline', label: 'Profile', href: '/(dashboard)/management/profile' },
     ];
@@ -245,37 +245,66 @@ export default function ManagementDashboard() {
                         className={`rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} 
                         style={styles.approvalSection}
                     >
-                        {dashboardData.recentActivities.map((activity, index) => (
-                            <View
-                                key={index}
-                                className={`py-4 px-4 ${
-                                    index !== dashboardData.recentActivities.length - 1 ? 'border-b' : ''
-                                } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}
-                            >
-                                <View className="flex-row justify-between items-start mb-2">
-                                    <View className="flex-1 mr-3">
-                                        <Text className={`font-medium mb-1 ${
-                                            theme === 'dark' ? 'text-white' : 'text-gray-800'
-                                        }`}>
-                                            {activity.title}
-                                        </Text>
-                                        <Text className={`text-sm ${
-                                            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                                        }`}>
-                                            {activity.description}
+                        {dashboardData.recentActivities.map((activity, index) => {
+                            // The description is already an object, no need to parse
+                            const description = activity.description;
+                            
+                            return (
+                                <View
+                                    key={index}
+                                    className={`py-4 px-4 ${
+                                        index !== dashboardData.recentActivities.length - 1 ? 'border-b' : ''
+                                    } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}
+                                >
+                                    <View className="flex-row justify-between items-start mb-2">
+                                        <View className="flex-1 mr-3">
+                                            <Text className={`font-medium mb-1 ${
+                                                theme === 'dark' ? 'text-white' : 'text-gray-800'
+                                            }`}>
+                                                {activity.title}
+                                            </Text>
+                                            {activity.type === 'expense' ? (
+                                                <View>
+                                                    <Text className={`text-sm ${
+                                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                                    }`}>
+                                                        {description.employee_name} - ₹{description.amount}
+                                                    </Text>
+                                                    <Text className={`text-xs ${
+                                                        theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                                    }`}>
+                                                        {description.department} • {description.group_admin}
+                                                    </Text>
+                                                    <Text className={`text-xs mt-1 ${
+                                                        description.status === 'pending' ? 'text-yellow-500' :
+                                                        description.status === 'approved' ? 'text-green-500' :
+                                                        'text-red-500'
+                                                    }`}>
+                                                        {description.status.toUpperCase()}
+                                                    </Text>
+                                                </View>
+                                            ) : (
+                                                <Text className={`text-sm ${
+                                                    theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                                }`}>
+                                                    {description.name}
+                                                    {description.department && ` - ${description.department}`}
+                                                    {description.group_admin && ` • ${description.group_admin}`}
+                                                </Text>
+                                            )}
+                                        </View>
+                                        <Text className="text-sm text-gray-500">
+                                            {new Date(activity.time).toLocaleDateString()}
                                         </Text>
                                     </View>
-                                    <Text className="text-sm text-gray-500">
-                                        {new Date(activity.time).toLocaleDateString()}
-                                    </Text>
                                 </View>
-                            </View>
-                        ))}
+                            );
+                        })}
                     </View>
                 </View>
 
                 {/* New Section: Report Generation */}
-                <View className="px-6 py-4">
+                {/* <View className="px-6 py-4">
                     <Text className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
                         Reports
                     </Text>
@@ -302,10 +331,10 @@ export default function ManagementDashboard() {
                             </TouchableOpacity>
                         ))}
                     </View>
-                </View>
+                </View> */}
 
                 {/* Enhanced Pending Approvals Section */}
-                <View className="px-6 py-4 mb-20">
+                {/* <View className="px-6 py-4 mb-20">
                     <View className="flex-row justify-between items-center mb-4">
                         <Text className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
                             Pending Approvals
@@ -394,10 +423,10 @@ export default function ManagementDashboard() {
                             </TouchableOpacity>
                         ))}
                     </View>
-                </View>
+                </View> */}
             </ScrollView>
 
-            <TouchableOpacity
+            {/* <TouchableOpacity
                 onPress={() => router.push('/management/group-admin-management')}
                 className="absolute bottom-24 right-6 bg-blue-500 rounded-full p-4 shadow-lg"
                 style={{
@@ -414,7 +443,7 @@ export default function ManagementDashboard() {
                         Manage Group Admins
                     </Text>
                 </View>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
             <BottomNav items={navItems} />
         </View>
