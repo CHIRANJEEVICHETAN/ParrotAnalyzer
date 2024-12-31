@@ -1,5 +1,5 @@
-# Use Node.js 18 LTS image from the official Docker Hub
-FROM node:18.19.0-alpine3.18
+# Use Node.js 20.5.0 LTS image from the official Docker Hub
+FROM node:20.5.0-alpine3.18
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -24,4 +24,3 @@ EXPOSE 8080
 
 # Start the server
 CMD ["npm", "start"]
-
