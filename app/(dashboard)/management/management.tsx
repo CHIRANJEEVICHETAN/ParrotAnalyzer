@@ -5,10 +5,60 @@ import BottomNav from '../../components/BottomNav';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { NavItem } from '../../types/nav';
+import { useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import axios from 'axios';
 
 export default function ManagementDashboard() {
     const { theme } = ThemeContext.useTheme();
     const router = useRouter();
+    const { token } = useAuth();
+    
+    const [dashboardData, setDashboardData] = useState({
+        totalTeams: 0,
+        userLimit: 0,
+        recentActivities: [],
+        analytics: {
+            teamPerformance: { value: 0, trend: '0%' },
+            attendanceRate: { value: 0, trend: '0%' },
+            travelEfficiency: { value: 0, trend: '0%' },
+            expenseOverview: { value: 0, trend: '0%' }
+        }
+    });
+
+    useEffect(() => {
+        const fetchDashboardData = async () => {
+            try {
+                const response = await axios.get(
+                    `${process.env.EXPO_PUBLIC_API_URL}/api/management/dashboard-stats`,
+                    {
+                        headers: { Authorization: `Bearer ${token}` }
+                    }
+                );
+                setDashboardData(response.data);
+            } catch (error) {
+                console.error('Error details:', {
+                    message: error.message,
+                    response: error.response?.data,
+                    status: error.response?.status
+                });
+                // Set default values if the request fails
+                setDashboardData({
+                    totalTeams: 0,
+                    userLimit: 0,
+                    recentActivities: [],
+                    analytics: {
+                        teamPerformance: { value: 0, trend: '0%' },
+                        attendanceRate: { value: 0, trend: '0%' },
+                        travelEfficiency: { value: 0, trend: '0%' },
+                        expenseOverview: { value: 0, trend: '0%' }
+                    }
+                });
+            }
+        };
+
+        fetchDashboardData();
+    }, [token]);
 
     const navItems: NavItem[] = [
         { icon: 'home-outline', label: 'Home', href: '/(dashboard)/management' },
@@ -57,11 +107,18 @@ export default function ManagementDashboard() {
                 <View className="px-6 py-4">
                     <View className="flex-row flex-wrap justify-between">
                         {[
-                            { label: 'Total Teams', value: '8', icon: 'people', trend: '+2' },
-                            { label: 'Active Projects', value: '15', icon: 'briefcase', trend: '+3' },
-                            { label: 'Group Admins', value: '12', icon: 'people-circle', trend: '+2', 
-                              onPress: () => router.push('/management/group-admin-management') },
-                            { label: 'Pending Reviews', value: '12', icon: 'time', trend: '-3' },
+                            { 
+                                label: 'Total Teams', 
+                                value: dashboardData.totalTeams.toString(), 
+                                icon: 'people', 
+                                trend: '+2' 
+                            },
+                            { 
+                                label: 'Total Users Allowed', 
+                                value: dashboardData.userLimit.toString(), 
+                                icon: 'people-circle', 
+                                trend: null 
+                            }
                         ].map((metric) => (
                             <TouchableOpacity
                                 key={metric.label}
@@ -75,12 +132,15 @@ export default function ManagementDashboard() {
                                         size={24}
                                         color="#3B82F6"
                                     />
-                                    <Text
-                                        className={`text-sm ${metric.trend.startsWith('+') ? 'text-green-500' : 'text-red-500'
+                                    {metric.trend && (
+                                        <Text
+                                            className={`text-sm ${
+                                                metric.trend.startsWith('+') ? 'text-green-500' : 'text-red-500'
                                             }`}
-                                    >
-                                        {metric.trend}
-                                    </Text>
+                                        >
+                                            {metric.trend}
+                                        </Text>
+                                    )}
                                 </View>
                                 <Text
                                     className={`text-2xl font-bold mt-2
@@ -110,10 +170,30 @@ export default function ManagementDashboard() {
                         contentContainerStyle={styles.analyticsContainer as ViewStyle}
                     >
                         {[
-                            { title: 'Team Performance', icon: 'trending-up', count: '12', trend: '+8%' },
-                            { title: 'Attendance Metrics', icon: 'calendar', count: '95%', trend: '+2%' },
-                            { title: 'Travel Efficiency', icon: 'car', count: '87%', trend: '+5%' },
-                            { title: 'Expense Overview', icon: 'wallet', count: '₹25K', trend: '-3%' },
+                            { 
+                                title: 'Team Performance', 
+                                icon: 'trending-up', 
+                                count: `${dashboardData.analytics.teamPerformance.value}%`, 
+                                trend: dashboardData.analytics.teamPerformance.trend 
+                            },
+                            { 
+                                title: 'Attendance Rate', 
+                                icon: 'calendar', 
+                                count: `${dashboardData.analytics.attendanceRate.value}%`, 
+                                trend: dashboardData.analytics.attendanceRate.trend 
+                            },
+                            { 
+                                title: 'Travel Efficiency', 
+                                icon: 'car', 
+                                count: `₹${dashboardData.analytics.travelEfficiency.value}/km`, 
+                                trend: dashboardData.analytics.travelEfficiency.trend 
+                            },
+                            { 
+                                title: 'Expense Overview', 
+                                icon: 'wallet', 
+                                count: `₹${dashboardData.analytics.expenseOverview.value}`, 
+                                trend: dashboardData.analytics.expenseOverview.trend 
+                            },
                         ].map((item) => (
                             <TouchableOpacity
                                 key={item.title}
@@ -146,12 +226,52 @@ export default function ManagementDashboard() {
                                 <Text className={`text-2xl font-bold mb-1 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                                     {item.count}
                                 </Text>
-                                <Text className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
                                     {item.title}
                                 </Text>
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
+                </View>
+
+                {/* Recent Activities Section */}
+                <View className="px-6 py-4 mb-20">
+                    <View className="flex-row justify-between items-center mb-4">
+                        <Text className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+                            Recent Activities
+                        </Text>
+                    </View>
+                    <View 
+                        className={`rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} 
+                        style={styles.approvalSection}
+                    >
+                        {dashboardData.recentActivities.map((activity, index) => (
+                            <View
+                                key={index}
+                                className={`py-4 px-4 ${
+                                    index !== dashboardData.recentActivities.length - 1 ? 'border-b' : ''
+                                } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}
+                            >
+                                <View className="flex-row justify-between items-start mb-2">
+                                    <View className="flex-1 mr-3">
+                                        <Text className={`font-medium mb-1 ${
+                                            theme === 'dark' ? 'text-white' : 'text-gray-800'
+                                        }`}>
+                                            {activity.title}
+                                        </Text>
+                                        <Text className={`text-sm ${
+                                            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            {activity.description}
+                                        </Text>
+                                    </View>
+                                    <Text className="text-sm text-gray-500">
+                                        {new Date(activity.time).toLocaleDateString()}
+                                    </Text>
+                                </View>
+                            </View>
+                        ))}
+                    </View>
                 </View>
 
                 {/* New Section: Report Generation */}
