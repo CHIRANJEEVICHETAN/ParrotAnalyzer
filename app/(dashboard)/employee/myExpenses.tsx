@@ -326,12 +326,7 @@ export default function MyExpenses() {
           </View>
         ) : (
           filteredExpenses.map((expense, index) => (
-            <TouchableOpacity
-              key={expense.id}
-              onPress={() => router.push({
-                pathname: "/(dashboard)/employee/expenseDetails",
-                params: { id: expense.id }
-              })}
+            <View
               style={[
                 styles.expenseCard,
                 { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' },
@@ -397,7 +392,7 @@ export default function MyExpenses() {
                   Reason: {expense.rejection_reason}
                 </Text>
               )}
-            </TouchableOpacity>
+            </View>
           ))
         )}
       </ScrollView>
