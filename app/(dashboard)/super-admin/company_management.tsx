@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Platform, StatusBar as RNStatusBar, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Platform, StatusBar as RNStatusBar, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -39,6 +39,7 @@ export default function CompanyManagement() {
   const [newUserLimit, setNewUserLimit] = useState('');
   const [isUpdatingLimit, setIsUpdatingLimit] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchCompanies();
@@ -158,6 +159,15 @@ export default function CompanyManagement() {
     return matchesSearch && matchesStatus;
   });
 
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchCompanies();
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   return (
     <View className="flex-1" style={{ 
       backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' 
@@ -252,7 +262,18 @@ export default function CompanyManagement() {
         </View>
 
         {/* Companies List */}
-        <ScrollView className="flex-1">
+        <ScrollView 
+          className="flex-1"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[theme === 'dark' ? '#FFFFFF' : '#111827']}
+              tintColor={theme === 'dark' ? '#FFFFFF' : '#111827'}
+              progressBackgroundColor={theme === 'dark' ? '#374151' : '#F3F4F6'}
+            />
+          }
+        >
           {loading ? (
             <View className="flex-1 justify-center items-center p-4">
               <ActivityIndicator size="large" color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
