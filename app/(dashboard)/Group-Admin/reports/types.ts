@@ -14,7 +14,7 @@ export interface ReportAnalytics {
 export interface ReportSection {
   type: 'expense' | 'attendance' | 'task' | 'travel' | 'performance' | 'leave';
   title: string;
-  description: string;
+  description?: string;
 }
 
 export interface Report {

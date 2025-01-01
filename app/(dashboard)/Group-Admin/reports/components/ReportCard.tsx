@@ -22,7 +22,6 @@ interface ReportCardProps {
 
 export default function ReportCard({ section, isDark, children }: ReportCardProps) {
   const [isExporting, setIsExporting] = React.useState(false);
-  const [generatedPDF, setGeneratedPDF] = React.useState<{ filePath: string; fileName: string } | null>(null);
 
   const generateSectionContent = async (section: ReportSection) => {
     try {
@@ -72,74 +71,33 @@ export default function ReportCard({ section, isDark, children }: ReportCardProp
   const handleExportPDF = async () => {
     try {
       setIsExporting(true);
+      const { filePath, fileName } = await PDFGenerator.generatePDF(section);
       
-      // Generate content based on section type
-      const content = await generateSectionContent(section);
-      
-      // Generate PDF and get the file path
-      const pdfInfo = await PDFGenerator.generatePDF(
-        section.title,
-        content,
-        section.type,
-        isDark ? 'dark' : 'light'
+      // Show action sheet with only Open and Share options
+      Alert.alert(
+        'Export PDF',
+        'Choose an action',
+        [
+          {
+            text: 'Open',
+            onPress: () => PDFGenerator.openPDF(filePath)
+          },
+          {
+            text: 'Share',
+            onPress: () => PDFGenerator.sharePDF(filePath)
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
       );
-
-      setGeneratedPDF(pdfInfo);
-      
-      // Show options immediately after generation
-      showPdfOptions(pdfInfo.filePath, pdfInfo.fileName);
     } catch (error) {
       console.error('Error exporting PDF:', error);
-      Alert.alert('Error', 'Failed to generate PDF report');
+      Alert.alert('Error', 'Failed to export PDF');
     } finally {
       setIsExporting(false);
     }
-  };
-
-  const showPdfOptions = async (filePath: string, fileName: string) => {
-    Alert.alert(
-      'PDF Options',
-      'What would you like to do with the PDF?',
-      [
-        {
-          text: 'Open',
-          onPress: async () => {
-            try {
-              await PDFGenerator.openPDF(filePath);
-            } catch (error) {
-              console.error('Error opening PDF:', error);
-              Alert.alert('Error', 'Failed to open PDF');
-            }
-          }
-        },
-        {
-          text: 'Share',
-          onPress: async () => {
-            try {
-              await PDFGenerator.sharePDF(filePath);
-            } catch (error) {
-              console.error('Error sharing PDF:', error);
-              Alert.alert('Error', 'Failed to share PDF');
-            }
-          }
-        },
-        {
-          text: 'Save',
-          onPress: async () => {
-            try {
-              await PDFGenerator.savePDF(filePath, fileName);
-            } catch (error) {
-              console.error('Error saving PDF:', error);
-              Alert.alert('Error', 'Failed to save PDF');
-            }
-          }
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
-      ]
-    );
   };
 
   return (
