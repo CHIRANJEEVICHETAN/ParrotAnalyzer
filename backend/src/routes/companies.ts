@@ -3,6 +3,24 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../config/database';
 import { verifyToken, requireSuperAdmin } from '../middleware/auth';
 import { CustomRequest } from '../types';
+import multer from 'multer';
+import { Buffer } from 'buffer';
+
+// Configure multer for handling file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
 
 const router = express.Router();
 
@@ -14,9 +32,11 @@ router.get('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: 
         c.id,
         c.name,
         c.email,
+        c.phone,
         c.status,
         c.created_at,
         c.user_limit,
+        encode(c.logo, 'base64') as logo,
         (
           SELECT json_build_object(
             'name', u.name,
@@ -40,7 +60,7 @@ router.get('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: 
       ...company,
       management: company.management || null,
       user_count: parseInt(company.user_count) || 0,
-      user_limit: parseInt(company.user_limit) || 50 // Default to 50 if not set
+      user_limit: parseInt(company.user_limit) || 50
     }));
 
     res.json(companies);
@@ -50,78 +70,133 @@ router.get('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: 
   }
 });
 
-// Create new company with management account
-router.post('/', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    const { 
-      companyName, 
-      companyEmail, 
-      companyAddress, 
-      managementName, 
-      managementEmail, 
-      managementPhone, 
-      managementPassword,
-      userLimit
-    } = req.body;
+// Create new company with management account and logo
+router.post('/', 
+  verifyToken, 
+  requireSuperAdmin,
+  upload.single('logo'), // Handle file upload
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      const { 
+        companyName, 
+        companyEmail,
+        companyPhone, // Add this
+        companyAddress, 
+        managementName, 
+        managementEmail, 
+        managementPhone, 
+        managementPassword,
+        userLimit
+      } = req.body;
 
-    if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword) {
-      return res.status(400).json({ 
-        error: 'Missing required fields'
+      // Validate required fields
+      if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword) {
+        return res.status(400).json({ 
+          error: 'Missing required fields'
+        });
+      }
+
+      await client.query('BEGIN');
+      
+      // Check for existing company
+      const existingCompany = await client.query(
+        'SELECT id FROM companies WHERE email = $1',
+        [companyEmail]
+      );
+
+      if (existingCompany.rows.length > 0) {
+        throw new Error('Company with this email already exists');
+      }
+
+      // Check for existing user
+      const existingUser = await client.query(
+        'SELECT id FROM users WHERE email = $1',
+        [managementEmail]
+      );
+
+      if (existingUser.rows.length > 0) {
+        throw new Error('Management email already exists');
+      }
+
+      // Handle logo conversion to base64 if provided
+      let logoBase64 = null;
+      if (req.file) {
+        logoBase64 = Buffer.from(req.file.buffer).toString('base64');
+      }
+
+      // Insert company with logo
+      const companyResult = await client.query(
+        `INSERT INTO companies (
+          name, 
+          email, 
+          phone,
+          address, 
+          status, 
+          user_limit,
+          logo
+        )
+        VALUES ($1, $2, $3, $4, 'active', $5, $6)
+        RETURNING id`,
+        [
+          companyName, 
+          companyEmail, 
+          companyPhone,
+          companyAddress, 
+          userLimit || 50,
+          logoBase64 ? Buffer.from(logoBase64, 'base64') : null
+        ]
+      );
+
+      const companyId = companyResult.rows[0].id;
+
+      // Create management account
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(managementPassword, salt);
+
+      await client.query(
+        `INSERT INTO users (
+          name, 
+          email, 
+          phone, 
+          password, 
+          role, 
+          company_id
+        )
+        VALUES ($1, $2, $3, $4, 'management', $5)`,
+        [managementName, managementEmail, managementPhone, hashedPassword, companyId]
+      );
+
+      await client.query('COMMIT');
+      
+      res.status(201).json({ 
+        message: 'Company created successfully',
+        companyId: companyId
       });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Transaction error:', error);
+      
+      let errorMessage = 'Failed to create company';
+      if (error instanceof Error) {
+        if (error.message.includes('companies_email_key')) {
+          errorMessage = 'Company email already exists';
+        } else if (error.message.includes('users_email_key')) {
+          errorMessage = 'Management email already exists';
+        } else if (error.message.includes('users_phone_key')) {
+          errorMessage = 'Phone number already exists';
+        }
+      }
+      
+      res.status(500).json({ 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? error : undefined
+      });
+    } finally {
+      client.release();
     }
-
-    await client.query('BEGIN');
-    
-    const existingCompany = await client.query(
-      'SELECT id FROM companies WHERE email = $1',
-      [companyEmail]
-    );
-
-    if (existingCompany.rows.length > 0) {
-      throw new Error('Company with this email already exists');
-    }
-
-    const existingUser = await client.query(
-      'SELECT id FROM users WHERE email = $1',
-      [managementEmail]
-    );
-
-    if (existingUser.rows.length > 0) {
-      throw new Error('Management email already exists');
-    }
-
-    const companyResult = await client.query(
-      `INSERT INTO companies (name, email, address, status, user_limit)
-       VALUES ($1, $2, $3, 'active', $4)
-       RETURNING id`,
-      [companyName, companyEmail, companyAddress, userLimit || 50]
-    );
-
-    const companyId = companyResult.rows[0].id;
-
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(managementPassword, salt);
-
-    await client.query(
-      `INSERT INTO users (name, email, phone, password, role, company_id)
-       VALUES ($1, $2, $3, $4, 'management', $5)`,
-      [managementName, managementEmail, managementPhone, hashedPassword, companyId]
-    );
-
-    await client.query('COMMIT');
-    res.status(201).json({ 
-      message: 'Company created successfully',
-      companyId: companyId
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Transaction error:', error);
-    res.status(500).json({ error: 'Failed to create company' });
-  } finally {
-    client.release();
   }
-});
+);
 
 // Update company status
 router.patch('/:id/toggle-status', verifyToken, requireSuperAdmin, async (req: CustomRequest, res: Response) => {
