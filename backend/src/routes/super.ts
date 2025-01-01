@@ -2,7 +2,7 @@ import express, { Response } from 'express';
 import { pool } from '../config/database';
 import { verifyToken, requireSuperAdmin } from '../middleware/auth';
 import { CustomRequest } from '../types';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 const router = express.Router();
 
