@@ -6,6 +6,7 @@ import ReportCard from './ReportCard';
 import GraphSelector from './GraphSelector';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Employee {
   id: number;
@@ -68,7 +69,7 @@ interface MonthlyDataItem {
 export default function ExpenseReports({ section, isDark }: { section: ReportSection; isDark: boolean }) {
   const [graphType, setGraphType] = useState('line');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | string | null>(null);
   const [overallData, setOverallData] = useState<OverallExpenseData | null>(null);
   const [employeeData, setEmployeeData] = useState<ExpenseData | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
@@ -585,18 +586,64 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
     );
   };
 
-  if (loading) {
+  useEffect(() => {
+    let mounted = true;
+    
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        const token = await AsyncStorage.getItem('auth_token');
+
+        const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/expense`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (mounted) {
+          setOverallData(data.overall);
+          setEmployeeData(data.employee);
+          setEmployees(data.employees || []);
+        }
+      } catch (err) {
+        if (mounted) {
+          setError(err instanceof Error ? err : new Error('Unknown error'));
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (error) {
     return (
-      <View className="flex-1 justify-center items-center">
-        <ActivityIndicator size="large" color="#3B82F6" />
+      <View style={{ padding: 16 }}>
+        <Text style={{ color: 'red' }}>
+          Error: {error instanceof Error ? error.message : error}
+        </Text>
       </View>
     );
   }
 
-  if (error) {
+  if (loading) {
     return (
-      <View className="flex-1 justify-center items-center">
-        <Text className="text-red-500">{error}</Text>
+      <View style={{ padding: 16 }}>
+        <ActivityIndicator size="large" color="#3B82F6" />
       </View>
     );
   }

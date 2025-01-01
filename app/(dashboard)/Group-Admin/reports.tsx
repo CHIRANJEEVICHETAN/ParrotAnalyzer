@@ -59,7 +59,7 @@ export default function GroupAdminReports() {
 
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | string | null>(null);
   const [selectedType, setSelectedType] = useState<ReportType>('expense');
   const [isExporting, setIsExporting] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
@@ -300,89 +300,105 @@ export default function GroupAdminReports() {
     }
   };
 
-  return (
-    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
-      <StatusBar
-        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
-        barStyle={isDark ? 'light-content' : 'dark-content'}
-      />
-
-      {/* Header */}
-      <View 
-        className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
-        style={styles.header}
-      >
-        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
-            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
-          >
-            <Ionicons 
-              name="arrow-back" 
-              size={24} 
-              color={isDark ? '#FFFFFF' : '#111827'} 
-            />
-          </TouchableOpacity>
-          <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
-            <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Reports
-            </Text>
-          </View>
-          <View style={{ width: 40 }} />
-        </View>
+  if (error) {
+    return (
+      <View style={{ flex: 1, padding: 16 }}>
+        <Text style={{ color: 'red' }}>
+          Error: {error instanceof Error ? error.message : error}
+        </Text>
       </View>
+    );
+  }
 
-      <ScrollView className="flex-1">
-        {/* Report Type Selector */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          className="px-4 py-3"
+  try {
+    return (
+      <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
+        <StatusBar
+          backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+          barStyle={isDark ? 'light-content' : 'dark-content'}
+        />
+
+        {/* Header */}
+        <View 
+          className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
+          style={styles.header}
         >
-          {reportSections.map((section) => (
+          <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
             <TouchableOpacity
-              key={section.type}
-              onPress={() => setSelectedType(section.type)}
-              className={`mr-3 px-4 py-2 rounded-full flex-row items-center ${
-                selectedType === section.type 
-                  ? 'bg-blue-500' 
-                  : isDark ? 'bg-gray-800' : 'bg-white'
-              }`}
-              style={styles.chipButton}
+              onPress={() => router.back()}
+              className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+              style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
             >
               <Ionicons 
-                name={section.icon} 
-                size={18} 
-                color={selectedType === section.type ? '#FFFFFF' : section.color} 
-                style={{ marginRight: 6 }}
+                name="arrow-back" 
+                size={24} 
+                color={isDark ? '#FFFFFF' : '#111827'} 
               />
-              <Text className={`${
-                selectedType === section.type 
-                  ? 'text-white' 
-                  : isDark ? 'text-gray-300' : 'text-gray-700'
-              }`}>
-                {section.title}
-              </Text>
             </TouchableOpacity>
-          ))}
+            <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
+              <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Reports
+              </Text>
+            </View>
+            <View style={{ width: 40 }} />
+          </View>
+        </View>
+
+        <ScrollView className="flex-1">
+          {/* Report Type Selector */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            className="px-4 py-3"
+          >
+            {reportSections.map((section) => (
+              <TouchableOpacity
+                key={section.type}
+                onPress={() => setSelectedType(section.type)}
+                className={`mr-3 px-4 py-2 rounded-full flex-row items-center ${
+                  selectedType === section.type 
+                    ? 'bg-blue-500' 
+                    : isDark ? 'bg-gray-800' : 'bg-white'
+                }`}
+                style={styles.chipButton}
+              >
+                <Ionicons 
+                  name={section.icon} 
+                  size={18} 
+                  color={selectedType === section.type ? '#FFFFFF' : section.color} 
+                  style={{ marginRight: 6 }}
+                />
+                <Text className={`${
+                  selectedType === section.type 
+                    ? 'text-white' 
+                    : isDark ? 'text-gray-300' : 'text-gray-700'
+                }`}>
+                  {section.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Report Sections */}
+          <View className="p-4">
+            {reportSections.map((section) => 
+              selectedType === section.type ? (
+                <View key={section.type}>
+                  {renderReportSection(section)}
+                </View>
+              ) : null
+            )}
+          </View>
         </ScrollView>
 
-        {/* Report Sections */}
-        <View className="p-4">
-          {reportSections.map((section) => 
-            selectedType === section.type ? (
-              <View key={section.type}>
-                {renderReportSection(section)}
-              </View>
-            ) : null
-          )}
-        </View>
-      </ScrollView>
-
-      <BottomNav items={groupAdminNavItems} />
-    </View>
-  );
+        <BottomNav items={groupAdminNavItems} />
+      </View>
+    );
+  } catch (err) {
+    console.error('Error in Reports render:', err);
+    setError(err instanceof Error ? err : new Error('Unknown error'));
+    return null;
+  }
 }
 
 const styles = StyleSheet.create({
