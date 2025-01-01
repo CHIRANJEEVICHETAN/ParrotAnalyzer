@@ -39,10 +39,10 @@ export default function SuperAdminDashboard() {
     return (
         <View 
             className="flex-1" 
-            style={[
-                styles.container,
-                { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
-            ] as ViewStyle}
+            style={{
+                ...styles.container,
+                backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF'
+            }}
         >
             <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
             
