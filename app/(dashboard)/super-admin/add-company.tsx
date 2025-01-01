@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, StyleSheet, Platform, StatusBar as RNStatusBar } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, StyleSheet, Platform, StatusBar as RNStatusBar, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,10 +7,13 @@ import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import axios from 'axios';
 import { StatusBar } from 'expo-status-bar';
+import * as ImagePicker from 'expo-image-picker';
 
 interface CompanyFormData {
   companyName: string;
   companyEmail: string;
+  companyPhone: string;
+  companyLogo: any;
   companyAddress: string;
   managementName: string;
   managementEmail: string;
@@ -27,7 +30,16 @@ interface FormField {
   placeholder: string;
   multiline?: boolean;
   secure?: boolean;
+  isImage?: boolean;
+  prefix?: string;
 }
+
+const formatPhoneNumber = (phone: string) => {
+  // Remove any existing '+91' prefix and any non-digit characters
+  const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+  // Add the '+91' prefix back
+  return cleanPhone ? `+91${cleanPhone}` : '';
+};
 
 export default function AddCompany() {
   const { theme } = ThemeContext.useTheme();
@@ -37,6 +49,8 @@ export default function AddCompany() {
   const [formData, setFormData] = useState<CompanyFormData>({
     companyName: '',
     companyEmail: '',
+    companyPhone: '',
+    companyLogo: null,
     companyAddress: '',
     managementName: '',
     managementEmail: '',
@@ -92,13 +106,16 @@ export default function AddCompany() {
     if (!formData.companyEmail || !/\S+@\S+\.\S+/.test(formData.companyEmail)) {
       newErrors.companyEmail = 'Valid company email is required';
     }
+    if (!formData.companyPhone || !/^\+91\d{10}$/.test(formData.companyPhone)) {
+      newErrors.companyPhone = 'Valid 10-digit phone number is required';
+    }
     if (!formData.companyAddress) newErrors.companyAddress = 'Company address is required';
     if (!formData.managementName) newErrors.managementName = 'Management name is required';
     if (!formData.managementEmail || !/\S+@\S+\.\S+/.test(formData.managementEmail)) {
       newErrors.managementEmail = 'Valid management email is required';
     }
-    if (!formData.managementPhone || !/^\+?[1-9]\d{9,11}$/.test(formData.managementPhone)) {
-      newErrors.managementPhone = 'Valid phone number is required';
+    if (!formData.managementPhone || !/^\+91\d{10}$/.test(formData.managementPhone)) {
+      newErrors.managementPhone = 'Valid 10-digit phone number is required';
     }
     if (!formData.managementPassword || formData.managementPassword.length < 8) {
       newErrors.managementPassword = 'Password must be at least 8 characters';
@@ -107,6 +124,32 @@ export default function AddCompany() {
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const handlePhoneChange = (text: string, field: string) => {
+    const formattedPhone = formatPhoneNumber(text);
+    setFormData(prev => ({ ...prev, [field]: formattedPhone }));
+  };
+
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+      });
+
+      if (!result.canceled) {
+        setFormData(prev => ({
+          ...prev,
+          companyLogo: result.assets[0]
+        }));
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
   };
 
   const handleSubmit = async () => {
@@ -123,12 +166,35 @@ export default function AddCompany() {
 
     setLoading(true);
     try {
+      const formDataToSend = new FormData();
+      
+      // Append all text fields
+      Object.entries(formData).forEach(([key, value]) => {
+        if (key !== 'companyLogo') {
+          formDataToSend.append(key, value as string);
+        }
+      });
+
+      // Append logo if exists
+      if (formData.companyLogo) {
+        const localUri = formData.companyLogo.uri;
+        const filename = localUri.split('/').pop();
+        const match = /\.(\w+)$/.exec(filename || '');
+        const type = match ? `image/${match[1]}` : 'image';
+
+        formDataToSend.append('logo', {
+          uri: localUri,
+          name: filename,
+          type
+        } as any);
+      }
+
       const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/companies`, 
-        formData,
+        `${process.env.EXPO_PUBLIC_API_URL}/api/companies`,
+        formDataToSend,
         {
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'multipart/form-data',
             'Authorization': `Bearer ${token}`
           }
         }
@@ -164,10 +230,17 @@ export default function AddCompany() {
   };
 
   const formFields: { section: string; fields: FormField[] }[] = [
-    // Company Section
     {
       section: 'Company Details',
       fields: [
+        {
+          key: 'companyLogo',
+          label: 'Company Logo',
+          icon: 'image',
+          keyboardType: 'default',
+          placeholder: 'Select company logo',
+          isImage: true
+        },
         {
           key: 'companyName',
           label: 'Company Name',
@@ -181,6 +254,14 @@ export default function AddCompany() {
           icon: 'mail',
           keyboardType: 'email-address',
           placeholder: 'company@example.com'
+        },
+        {
+          key: 'companyPhone',
+          label: 'Company Phone',
+          icon: 'call',
+          keyboardType: 'phone-pad',
+          placeholder: 'Enter 10-digit number',
+          prefix: '+91'
         },
         {
           key: 'companyAddress',
@@ -199,7 +280,6 @@ export default function AddCompany() {
         }
       ]
     },
-    // Management Section
     {
       section: 'Management Account',
       fields: [
@@ -222,7 +302,8 @@ export default function AddCompany() {
           label: 'Management Phone',
           icon: 'call',
           keyboardType: 'phone-pad',
-          placeholder: 'Enter phone number'
+          placeholder: 'Enter 10-digit number',
+          prefix: '+91'
         },
         {
           key: 'managementPassword',
@@ -237,9 +318,7 @@ export default function AddCompany() {
   ];
 
   return (
-    <View className="flex-1" style={{ 
-      backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' 
-    }}>
+    <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }}>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
       
       <View style={{ 
@@ -270,10 +349,7 @@ export default function AddCompany() {
         </View>
       </LinearGradient>
 
-      <ScrollView 
-        className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
         <View className="p-6">
           {formFields.map((section) => (
             <View key={section.section} className="mb-8">
@@ -291,32 +367,81 @@ export default function AddCompany() {
                     }`}>
                       {field.label}
                     </Text>
-                    <View className="relative">
-                      <View className="absolute left-4 top-4 z-10">
+                    {field.isImage ? (
+                      <TouchableOpacity
+                        onPress={pickImage}
+                        className={`flex-row items-center p-4 rounded-lg ${
+                          theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                        } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
+                        style={styles.inputContainer}
+                      >
                         <Ionicons
-                          name={field.icon as keyof typeof Ionicons.glyphMap}
+                          name="image"
                           size={20}
                           color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
                         />
+                        <Text className={`ml-2 ${
+                          theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                          {formData.companyLogo ? 'Logo selected' : 'Select company logo'}
+                        </Text>
+                        {formData.companyLogo && (
+                          <Image
+                            source={{ uri: formData.companyLogo.uri }}
+                            style={{ width: 40, height: 40, marginLeft: 10, borderRadius: 5 }}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    ) : (
+                      <View className="relative">
+                        <View className="absolute left-4 top-4 z-10">
+                          <Ionicons
+                            name={field.icon as keyof typeof Ionicons.glyphMap}
+                            size={20}
+                            color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                          />
+                        </View>
+                        {field.prefix ? (
+                          <View className="flex-row items-center flex-1">
+                            <Text className={`absolute left-12 z-10 ${
+                              theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                            }`}>
+                              {field.prefix}
+                            </Text>
+                            <TextInput
+                              value={formData[field.key as keyof CompanyFormData]?.replace(/^\+91/, '')}
+                              onChangeText={(text) => handlePhoneChange(text, field.key)}
+                              className={`w-full pl-20 p-4 rounded-lg ${
+                                theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+                              } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
+                              style={[styles.inputContainer, { flex: 1 }]}
+                              placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                              placeholder={field.placeholder}
+                              keyboardType="phone-pad"
+                              maxLength={10}
+                            />
+                          </View>
+                        ) : (
+                          <TextInput
+                            value={formData[field.key as keyof CompanyFormData]}
+                            onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
+                            className={`pl-12 p-4 rounded-lg ${
+                              theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+                            } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
+                            style={[
+                              styles.inputContainer,
+                              field.multiline && { height: 100, textAlignVertical: 'top' }
+                            ]}
+                            placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                            placeholder={field.placeholder}
+                            secureTextEntry={field.secure}
+                            keyboardType={field.keyboardType as any}
+                            multiline={field.multiline}
+                            numberOfLines={field.multiline ? 4 : 1}
+                          />
+                        )}
                       </View>
-                      <TextInput
-                        value={formData[field.key as keyof CompanyFormData]}
-                        onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
-                        className={`pl-12 p-4 rounded-lg ${
-                          theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-                        } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
-                        style={[
-                          styles.inputContainer,
-                          field.multiline && { height: 100, textAlignVertical: 'top' }
-                        ]}
-                        placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                        placeholder={field.placeholder}
-                        secureTextEntry={field.secure}
-                        keyboardType={field.keyboardType as any}
-                        multiline={field.multiline}
-                        numberOfLines={field.multiline ? 4 : 1}
-                      />
-                    </View>
+                    )}
                     {errors[field.key as keyof CompanyFormData] && (
                       <Text className="text-red-500 mt-1">
                         {errors[field.key as keyof CompanyFormData]}

@@ -54,6 +54,10 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working' });
 });
 
+app.get('/', (req, res) => {
+  res.send('Welcome to Parrot Analyzer API');
+});
+
 // Route not found handler
 app.use((req, res, next) => {
   console.log('Route not found:', req.method, req.path);
