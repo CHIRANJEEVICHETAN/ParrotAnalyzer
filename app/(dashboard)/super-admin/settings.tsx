@@ -85,7 +85,7 @@ export default function SuperAdminSettings() {
                 {
                     icon: 'lock-closed-outline',
                     label: 'Change Password',
-                    action: () => router.push('/super-admin/settings/change-passwordSettings'),
+                    action: () => router.push('/(dashboard)/super-admin/settings/change-passwordSettings'),
                     showArrow: true
                 }
             ]
