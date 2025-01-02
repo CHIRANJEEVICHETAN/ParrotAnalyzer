@@ -302,14 +302,8 @@ export default function EmployeeShiftTracker() {
     const now = new Date();
     if (!shiftStart) return;
 
-    // Update UI immediately
-    const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
+    // Show processing feedback first
     setShowModal(false);
-    setIsShiftActive(false);
-    pulseAnim.setValue(1);
-    rotateAnim.setValue(0);
-
-    // Show intermediate feedback
     setModalData({
       title: 'Ending Shift',
       message: 'Processing...',
@@ -318,54 +312,65 @@ export default function EmployeeShiftTracker() {
     });
     setShowModal(true);
 
-    // Perform API call and storage updates in background
-    InteractionManager.runAfterInteractions(async () => {
-      try {
-        const response = await axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/end`,
-          {
-            endTime: formatDateForBackend(now)  // Send ISO string with timezone
-          },
-          {
-            headers: { Authorization: `Bearer ${token}` }
-          }
-        );
+    try {
+      // Make the API call first
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/end`,
+        {
+          endTime: formatDateForBackend(now)
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
 
-        const newShiftData: ShiftData = {
-          date: format(shiftStart, 'yyyy-MM-dd'),
-          startTime: format(shiftStart, 'HH:mm:ss'),
-          endTime: format(now, 'HH:mm:ss'),
-          duration,
-        };
+      // Only if API call is successful, update the UI and local storage
+      const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
+      
+      const newShiftData: ShiftData = {
+        date: format(shiftStart, 'yyyy-MM-dd'),
+        startTime: format(shiftStart, 'HH:mm:ss'),
+        endTime: format(now, 'HH:mm:ss'),
+        duration,
+      };
 
-        // Batch storage updates
-        await Promise.all([
-          AsyncStorage.setItem('shiftHistory', JSON.stringify([newShiftData, ...shiftHistory])),
-          AsyncStorage.removeItem('shiftStatus')
-        ]);
+      // Update local state
+      setIsShiftActive(false);
+      setShiftStart(null);
+      pulseAnim.setValue(1);
+      rotateAnim.setValue(0);
 
-        // Refresh shift history from backend to ensure we have latest data
-        await loadShiftHistoryFromBackend();
-        setShiftStart(null);
+      // Batch storage updates
+      await Promise.all([
+        AsyncStorage.removeItem('shiftStatus'),
+        AsyncStorage.setItem('shiftHistory', JSON.stringify([newShiftData, ...shiftHistory]))
+      ]);
 
-        // Show final success message
-        setModalData({
-          title: 'Shift Completed',
-          message: `Total Duration: ${duration}\nStart: ${format(shiftStart, 'hh:mm a')}\nEnd: ${format(now, 'hh:mm a')}`,
-          type: 'info',
-          showCancel: false
-        });
-      } catch (error: any) {
-        // Revert UI state on error
-        setIsShiftActive(true);
-        startAnimations();
-        
-        Alert.alert(
-          'Error',
-          error.response?.data?.error || 'Failed to end shift. Please try again.'
-        );
-      }
-    });
+      // Refresh shift history from backend
+      await loadShiftHistoryFromBackend();
+      await fetchRecentShifts();
+
+      // Show success message
+      setModalData({
+        title: 'Shift Completed',
+        message: `Total Duration: ${duration}\nStart: ${format(shiftStart, 'hh:mm a')}\nEnd: ${format(now, 'hh:mm a')}`,
+        type: 'success',
+        showCancel: false
+      });
+
+    } catch (error: any) {
+      console.error('Error ending shift:', error);
+      
+      // Show error message
+      Alert.alert(
+        'Error',
+        error.response?.data?.error || 'Failed to end shift. Please try again.'
+      );
+
+      // Keep shift active since the end request failed
+      setIsShiftActive(true);
+      startAnimations();
+    }
   };
 
   const handleEndShift = () => {
