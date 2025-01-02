@@ -4,16 +4,6 @@ import { useRouter } from 'expo-router';
 import ThemeContext from './context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import AuthContext from './context/AuthContext';
-import * as Notifications from 'expo-notifications';
-
-// Configure notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -26,33 +16,6 @@ export default function SplashScreen() {
   const textFadeAnim = new Animated.Value(0);
 
   useEffect(() => {
-    // Request notification permissions on app start
-    const requestNotificationPermissions = async () => {
-      try {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        
-        if (finalStatus !== 'granted') {
-          console.log('Notification permission not granted');
-          return;
-        }
-      } catch (error) {
-        console.error('Error requesting notification permissions:', error);
-      }
-    };
-
-    // Initialize notifications and PDF handler
-    const initializeApp = async () => {
-      await requestNotificationPermissions();
-    };
-
-    initializeApp();
-
     // Only proceed with animations and navigation when auth is initialized
     if (!isLoading) {
       // Logo animation sequence
