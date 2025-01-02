@@ -8,6 +8,8 @@ import {
   Platform,
   StatusBar,
   ActivityIndicator,
+  Dimensions,
+  SafeAreaView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +18,11 @@ import AuthContext from '../../context/AuthContext';
 import axios from 'axios';
 import { format } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
+
+const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 24;
+const APPBAR_HEIGHT = Platform.OS === 'ios' ? 44 : 56;
+const HEADER_PADDING = 0; // Additional padding for header
 
 interface Expense {
   id: number;
@@ -140,25 +147,18 @@ export default function MyExpenses() {
   };
 
   return (
-    <View style={[
-      styles.container,
-      { backgroundColor: isDark ? '#111827' : '#F3F4F6' }
-    ]}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#111827' : '#F3F4F6' }]}>
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent={true}
       />
 
       {/* Header */}
-      <View
-        style={[
-          styles.header,
-          {
-            backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-            paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0
-          }
-        ]}
-      >
+      <View style={[
+        styles.header,
+        { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
+      ]}>
         <View style={styles.headerContent}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -327,6 +327,7 @@ export default function MyExpenses() {
         ) : (
           filteredExpenses.map((expense, index) => (
             <View
+              key={expense.id}
               style={[
                 styles.expenseCard,
                 { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' },
@@ -406,6 +407,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: 'transparent',
+    paddingTop: getHeaderPaddingTop(),
     paddingBottom: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -418,6 +420,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   backButton: {
     width: 40,

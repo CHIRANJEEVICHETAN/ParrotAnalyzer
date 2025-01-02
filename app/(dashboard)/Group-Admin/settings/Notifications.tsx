@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import { format } from 'date-fns';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface Notification {
     id: number;
@@ -186,6 +187,7 @@ export default function Notifications() {
 
     const styles = StyleSheet.create({
         header: {
+            paddingTop: getHeaderPaddingTop(),
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
             shadowOpacity: 0.1,
@@ -206,6 +208,7 @@ export default function Notifications() {
             <StatusBar
                 barStyle={isDark ? 'light-content' : 'dark-content'}
                 backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+                translucent={true}
             />
 
             {/* Header */}

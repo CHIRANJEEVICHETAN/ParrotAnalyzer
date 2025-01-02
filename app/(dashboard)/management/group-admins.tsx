@@ -7,6 +7,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface GroupAdmin {
   id: number;
@@ -504,6 +505,7 @@ export default function ManageGroupAdmins() {
 
 const styles = StyleSheet.create({
   header: {
+    paddingTop: getHeaderPaddingTop(),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

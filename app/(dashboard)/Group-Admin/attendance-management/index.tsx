@@ -21,6 +21,7 @@ import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface Employee {
   id: number;
@@ -301,7 +302,7 @@ export default function AdminAttendanceManagement() {
         className="pb-4"
         style={[
           styles.header,
-          { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }
+          { paddingTop: getHeaderPaddingTop() }
         ]}
       >
         <View className="flex-row items-center justify-between px-6">

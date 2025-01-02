@@ -5,6 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { StyleSheet } from 'react-native';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 // Define notification types
 interface Notification {
@@ -111,7 +112,7 @@ export default function NotificationsScreen() {
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
         style={[styles.header, { 
-          paddingTop: Platform.OS === 'ios' ? RNStatusBar.currentHeight || 44 : RNStatusBar.currentHeight || 0 
+          paddingTop: getHeaderPaddingTop() 
         }]}
       >
         <View className="px-6">

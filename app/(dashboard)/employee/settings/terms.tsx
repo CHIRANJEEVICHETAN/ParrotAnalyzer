@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
+import { getHeaderPaddingTop } from '../../../utils/statusBarHeight';
 
 interface Section {
   title: string;
@@ -90,11 +91,19 @@ export default function Terms() {
   ];
 
   return (
-    <View className="flex-1">
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#FFFFFF' }}>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
+      />
+
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
@@ -104,7 +113,7 @@ export default function Terms() {
           >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Terms & Privacy
           </Text>
           <View style={{ width: 40 }} />
@@ -216,6 +225,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   sectionCard: {
     shadowColor: '#000',

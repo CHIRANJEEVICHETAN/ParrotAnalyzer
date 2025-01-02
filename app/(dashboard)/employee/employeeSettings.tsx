@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import AuthContext from '../../context/AuthContext';
 import ThemeContext from '../../context/ThemeContext';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 interface BaseSettingItem {
   icon: keyof typeof Ionicons.glyphMap;
@@ -148,26 +149,29 @@ export default function EmployeeSettings() {
   };
 
   return (
-    <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }}>
-      <StatusBar 
-        backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
+    <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#FFFFFF' }}>
+      <StatusBar
         barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
       />
       
       <LinearGradient
         colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        className="pb-4"
-        style={[styles.headerGradient, { paddingTop: Platform.OS === 'ios' ? 44 : StatusBar.currentHeight }]}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
-        <View className="flex-row items-center justify-between px-4">
+        <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
             onPress={() => router.back()}
-            className="p-2 rounded-full"
+            className="mr-4 p-2 rounded-full"
             style={{ backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }}
           >
             <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <Text className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+          <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
             Settings
           </Text>
           <View style={{ width: 40 }} />
@@ -313,12 +317,14 @@ export default function EmployeeSettings() {
 }
 
 const styles = StyleSheet.create({
-  headerGradient: {
+  header: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   profileCard: {
     shadowColor: '#000',

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 type AboutSection = {
     title: string;
@@ -74,7 +75,7 @@ export default function About() {
             <View style={{ flex: 1, backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }}>
                 <LinearGradient
                     colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                    style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                    style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
                 >
                     <View className="px-6">
                         <View className="flex-row items-center">

@@ -6,6 +6,7 @@ import ThemeContext from '../../context/ThemeContext';
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 // Add a constant for cache duration (1 hour in milliseconds)
 const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
@@ -136,7 +137,7 @@ export default function ManagementProfile() {
         <View style={styles.container}>
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
             >
                 <View className="flex-row items-center px-6 relative">
                     <TouchableOpacity

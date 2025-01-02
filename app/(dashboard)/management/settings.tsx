@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface SettingItem {
     icon: keyof typeof Ionicons.glyphMap;
@@ -140,14 +141,15 @@ export default function ManagementSettings() {
     ];
 
     return (
-        <View className={`flex-1 paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 0, ${isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}`}>
+        <View className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}`}>
             <StatusBar
                 backgroundColor={isDark ? '#111827' : '#F9FAFB'}
                 barStyle={isDark ? 'light-content' : 'dark-content'}
+                translucent={true}
             />
 
             <View className={isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}>
-                <View className="flex-row items-center px-5 pt-4 pb-5">
+                <View className="flex-row items-center px-5 pt-4 pb-5" style={{ paddingTop: getHeaderPaddingTop() }}>
                     <TouchableOpacity
                         onPress={() => router.back()}
                         className={`w-11 h-11 rounded-full items-center justify-center shadow-sm ${

@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 type TrackingSettings = {
     enableTracking: boolean;
@@ -21,7 +22,7 @@ type TrackingItem = {
     label: string;
     description: string;
     key: keyof TrackingSettings;
-    icon: string;
+    icon: keyof typeof Ionicons.glyphMap;
     type: 'toggle';
 };
 
@@ -136,7 +137,7 @@ export default function TrackingSettings() {
             <View style={styles.container}>
                 <LinearGradient
                     colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                    style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                    style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
                 >
                     <View className="flex-row items-center justify-between px-6">
                         <View className="flex-row items-center">
@@ -193,7 +194,7 @@ export default function TrackingSettings() {
                                                     }`}
                                                 >
                                                     <Ionicons 
-                                                        name={item.icon} 
+                                                        name={item.icon as any} 
                                                         size={22} 
                                                         color={item.type === 'toggle' 
                                                             ? trackingSettings[item.key as keyof TrackingSettings] ? '#3B82F6' : (theme === 'dark' ? '#9CA3AF' : '#6B7280')
@@ -219,7 +220,7 @@ export default function TrackingSettings() {
                                                 </View>
                                                 <Switch
                                                     value={trackingSettings[item.key as keyof TrackingSettings]}
-                                                    onValueChange={(value) => handleSettingChange(item.key, value)}
+                                                    onValueChange={(value) => handleSettingChange(item.key as keyof TrackingSettings, value)}
                                                     trackColor={{ 
                                                         false: theme === 'dark' ? '#4B5563' : '#D1D5DB',
                                                         true: '#3B82F6'

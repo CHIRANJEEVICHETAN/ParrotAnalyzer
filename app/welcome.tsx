@@ -63,7 +63,7 @@ export default function Welcome() {
                     flex: 1,
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    paddingVertical: 64,
+                    paddingVertical: 100,
                     paddingHorizontal: 24,
                 }}>
                     {/* Top Section */}

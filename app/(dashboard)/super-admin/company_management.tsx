@@ -390,7 +390,7 @@ export default function CompanyManagement() {
                   </Text>
                 </View>
 
-                {company.pending_users > 0 && (
+                {/* {company.pending_users > 0 && (
                   <TouchableOpacity
                     onPress={() => router.push(`/super-admin/company/${company.id}/pending-users`)}
                     className="absolute top-2 right-20 px-2 py-1 bg-yellow-100 rounded-full"
@@ -399,7 +399,7 @@ export default function CompanyManagement() {
                       {company.pending_users} Pending
                     </Text>
                   </TouchableOpacity>
-                )}
+                )} */}
 
                 <View className="flex-row items-center justify-between mb-2">
                   <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>

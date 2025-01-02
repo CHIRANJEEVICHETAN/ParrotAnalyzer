@@ -9,6 +9,7 @@ import { Dimensions } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import { useEffect, useState } from 'react';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 export default function ManagementAnalytics() {
     const { theme } = ThemeContext.useTheme();
@@ -85,7 +86,7 @@ export default function ManagementAnalytics() {
         <View style={styles.container}>
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
             >
                 <View className="flex-row items-center justify-between px-6">
                     <View className="flex-row items-center">

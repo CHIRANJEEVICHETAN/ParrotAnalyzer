@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 export default function ChangePassword() {
   const { theme } = ThemeContext.useTheme();
@@ -78,7 +79,7 @@ export default function ChangePassword() {
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
         className="pb-4"
-        style={{ paddingTop: Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0 }}
+        style={{ paddingTop: getHeaderPaddingTop() }}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity

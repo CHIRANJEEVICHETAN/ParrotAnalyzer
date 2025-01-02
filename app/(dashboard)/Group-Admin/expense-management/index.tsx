@@ -18,6 +18,7 @@ import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
 import { format } from 'date-fns';
 import RejectModal from '../components/RejectModal';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface ExpenseDetail {
   id: number;
@@ -241,12 +242,13 @@ export default function ExpenseManagement() {
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent={true}
       />
 
       {/* Header */}
       <View 
         className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
-        style={styles.header}
+        style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
       >
         <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
           <TouchableOpacity

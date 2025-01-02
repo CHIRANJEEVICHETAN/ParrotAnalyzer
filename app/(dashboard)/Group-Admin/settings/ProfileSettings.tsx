@@ -22,6 +22,7 @@ import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface ProfileData {
   id: string;
@@ -246,6 +247,7 @@ export default function ProfileSettings() {
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent={true}
       />
 
       {/* Header */}
@@ -450,6 +452,7 @@ export default function ProfileSettings() {
 
 const styles = StyleSheet.create({
   header: {
+    paddingTop: getHeaderPaddingTop(),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

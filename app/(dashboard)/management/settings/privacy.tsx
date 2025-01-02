@@ -5,6 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 const PrivacySettings = () => {
   const router = useRouter();
@@ -100,7 +101,7 @@ const PrivacySettings = () => {
       <LinearGradient
         colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
         style={[styles.header, { 
-          paddingTop: Platform.OS === 'ios' ? RNStatusBar.currentHeight || 44 : RNStatusBar.currentHeight || 0 
+          paddingTop: getHeaderPaddingTop() 
         }]}
       >
         <View className="px-6">

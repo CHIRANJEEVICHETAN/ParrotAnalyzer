@@ -101,6 +101,7 @@ initDB()
       console.log('- /api/reports/*');
       console.log('- /api/management/*');
       console.log('- /pdf-reports/*');
+      console.log('- /api/super-admin/*');
     });
   })
   .catch(error => {

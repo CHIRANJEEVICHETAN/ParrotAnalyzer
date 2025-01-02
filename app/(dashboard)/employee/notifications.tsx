@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 import { LinearGradient } from 'expo-linear-gradient';
 import BottomNav from '../../components/BottomNav';
 import { employeeNavItems } from './utils/navigationItems';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 interface Notification {
   id: number;
@@ -140,12 +141,16 @@ export default function Notifications() {
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
       />
 
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
         className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity

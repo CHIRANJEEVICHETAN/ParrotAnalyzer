@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../context/ThemeContext';
 import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 export default function ForgotPassword() {
   const { theme } = ThemeContext.useTheme();
@@ -111,13 +112,14 @@ export default function ForgotPassword() {
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
         backgroundColor={isDark ? '#111827' : '#F9FAFB'}
+        translucent={true}
       />
 
       <LinearGradient
         colors={isDark ? ['#111827', '#1F2937'] : ['#F9FAFB', '#F3F4F6']}
         className="flex-1"
       >
-        <View className="flex-1 p-6">
+        <View className="flex-1 p-6" style={{ paddingTop: getHeaderPaddingTop() }}>
           {/* Header */}
           <View className="mb-8">
             <TouchableOpacity
@@ -323,7 +325,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1.41,
-    backdropFilter: 'blur(10px)',
   },
   inputContainer: {
     marginBottom: 16,

@@ -23,6 +23,7 @@ import TaskCard from './components/TaskCard';
 import { format } from 'date-fns';
 import BottomNav from '../../components/BottomNav';
 import { groupAdminNavItems } from './utils/navigationItems';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 interface Employee {
   id: number;
@@ -39,6 +40,7 @@ interface Task {
   priority: 'low' | 'medium' | 'high';
   status: 'pending' | 'in_progress' | 'completed';
   createdAt: string;
+  due_date: string | null;
   employee_name: string;
   employee_number: string;
   assigned_by_name: string;
@@ -50,6 +52,15 @@ interface StatusHistory {
   updatedAt: string;
   updatedBy: number;
   updatedByName?: string;
+}
+
+interface NewTask {
+  title: string;
+  description: string;
+  assignedTo: number;
+  priority: 'low' | 'medium' | 'high';
+  due_date?: string | null;
+  // ... other fields
 }
 
 export default function TaskManagement() {
@@ -71,7 +82,8 @@ export default function TaskManagement() {
     employee_number: '',
     createdAt: format(new Date(), 'yyyy-MM-dd'),
     assigned_by_name: '',
-    status_history: []
+    status_history: [],
+    due_date: null
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -81,6 +93,7 @@ export default function TaskManagement() {
   const [dateFilter, setDateFilter] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showDueDatePicker, setShowDueDatePicker] = useState(false);
 
   const fetchEmployees = async () => {
     try {
@@ -134,9 +147,18 @@ export default function TaskManagement() {
   const createTask = async () => {
     try {
       setIsLoading(true);
+      // Format the request body properly
+      const taskData = {
+        title: newTask.title,
+        description: newTask.description,
+        assignedTo: newTask.assignedTo,
+        priority: newTask.priority,
+        dueDate: newTask.due_date // Make sure this matches the backend expectation
+      };
+
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/tasks`,
-        newTask,
+        taskData,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -144,7 +166,7 @@ export default function TaskManagement() {
       
       Alert.alert('Success', 'Task created successfully');
       fetchTasks();
-      // Reset form with all required fields
+      // Reset form
       setNewTask({
         title: '',
         description: '',
@@ -155,7 +177,8 @@ export default function TaskManagement() {
         employee_number: '',
         createdAt: format(new Date(), 'yyyy-MM-dd'),
         assigned_by_name: '',
-        status_history: []
+        status_history: [],
+        due_date: null
       });
     } catch (error) {
       console.error('Error creating task:', error);
@@ -206,6 +229,16 @@ export default function TaskManagement() {
     }
   };
 
+  const handleDueDateChange = (event: any, selectedDate?: Date) => {
+    setShowDueDatePicker(Platform.OS === 'ios');
+    if (selectedDate) {
+      setNewTask(prev => ({
+        ...prev,
+        due_date: selectedDate.toISOString()
+      }));
+    }
+  };
+
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
@@ -222,6 +255,7 @@ export default function TaskManagement() {
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent={true}
       />
 
       {/* Header */}
@@ -550,6 +584,38 @@ export default function TaskManagement() {
             </Picker>
           </View>
 
+          <View className="mb-4">
+            <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              Due Date
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowDueDatePicker(true)}
+              className={`flex-row items-center justify-between p-4 rounded-lg ${
+                isDark ? 'bg-gray-700' : 'bg-gray-100'
+              }`}
+            >
+              <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                {newTask.due_date ? format(new Date(newTask.due_date), 'MMM dd, yyyy') : 'Select Due Date'}
+              </Text>
+              <Ionicons 
+                name="calendar-outline" 
+                size={20} 
+                color={isDark ? '#9CA3AF' : '#6B7280'} 
+              />
+            </TouchableOpacity>
+
+            {showDueDatePicker && (
+              <DateTimePicker
+                value={newTask.due_date ? new Date(newTask.due_date) : new Date()}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleDueDateChange}
+                minimumDate={new Date()}
+                textColor={isDark ? '#FFFFFF' : '#000000'}
+              />
+            )}
+          </View>
+
           <TouchableOpacity
             style={[styles.createButton, { opacity: isLoading ? 0.7 : 1 }]}
             onPress={createTask}
@@ -616,6 +682,7 @@ export default function TaskManagement() {
 
 const styles = StyleSheet.create({
   header: {
+    paddingTop: getHeaderPaddingTop(),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

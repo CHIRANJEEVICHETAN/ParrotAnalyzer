@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface TeamMember {
   id: string;
@@ -71,17 +72,17 @@ export default function TeamManagementScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? 'light' : 'dark'} translucent={true} />
       {/* Header */}
       <View style={[
         styles.header,
         {
           backgroundColor: isDark ? '#111827' : '#FFFFFF',
           borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-          marginTop: Platform.OS === 'ios' ? 35 : 25,
+          marginTop: getHeaderPaddingTop(),
         }
       ]}>
-        <View className="flex-row items-center px-4" style={{ paddingBottom: 8 }}>
+        <View className="flex-row items-center px-6" style={{ paddingBottom: 8 }}>
           <TouchableOpacity
             onPress={() => router.back()}
             className={`w-10 h-10 rounded-full items-center justify-center ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
@@ -214,7 +215,11 @@ export default function TeamManagementScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 20,
+    paddingTop: 5,
+    height: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
   },
   card: {

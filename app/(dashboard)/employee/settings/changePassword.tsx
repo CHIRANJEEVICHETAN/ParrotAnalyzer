@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '../../../utils/statusBarHeight';
 
 interface PasswordErrors {
   currentPassword?: string;
@@ -95,11 +96,19 @@ export default function ChangePassword() {
   };
 
   return (
-    <View className="flex-1">
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#FFFFFF' }}>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
+      />
+
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
@@ -109,7 +118,7 @@ export default function ChangePassword() {
           >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Change Password
           </Text>
           <View style={{ width: 40 }} />
@@ -253,6 +262,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   card: {
     shadowColor: '#000',

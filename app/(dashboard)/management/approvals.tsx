@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../context/ThemeContext';
 import { useState } from 'react';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 export default function ManagementApprovals() {
     const { theme } = ThemeContext.useTheme();
@@ -72,7 +73,7 @@ export default function ManagementApprovals() {
         <View style={styles.container}>
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
             >
                 <View className="flex-row items-center justify-between px-6">
                     <View className="flex-row items-center">

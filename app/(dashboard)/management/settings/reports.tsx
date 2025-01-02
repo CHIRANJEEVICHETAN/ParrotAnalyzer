@@ -8,6 +8,7 @@ import { StyleSheet } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface ReportSettings {
   reportTitle: string;
@@ -93,14 +94,14 @@ export default function ReportSettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? 'light' : 'dark'} translucent={true} />
       {/* Header */}
       <View style={[
         styles.header, 
         { 
           backgroundColor: isDark ? '#111827' : '#FFFFFF',
           borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-          marginTop: Platform.OS === 'ios' ? 35 : 25,
+          marginTop: getHeaderPaddingTop(),
         }
       ]}>
         <View className="flex-row items-center px-4" style={{ paddingBottom: 8 }}>
@@ -248,7 +249,11 @@ export default function ReportSettingsScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 20,
+    paddingTop: 5,
+    height: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
   },
   backButton: {

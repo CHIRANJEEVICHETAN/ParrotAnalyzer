@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 type SecuritySettings = {
     passwordExpiry: boolean;
@@ -147,7 +148,7 @@ export default function PrivacySecurity() {
             <View style={styles.container}>
                 <LinearGradient
                     colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                    style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                    style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
                 >
                     <View className="flex-row items-center justify-between px-6">
                         <View className="flex-row items-center">

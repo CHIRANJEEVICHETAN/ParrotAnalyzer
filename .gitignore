@@ -12,6 +12,7 @@ backend/.env
 dist/
 web-build/
 expo-env.d.ts
+.easignore
 
 # Native
 *.orig.*

@@ -203,7 +203,7 @@ export default function SignIn() {
                                         autoCapitalize="none"
                                         style={{
                                             backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6',
-                                            padding: 16,
+                                            padding: 12,
                                             borderRadius: 12,
                                             color: theme === 'dark' ? '#ffffff' : '#1F2937',
                                             borderWidth: 2,
@@ -244,7 +244,7 @@ export default function SignIn() {
                                             secureTextEntry={!showPassword}
                                             style={{
                                                 backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6',
-                                                padding: 16,
+                                                padding: 12,
                                                 paddingRight: 48,
                                                 borderRadius: 12,
                                                 color: theme === 'dark' ? '#ffffff' : '#1F2937',

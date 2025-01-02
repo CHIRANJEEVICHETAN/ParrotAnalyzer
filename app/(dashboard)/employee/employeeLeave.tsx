@@ -18,8 +18,10 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import { format } from 'date-fns';
 import Modal from 'react-native-modal';
+import { LinearGradient } from 'expo-linear-gradient';
 import axios from 'axios';
 import AuthContext from '../../context/AuthContext';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 type LeaveType = 'casual' | 'sick' | 'annual' | 'other';
 
@@ -153,37 +155,34 @@ export default function EmployeeLeave() {
   };
 
   return (
-    <View className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#FFFFFF' }}>
       <StatusBar
-        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
       />
 
-      {/* Header - Updated to match profile page exactly */}
-      <View 
-        className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
-        style={styles.header}
+      <LinearGradient
+        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
-        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+        <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
             onPress={() => router.back()}
-            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
-            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+            className="mr-4 p-2 rounded-full"
+            style={{ backgroundColor: isDark ? '#374151' : '#F3F4F6' }}
           >
-            <Ionicons 
-              name="arrow-back" 
-              size={24} 
-              color={isDark ? '#FFFFFF' : '#111827'} 
-            />
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
-            <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Request Leave
-            </Text>
-          </View>
+          <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Leave Request
+          </Text>
           <View style={{ width: 40 }} />
         </View>
-      </View>
+      </LinearGradient>
 
       <ScrollView className="flex-1 p-4">
         {/* Leave Balance Card */}
@@ -419,5 +418,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   }
 });

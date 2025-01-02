@@ -20,6 +20,7 @@ import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface ProfileErrors {
   name?: string;
@@ -224,13 +225,13 @@ export default function ManagementProfileSettings() {
       <RNStatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
-        translucent
+        translucent={true}
       />
       <View 
         className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
         style={[
           styles.header,
-          { marginTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight }
+          { marginTop: getHeaderPaddingTop() }
         ]}
       >
         <View className="flex-row items-center justify-between px-4 pt-3 pb-4" 

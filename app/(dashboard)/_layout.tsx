@@ -14,27 +14,7 @@ export default function DashboardLayout() {
         animation: 'fade'
       }}
     >
-      <Stack.Screen 
-        name="index" 
-        options={{ headerShown: false }} 
-      />
-      <Stack.Screen 
-        name="employee" 
-        options={{ headerShown: false }} 
-      />
-      <Stack.Screen 
-        name="Group-Admin" 
-        options={{ headerShown: false }} 
-      />
-      <Stack.Screen 
-        name="management" 
-        options={{ headerShown: false }} 
-      />
-      <Stack.Screen 
-        name="super-admin" 
-        options={{ headerShown: false }} 
-      />
-      
+      {/* Remove explicit route definitions - let file structure handle routing */}
       <Stack.Screen 
         name="management/group-admin-management" 
         options={{

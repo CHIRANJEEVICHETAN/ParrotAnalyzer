@@ -24,6 +24,7 @@ import AuthContext from '../../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import BottomNav from '../../components/BottomNav';
 import { employeeNavItems } from './utils/navigationItems';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 interface ShiftData {
   date: string;
@@ -302,14 +303,8 @@ export default function EmployeeShiftTracker() {
     const now = new Date();
     if (!shiftStart) return;
 
-    // Update UI immediately
-    const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
+    // Show processing feedback first
     setShowModal(false);
-    setIsShiftActive(false);
-    pulseAnim.setValue(1);
-    rotateAnim.setValue(0);
-
-    // Show intermediate feedback
     setModalData({
       title: 'Ending Shift',
       message: 'Processing...',
@@ -318,54 +313,65 @@ export default function EmployeeShiftTracker() {
     });
     setShowModal(true);
 
-    // Perform API call and storage updates in background
-    InteractionManager.runAfterInteractions(async () => {
-      try {
-        const response = await axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/end`,
-          {
-            endTime: formatDateForBackend(now)  // Send ISO string with timezone
-          },
-          {
-            headers: { Authorization: `Bearer ${token}` }
-          }
-        );
+    try {
+      // Make the API call first
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/end`,
+        {
+          endTime: formatDateForBackend(now)
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
 
-        const newShiftData: ShiftData = {
-          date: format(shiftStart, 'yyyy-MM-dd'),
-          startTime: format(shiftStart, 'HH:mm:ss'),
-          endTime: format(now, 'HH:mm:ss'),
-          duration,
-        };
+      // Only if API call is successful, update the UI and local storage
+      const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
+      
+      const newShiftData: ShiftData = {
+        date: format(shiftStart, 'yyyy-MM-dd'),
+        startTime: format(shiftStart, 'HH:mm:ss'),
+        endTime: format(now, 'HH:mm:ss'),
+        duration,
+      };
 
-        // Batch storage updates
-        await Promise.all([
-          AsyncStorage.setItem('shiftHistory', JSON.stringify([newShiftData, ...shiftHistory])),
-          AsyncStorage.removeItem('shiftStatus')
-        ]);
+      // Update local state
+      setIsShiftActive(false);
+      setShiftStart(null);
+      pulseAnim.setValue(1);
+      rotateAnim.setValue(0);
 
-        // Refresh shift history from backend to ensure we have latest data
-        await loadShiftHistoryFromBackend();
-        setShiftStart(null);
+      // Batch storage updates
+      await Promise.all([
+        AsyncStorage.removeItem('shiftStatus'),
+        AsyncStorage.setItem('shiftHistory', JSON.stringify([newShiftData, ...shiftHistory]))
+      ]);
 
-        // Show final success message
-        setModalData({
-          title: 'Shift Completed',
-          message: `Total Duration: ${duration}\nStart: ${format(shiftStart, 'hh:mm a')}\nEnd: ${format(now, 'hh:mm a')}`,
-          type: 'info',
-          showCancel: false
-        });
-      } catch (error: any) {
-        // Revert UI state on error
-        setIsShiftActive(true);
-        startAnimations();
-        
-        Alert.alert(
-          'Error',
-          error.response?.data?.error || 'Failed to end shift. Please try again.'
-        );
-      }
-    });
+      // Refresh shift history from backend
+      await loadShiftHistoryFromBackend();
+      await fetchRecentShifts();
+
+      // Show success message
+      setModalData({
+        title: 'Shift Completed',
+        message: `Total Duration: ${duration}\nStart: ${format(shiftStart, 'hh:mm a')}\nEnd: ${format(now, 'hh:mm a')}`,
+        type: 'success',
+        showCancel: false
+      });
+
+    } catch (error: any) {
+      console.error('Error ending shift:', error);
+      
+      // Show error message
+      Alert.alert(
+        'Error',
+        error.response?.data?.error || 'Failed to end shift. Please try again.'
+      );
+
+      // Keep shift active since the end request failed
+      setIsShiftActive(true);
+      startAnimations();
+    }
   };
 
   const handleEndShift = () => {
@@ -438,16 +444,19 @@ export default function EmployeeShiftTracker() {
   });
 
   return (
-    <View className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#FFFFFF' }}>
       <StatusBar
-        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
       />
 
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
@@ -457,7 +466,7 @@ export default function EmployeeShiftTracker() {
           >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Shift Tracker
           </Text>
           <View style={{ width: 40 }} />
@@ -656,13 +665,15 @@ export default function EmployeeShiftTracker() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   header: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   attendanceButton: {
     shadowColor: '#000',
@@ -678,4 +689,4 @@ const styles = {
     shadowRadius: 3,
     elevation: 2,
   },
-};
+});

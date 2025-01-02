@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface HelpCategory {
   id: string;
@@ -329,12 +330,13 @@ export default function HelpScreen() {
         onRequestClose={() => setSelectedArticle(null)}
       >
         <View style={{ flex: 1, backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
-          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <StatusBar style={isDark ? 'light' : 'dark'} translucent={true} />
           <View style={[
             styles.modalHeader,
             {
               backgroundColor: isDark ? '#111827' : '#FFFFFF',
               borderBottomColor: isDark ? '#374151' : '#E5E7EB',
+              paddingTop: getHeaderPaddingTop(),
             }
           ]}>
             <View className="flex-row items-center justify-between px-4">
@@ -403,7 +405,7 @@ export default function HelpScreen() {
         {
           backgroundColor: isDark ? '#111827' : '#FFFFFF',
           borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-          marginTop: Platform.OS === 'ios' ? 35 : 25,
+          marginTop: getHeaderPaddingTop(),
         }
       ]}>
         <View className="flex-row items-center px-4" style={{ paddingBottom: 8 }}>
@@ -496,7 +498,11 @@ export default function HelpScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 20,
+    paddingTop: 10,
+    height: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
   },
   card: {
@@ -515,7 +521,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   modalHeader: {
-    paddingTop: Platform.OS === 'ios' ? 60 : RNStatusBar.currentHeight || 15,
+    paddingTop: getHeaderPaddingTop(),
     paddingBottom: 12,
     borderBottomWidth: 1,
     shadowColor: '#000',

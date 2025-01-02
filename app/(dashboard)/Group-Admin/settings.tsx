@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import BottomNav from '../../components/BottomNav';
 import { groupAdminNavItems } from './utils/navigationItems';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 interface SettingsItem {
     icon: string;
@@ -127,6 +128,7 @@ export default function GroupAdminSettings() {
             <StatusBar
                 backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
                 barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+                translucent={true}
             />
 
             {/* Header */}
@@ -262,6 +264,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     header: {
+        paddingTop: getHeaderPaddingTop(),
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,

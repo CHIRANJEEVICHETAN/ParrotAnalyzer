@@ -20,6 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import BottomNav from '../../components/BottomNav';
 import { employeeNavItems } from './utils/navigationItems';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 import type { IconProps } from '@expo/vector-icons/build/createIconSet';
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -222,12 +223,19 @@ export default function Profile() {
   };
 
   return (
-    <View className="flex-1">
-      {/* Header */}
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#FFFFFF' }}>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
+      />
+
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
@@ -491,6 +499,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   card: {
     shadowColor: '#000',

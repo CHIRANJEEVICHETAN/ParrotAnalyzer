@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import ChangePasswordForm from '../components/ChangePasswordForm';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 export default function ChangePassword() {
   const { theme } = ThemeContext.useTheme();
@@ -24,6 +25,7 @@ export default function ChangePassword() {
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent={true}
       />
 
       {/* Header */}
@@ -65,6 +67,7 @@ export default function ChangePassword() {
 
 const styles = StyleSheet.create({
   header: {
+    paddingTop: getHeaderPaddingTop(),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

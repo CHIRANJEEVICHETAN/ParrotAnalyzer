@@ -8,6 +8,7 @@ import type { NavItem } from '../../types/nav';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 export default function ManagementDashboard() {
     const { theme } = ThemeContext.useTheme();
@@ -78,7 +79,7 @@ export default function ManagementDashboard() {
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']} 
                 style={styles.header as ViewStyle}
             >
-                <View className="flex-row items-center justify-between px-6" style={{ paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }}>
+                <View className="flex-row items-center justify-between px-6" style={{ paddingTop: getHeaderPaddingTop() }}>
                     <View>
                         <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}
                               style={styles.headerTitle as TextStyle}>

@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AddScheduleModal from './components/AddScheduleModal';
 import EditScheduleModal from './components/EditScheduleModal';
 import { CalendarTheme } from './types';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 // Remove the import of AddEventModal from components and define it inline
 interface AddEventModalProps {
@@ -371,17 +372,19 @@ export default function EmployeeSchedule() {
   }, [schedule, selectedDate]);
 
   return (
-    <View className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#FFFFFF' }}>
       <StatusBar
-        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
       />
 
-      {/* Updated Header with LinearGradient */}
       <LinearGradient
         colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        style={[
+          styles.header,
+          { paddingTop: getHeaderPaddingTop() }
+        ]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
@@ -391,7 +394,7 @@ export default function EmployeeSchedule() {
           >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Schedule
           </Text>
           <View style={{ width: 40 }} />
@@ -585,6 +588,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   fab: {
     shadowColor: '#000',

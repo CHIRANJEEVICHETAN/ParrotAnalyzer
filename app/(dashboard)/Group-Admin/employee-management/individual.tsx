@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 interface EmployeeFormData {
   name: string;
@@ -133,12 +134,13 @@ export default function CreateEmployee() {
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent={true}
       />
 
       {/* Header */}
       <View 
         className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
-        style={styles.header}
+        style={[styles.header, { paddingTop: getHeaderPaddingTop() }]}
       >
         <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
           <TouchableOpacity

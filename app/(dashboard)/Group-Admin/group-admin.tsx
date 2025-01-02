@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import AuthContext from '../../context/AuthContext';
 import { groupAdminNavItems } from './utils/navigationItems';
+import { getHeaderPaddingTop } from '@/utils/statusBarHeight';
 
 // Add new interface for activities
 interface RecentActivity {
@@ -129,6 +130,7 @@ export default function GroupAdminDashboard() {
             <StatusBar
                 backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
                 barStyle={isDark ? 'light-content' : 'dark-content'}
+                translucent={true}
             />
 
             {/* Header */}
@@ -361,6 +363,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     header: {
+        paddingTop: getHeaderPaddingTop(),
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,

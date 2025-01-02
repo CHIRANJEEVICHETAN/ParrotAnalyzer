@@ -23,6 +23,7 @@ import { format, differenceInSeconds, differenceInHours, differenceInMinutes } f
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Modal from 'react-native-modal';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 interface TravelDetail {
   id: number;
@@ -815,7 +816,7 @@ export default function EmployeeExpenses() {
       setIsCheckingAccess(true);
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/employee/check-shift-access`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` }}
       );
       setCanAccess(response.data.canAccess);
     } catch (error) {
@@ -827,17 +828,49 @@ export default function EmployeeExpenses() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={[
-        styles.container,
-        { backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }
-      ]}
-    >
+    <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#FFFFFF' }}>
       <StatusBar
-        backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
         barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
+        translucent={true}
       />
+
+      <View 
+        style={[
+          styles.header,
+          { 
+            backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
+            paddingTop: getHeaderPaddingTop()
+          }
+        ]}
+      >
+        <View style={styles.headerContent}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[
+              styles.backButton,
+              { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
+            ]}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+            />
+          </TouchableOpacity>
+          <Text 
+            style={[
+              styles.headerTitle,
+              { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+            ]}
+          >
+            Travel Claim Form
+          </Text>
+          <View style={{ width: 40 }}>
+            <Text> </Text>
+          </View>
+        </View>
+      </View>
 
       {isCheckingAccess ? (
         <View className="flex-1 justify-center items-center">
@@ -877,44 +910,6 @@ export default function EmployeeExpenses() {
         </View>
       ) : (
         <>
-          {/* Update header to match profile page */}
-          <View
-            style={[
-              styles.header,
-              {
-                backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
-                paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0
-              }
-            ]}
-          >
-            <View style={styles.headerContent}>
-              <TouchableOpacity
-                onPress={() => router.back()}
-                style={[
-                  styles.backButton,
-                  { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
-                ]}
-              >
-                <Ionicons
-                  name="arrow-back"
-                  size={24}
-                  color={theme === 'dark' ? '#FFFFFF' : '#000000'}
-                />
-              </TouchableOpacity>
-              <Text 
-                style={[
-                  styles.headerTitle,
-                  { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
-                ]}
-              >
-                Travel Claim Form
-              </Text>
-              <View style={{ width: 40 }}>
-                <Text> </Text>
-              </View>
-            </View>
-          </View>
-
           {/* Form Content */}
           <ScrollView style={styles.content}>
             {/* Company Details */}
@@ -1607,7 +1602,7 @@ export default function EmployeeExpenses() {
           </Modal>
         </>
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -1616,13 +1611,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'transparent',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    // paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   headerContent: {
     flexDirection: 'row',

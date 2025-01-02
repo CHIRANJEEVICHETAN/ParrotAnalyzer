@@ -23,6 +23,7 @@ import TaskReports from './reports/components/TaskReports';
 import TravelReports from './reports/components/TravelReports';
 import PerformanceReports from './reports/components/PerformanceReports';
 import LeaveReports from './reports/components/LeaveReports';
+import { getHeaderPaddingTop } from '../../utils/statusBarHeight';
 
 type ReportType = 'expense' | 'attendance' | 'task' | 'travel' | 'performance' | 'leave';
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -316,6 +317,7 @@ export default function GroupAdminReports() {
         <StatusBar
           backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
           barStyle={isDark ? 'light-content' : 'dark-content'}
+          translucent={true}
         />
 
         {/* Header */}
@@ -403,6 +405,7 @@ export default function GroupAdminReports() {
 
 const styles = StyleSheet.create({
   header: {
+    paddingTop: getHeaderPaddingTop(),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
