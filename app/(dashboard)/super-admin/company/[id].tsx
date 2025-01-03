@@ -1,9 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { 
+  View, 
+  Text, 
+  ScrollView, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ActivityIndicator, 
+  Alert,
+  Platform,
+  StatusBar as RNStatusBar 
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import axios from 'axios';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface Employee {
   id: number;
@@ -48,6 +59,7 @@ export default function CompanyDetails() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const companyId = params.id;
+  const isDark = theme === 'dark';
 
   const [hierarchy, setHierarchy] = useState<CompanyHierarchy | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,10 +89,20 @@ export default function CompanyDetails() {
     );
   };
 
+  // Add StatusBar effect
+  React.useEffect(() => {
+    if (Platform.OS === 'ios') {
+      RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+    } else {
+      RNStatusBar.setBackgroundColor(isDark ? '#1F2937' : '#FFFFFF');
+      RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+    }
+  }, [isDark]);
+
   if (loading) {
     return (
       <View className="flex-1 justify-center items-center">
-        <ActivityIndicator size="large" color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
+        <ActivityIndicator size="large" color={isDark ? '#FFFFFF' : '#000000'} />
       </View>
     );
   }
@@ -102,25 +124,52 @@ export default function CompanyDetails() {
   }
 
   return (
-    <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }}>
-      {/* Header */}
-      <View className={`p-4 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`} style={styles.header}>
-        <View className="flex-row items-center">
-          <TouchableOpacity onPress={() => router.back()} className="mr-4">
-            <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
+    <View className="flex-1" style={styles.container}>
+      <RNStatusBar
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent
+      />
+
+      {/* Header with Gradient */}
+      <LinearGradient
+        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        style={[
+          styles.header,
+          { paddingTop: Platform.OS === 'ios' ? 60 : (RNStatusBar.currentHeight || 0) + 10 }
+        ]}
+      >
+        <View className="flex-row items-center px-4">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="mr-4 p-2 rounded-full"
+            style={[
+              styles.backButton,
+              { backgroundColor: isDark ? '#374151' : '#F3F4F6' }
+            ]}
+          >
+            <Ionicons 
+              name="arrow-back" 
+              size={24} 
+              color={isDark ? '#FFFFFF' : '#000000'} 
+            />
           </TouchableOpacity>
           <View>
-            <Text className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-              {hierarchy.name}
+            <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {hierarchy?.name}
             </Text>
-            <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
-              {hierarchy.email}
+            <Text className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+              {hierarchy?.email}
             </Text>
           </View>
         </View>
-      </View>
+      </LinearGradient>
 
-      <ScrollView className="flex-1 p-4">
+      <ScrollView 
+        className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 16 }}
+      >
         {/* Management Section */}
         <View className="mb-6">
           <Text className={`text-lg font-bold mb-3 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
@@ -213,12 +262,25 @@ export default function CompanyDetails() {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   header: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+  },
+  backButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   card: {
     shadowColor: '#000',

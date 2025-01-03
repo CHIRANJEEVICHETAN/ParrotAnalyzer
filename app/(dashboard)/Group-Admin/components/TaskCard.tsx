@@ -14,6 +14,7 @@ interface Task {
   priority: 'low' | 'medium' | 'high';
   status: 'pending' | 'in_progress' | 'completed';
   createdAt: string;
+  due_date: string | null;
   employee_name: string;
   employee_number: string;
   assigned_by_name: string;
@@ -77,6 +78,9 @@ export default function TaskCard({ task, isDark }: TaskCardProps) {
           </Text>
           <Text className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
             Created: {formatDate(task.createdAt)}
+          </Text>
+          <Text className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Due: {task.due_date ? format(new Date(task.due_date), 'MMM dd, yyyy') : 'Not set'}
           </Text>
         </View>
         <View className={`px-2 py-1 rounded-lg ${getPriorityColor(task.priority)}`}>

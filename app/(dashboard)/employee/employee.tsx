@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   StatusBar,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -48,6 +49,7 @@ export default function EmployeeDashboard() {
   const [activeTaskType, setActiveTaskType] = useState('All Tasks');
   const [taskPriority, setTaskPriority] = useState('Medium');
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Add new state for quick actions
@@ -185,18 +187,25 @@ export default function EmployeeDashboard() {
   // Update the fetchTasks function
   const fetchTasks = async () => {
     try {
-      const response = await axios.get<Task[]>(
+      setIsLoading(true);
+      console.log('Current user:', user);
+      console.log('Token:', token);
+      
+      const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/employee`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-      
-      // Tasks are already filtered by date on the backend
+      console.log('API Response:', response);
       setTasks(response.data);
     } catch (error) {
       console.error('Error fetching tasks:', error);
-      Alert.alert('Error', 'Failed to fetch tasks');
+      if (axios.isAxiosError(error)) {
+        console.log('Error response:', error.response?.data);
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -219,24 +228,24 @@ export default function EmployeeDashboard() {
     return () => clearTimeout(timer);
   }, []);
 
-  const updateTaskStatus = async (taskId: number, newStatus: string) => {
+  const handleUpdateTaskStatus = async (taskId: number, newStatus: string) => {
     try {
       await axios.patch(
         `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/${taskId}/status`,
         { status: newStatus },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchTasks(); // Refresh tasks
+      fetchTasks(); // Refresh tasks after update
     } catch (error) {
-      console.error('Error updating task:', error);
+      console.error('Error updating task status:', error);
       Alert.alert('Error', 'Failed to update task status');
     }
   };
 
+  // Filter tasks based on activeTaskType
   const filteredTasks = tasks.filter(task => 
-    activeTaskType === 'All Tasks' || task.status.toLowerCase() === activeTaskType.toLowerCase()
+    activeTaskType === 'All Tasks' || 
+    task.status.replace('_', ' ').toLowerCase() === activeTaskType.toLowerCase()
   );
 
   useEffect(() => {
@@ -245,12 +254,9 @@ export default function EmployeeDashboard() {
 
   // Add this function to handle refresh
   const handleRefresh = async () => {
+    setIsRefreshing(true);
     try {
-      setIsRefreshing(true);
       await fetchTasks();
-    } catch (error) {
-      console.error('Error refreshing tasks:', error);
-      Alert.alert('Error', 'Failed to refresh tasks');
     } finally {
       setIsRefreshing(false);
     }
@@ -268,7 +274,10 @@ export default function EmployeeDashboard() {
         />
 
         {/* Header */}
-        <View style={[styles.header, { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }]}>
+        <View style={[
+          styles.header,
+          { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+        ]}>
           <TouchableOpacity onPress={() => router.replace('/(dashboard)/employee/employee')}>
             <Image
               source={require('./../../../assets/images/icon.png')}
@@ -294,7 +303,17 @@ export default function EmployeeDashboard() {
         </View>
 
         {/* Main Content */}
-        <ScrollView style={styles.content}>
+        <ScrollView
+          style={styles.content}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[theme === 'dark' ? '#60A5FA' : '#3B82F6']} // Blue color for refresh spinner
+              tintColor={theme === 'dark' ? '#60A5FA' : '#3B82F6'}
+            />
+          }
+        >
           {/* Quick Actions Grid */}
           <View style={styles.quickActionsGrid}>
             {quickActions.map((action) => (
@@ -409,11 +428,11 @@ export default function EmployeeDashboard() {
               <TaskList
                 tasks={tasks}
                 isDark={theme === 'dark'}
-                onUpdateStatus={updateTaskStatus}
+                onUpdateStatus={handleUpdateTaskStatus}
                 activeTaskType={activeTaskType}
                 onChangeTaskType={setActiveTaskType}
                 onRefresh={handleRefresh}
-                isRefreshing={isRefreshing}
+                refreshing={isRefreshing}
               />
             </View>
           </View>
@@ -432,11 +451,10 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },

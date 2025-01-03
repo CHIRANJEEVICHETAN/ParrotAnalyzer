@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, StyleSheet, Platform, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, StyleSheet, Platform, StatusBar as RNStatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../context/ThemeContext';
@@ -25,6 +25,15 @@ export default function ManagementSettings() {
     const { logout } = AuthContext.useAuth();
     const router = useRouter();
     const isDark = theme === 'dark';
+
+    React.useEffect(() => {
+        if (Platform.OS === 'ios') {
+            RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+        } else {
+            RNStatusBar.setBackgroundColor(isDark ? '#111827' : '#F9FAFB');
+            RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+        }
+    }, [isDark]);
 
     // Handle theme toggle with AsyncStorage persistence
     const handleThemeToggle = async () => {
@@ -140,13 +149,20 @@ export default function ManagementSettings() {
     ];
 
     return (
-        <View className={`flex-1 paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 0, ${isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}`}>
-            <StatusBar
+        <View 
+            className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}`}
+            style={styles.container}
+        >
+            <RNStatusBar
                 backgroundColor={isDark ? '#111827' : '#F9FAFB'}
                 barStyle={isDark ? 'light-content' : 'dark-content'}
+                translucent
             />
 
-            <View className={isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}>
+            <View 
+                className={isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}
+                style={styles.header}
+            >
                 <View className="flex-row items-center px-5 pt-4 pb-5">
                     <TouchableOpacity
                         onPress={() => router.back()}
@@ -263,6 +279,17 @@ export default function ManagementSettings() {
 }
 
 const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        paddingTop: Platform.OS === 'ios' ? 50 : RNStatusBar.currentHeight || 0,
+    },
+    header: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 3,
+    },
     scrollView: {
         flex: 1,
     }

@@ -17,14 +17,27 @@ router.post('/', verifyToken, adminMiddleware, async (req: CustomRequest, res: R
       dueDate 
     } = req.body;
 
+    // Format the due date properly
+    const formattedDueDate = dueDate ? new Date(dueDate).toISOString() : null;
+
+    console.log('Creating task with data:', {
+      title,
+      description,
+      assignedTo,
+      assignedBy: req.user?.id,
+      priority,
+      dueDate: formattedDueDate
+    });
+
     const result = await client.query(
       `INSERT INTO employee_tasks (
         title, description, assigned_to, assigned_by, priority, due_date
       ) VALUES ($1, $2, $3, $4, $5, $6) 
       RETURNING *`,
-      [title, description, assignedTo, req.user?.id, priority, dueDate]
+      [title, description, assignedTo, req.user?.id, priority, formattedDueDate]
     );
 
+    console.log('Created task:', result.rows[0]);
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error creating task:', error);
@@ -85,24 +98,56 @@ router.get('/employee', verifyToken, async (req: CustomRequest, res: Response) =
   try {
     // Get today's date in YYYY-MM-DD format
     const today = new Date().toISOString().split('T')[0];
+    
+    console.log('Fetching tasks for user ID:', req.user?.id);
+    console.log('Today\'s date:', today);
 
     const result = await client.query(
       `SELECT 
         t.*,
-        u.name as assigned_by_name
+        u.name as assigned_by_name,
+        TO_CHAR(t.due_date AT TIME ZONE 'UTC', 'YYYY-MM-DD') as formatted_due_date
        FROM employee_tasks t
        LEFT JOIN users u ON t.assigned_by = u.id
        WHERE t.assigned_to = $1
-       AND DATE(t.due_date) = $2
+       AND (
+         -- Include tasks with today's due_date
+         DATE(t.due_date AT TIME ZONE 'UTC') = $2::date
+         OR
+         -- Include tasks with future due_dates
+         DATE(t.due_date AT TIME ZONE 'UTC') > $2::date
+         OR
+         -- Include tasks with no due_date that were created today
+         (t.due_date IS NULL AND DATE(t.created_at AT TIME ZONE 'UTC') = $2::date)
+         OR
+         -- Include tasks with no due_date that are still pending or in_progress
+         (t.due_date IS NULL AND t.status IN ('pending', 'in_progress'))
+       )
        ORDER BY 
+         -- Show tasks with no due_date first
+         CASE WHEN t.due_date IS NULL THEN 0 ELSE 1 END,
+         -- Then by priority
          CASE t.priority
            WHEN 'high' THEN 1
            WHEN 'medium' THEN 2
            WHEN 'low' THEN 3
          END,
+         -- Then by due_date if exists
+         t.due_date ASC NULLS LAST,
+         -- Finally by creation date
          t.created_at DESC`,
       [req.user?.id, today]
     );
+
+    console.log('Found tasks:', result.rows.length);
+    console.log('Tasks:', result.rows.map(task => ({
+      id: task.id,
+      title: task.title,
+      due_date: task.due_date,
+      formatted_due_date: task.formatted_due_date,
+      created_at: task.created_at,
+      status: task.status
+    })));
 
     res.json(result.rows);
   } catch (error) {
@@ -117,20 +162,13 @@ router.get('/employee', verifyToken, async (req: CustomRequest, res: Response) =
 router.get('/admin', verifyToken, adminMiddleware, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    const result = await client.query(`
-      SELECT 
-        t.id,
-        t.title,
-        t.description,
-        t.assigned_to,
-        t.assigned_by,
-        t.priority,
-        t.status,
-        TO_CHAR(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "createdAt",
-        t.status_history,
-        u1.name as employee_name,
+    const result = await client.query(
+      `SELECT 
+        t.*,
         u1.employee_number,
-        u2.name as assigned_by_name
+        u1.name as employee_name,
+        u2.name as assigned_by_name,
+        TO_CHAR(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "createdAt"
       FROM employee_tasks t
       LEFT JOIN users u1 ON t.assigned_to = u1.id
       LEFT JOIN users u2 ON t.assigned_by = u2.id
@@ -139,7 +177,14 @@ router.get('/admin', verifyToken, adminMiddleware, async (req: CustomRequest, re
       [req.user?.id]
     );
 
-    res.json(result.rows);
+    // Format dates in the response
+    const formattedTasks = result.rows.map(task => ({
+      ...task,
+      due_date: task.due_date ? new Date(task.due_date).toISOString() : null,
+      // createdAt is already formatted by the query
+    }));
+
+    res.json(formattedTasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks' });

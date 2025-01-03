@@ -21,11 +21,11 @@ export default function SuperAdminDashboard() {
     }, [theme]);
 
     const navItems: NavItem[] = [
-        { icon: 'home-outline', label: 'Home', href: '/(dashboard)/super-admin' },
-        { icon: 'people-outline', label: 'Users', href: '/(dashboard)/super-admin/company_management' },
-        { icon: 'settings-outline', label: 'Config', href: '/(dashboard)/super-admin/system-config' },
-        { icon: 'document-outline', label: 'Reports', href: '/(dashboard)/super-admin/reports' },
-        { icon: 'shield-outline', label: 'Security', href: '/(dashboard)/super-admin/security' },
+        { icon: 'home-outline', label: 'Home', href: '/super-admin' },
+        { icon: 'people-outline', label: 'Users', href: '/super-admin/company_management' },
+        { icon: 'settings-outline', label: 'Config', href: '/super-admin/system-config' },
+        { icon: 'document-outline', label: 'Reports', href: '/super-admin/reports' },
+        { icon: 'shield-outline', label: 'Security', href: '/super-admin/security' },
     ];
 
     // Quick action items
