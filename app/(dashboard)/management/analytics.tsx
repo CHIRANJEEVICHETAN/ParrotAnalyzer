@@ -1,5 +1,5 @@
 // app/(dashboard)/management/analytics.tsx
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar as RNStatusBar, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,11 +10,17 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 
+interface ChartData {
+    datasets: { data: number[] }[];
+    labels: string[];
+}
+
 export default function ManagementAnalytics() {
     const { theme } = ThemeContext.useTheme();
     const router = useRouter();
     const { token } = useAuth();
     const screenWidth = Dimensions.get('window').width;
+    const isDark = theme === 'dark';
 
     const [analyticsData, setAnalyticsData] = useState({
         performanceData: {
@@ -56,6 +62,15 @@ export default function ManagementAnalytics() {
         fetchAnalyticsData();
     }, [token]);
 
+    useEffect(() => {
+        if (Platform.OS === 'ios') {
+            RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+        } else {
+            RNStatusBar.setBackgroundColor(isDark ? '#1F2937' : '#FFFFFF');
+            RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+        }
+    }, [isDark]);
+
     const chartConfig = {
         backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
         backgroundGradientFrom: theme === 'dark' ? '#1F2937' : '#FFFFFF',
@@ -71,11 +86,11 @@ export default function ManagementAnalytics() {
             strokeWidth: "2",
             stroke: "#3B82F6"
         },
-        formatYLabel: (value) => Math.round(Number(value)).toString(),
-        formatXLabel: (value) => value.toString()
+        formatYLabel: (value: string | number): string => Math.round(Number(value)).toString(),
+        formatXLabel: (value: string | number): string => value.toString()
     };
 
-    const isValidChartData = (data) => {
+    const isValidChartData = (data: ChartData): boolean => {
         return data?.datasets?.[0]?.data?.length > 0 && 
                data.labels?.length > 0 &&
                data.datasets[0].data.every(value => typeof value === 'number' && !isNaN(value));
@@ -83,20 +98,36 @@ export default function ManagementAnalytics() {
 
     return (
         <View style={styles.container}>
+            <RNStatusBar
+                backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+                barStyle={isDark ? 'light-content' : 'dark-content'}
+                translucent
+            />
+
             <LinearGradient
-                colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+                style={[
+                    styles.header,
+                    { paddingTop: Platform.OS === 'ios' ? 60 : (RNStatusBar.currentHeight || 0) + 10 }
+                ]}
             >
-                <View className="flex-row items-center justify-between px-6">
+                <View className="flex-row items-center justify-between px-4">
                     <View className="flex-row items-center">
                         <TouchableOpacity
                             onPress={() => router.back()}
                             className="mr-4 p-2 rounded-full"
-                            style={[styles.backButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
+                            style={[
+                                styles.backButton, 
+                                { backgroundColor: isDark ? '#374151' : '#F3F4F6' }
+                            ]}
                         >
-                            <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
+                            <Ionicons 
+                                name="arrow-back" 
+                                size={24} 
+                                color={isDark ? '#FFFFFF' : '#000000'} 
+                            />
                         </TouchableOpacity>
-                        <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                        <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             Analytics
                         </Text>
                     </View>
@@ -146,6 +177,7 @@ export default function ManagementAnalytics() {
                             data={analyticsData.attendanceData}
                             width={screenWidth - 40}
                             height={220}
+                            yAxisLabel=""
                             chartConfig={chartConfig}
                             style={styles.chart}
                             fromZero
@@ -200,6 +232,7 @@ export default function ManagementAnalytics() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: 'transparent',
     },
     header: {
         shadowColor: '#000',
@@ -208,6 +241,7 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 3,
         paddingBottom: 16,
+        paddingHorizontal: 16,
     },
     backButton: {
         shadowColor: '#000',

@@ -63,9 +63,9 @@ export default function EmployeeShiftTracker() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [shiftHistory, setShiftHistory] = useState<ShiftData[]>([]);
   const [showModal, setShowModal] = useState(false);
-  const [modalData, setModalData] = useState<{ 
-    title: string; 
-    message: string; 
+  const [modalData, setModalData] = useState<{
+    title: string;
+    message: string;
     type: 'success' | 'info';
     showCancel?: boolean;
   }>({
@@ -164,7 +164,7 @@ export default function EmployeeShiftTracker() {
             date: format(startTime, 'yyyy-MM-dd'),
             startTime: format(startTime, 'HH:mm:ss'),
             endTime: endTime ? format(endTime, 'HH:mm:ss') : null,
-            duration: shift.total_hours 
+            duration: shift.total_hours
               ? formatElapsedTime(parseFloat(shift.total_hours.toString()) * 3600)
               : null,
           };
@@ -240,7 +240,7 @@ export default function EmployeeShiftTracker() {
   // Optimize shift start
   const handleStartShift = async () => {
     const now = new Date();
-    
+
     // Update UI immediately
     setShiftStart(now);
     setIsShiftActive(true);
@@ -302,75 +302,76 @@ export default function EmployeeShiftTracker() {
     const now = new Date();
     if (!shiftStart) return;
 
-    // Show processing feedback first
+    // Immediately update UI state
     setShowModal(false);
+    setIsShiftActive(false);
+    setShiftStart(null);
+    pulseAnim.setValue(1);
+    rotateAnim.setValue(0);
+
+    // Calculate duration for immediate feedback
+    const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
+
+    // Show completion modal immediately
     setModalData({
-      title: 'Ending Shift',
-      message: 'Processing...',
-      type: 'info',
+      title: 'Shift Completed',
+      message: `Total Duration: ${duration}\nStart: ${format(shiftStart, 'hh:mm a')}\nEnd: ${format(now, 'hh:mm a')}`,
+      type: 'success',
       showCancel: false
     });
     setShowModal(true);
 
-    try {
-      // Make the API call first
-      const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/end`,
-        {
-          endTime: formatDateForBackend(now)
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
+    // Create new shift data
+    const newShiftData: ShiftData = {
+      date: format(shiftStart, 'yyyy-MM-dd'),
+      startTime: format(shiftStart, 'HH:mm:ss'),
+      endTime: format(now, 'HH:mm:ss'),
+      duration,
+    };
 
-      // Only if API call is successful, update the UI and local storage
-      const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
-      
-      const newShiftData: ShiftData = {
-        date: format(shiftStart, 'yyyy-MM-dd'),
-        startTime: format(shiftStart, 'HH:mm:ss'),
-        endTime: format(now, 'HH:mm:ss'),
-        duration,
-      };
+    // Perform API call and storage updates in background
+    InteractionManager.runAfterInteractions(async () => {
+      try {
+        await Promise.all([
+          // API call
+          axios.post(
+            `${process.env.EXPO_PUBLIC_API_URL}/api/employee/shift/end`,
+            {
+              endTime: formatDateForBackend(now)
+            },
+            {
+              headers: { Authorization: `Bearer ${token}` }
+            }
+          ),
+          // Storage updates
+          AsyncStorage.removeItem('shiftStatus'),
+          AsyncStorage.setItem('shiftHistory', JSON.stringify([newShiftData, ...shiftHistory]))
+        ]);
 
-      // Update local state
-      setIsShiftActive(false);
-      setShiftStart(null);
-      pulseAnim.setValue(1);
-      rotateAnim.setValue(0);
+        // Refresh data in background
+        await Promise.all([
+          loadShiftHistoryFromBackend(),
+          fetchRecentShifts()
+        ]);
 
-      // Batch storage updates
-      await Promise.all([
-        AsyncStorage.removeItem('shiftStatus'),
-        AsyncStorage.setItem('shiftHistory', JSON.stringify([newShiftData, ...shiftHistory]))
-      ]);
+      } catch (error: any) {
+        console.error('Error ending shift:', error);
+        
+        // Show error modal
+        setModalData({
+          title: 'Error',
+          message: error.response?.data?.error || 'Failed to end shift. Please try again.',
+          type: 'info',
+          showCancel: false
+        });
+        setShowModal(true);
 
-      // Refresh shift history from backend
-      await loadShiftHistoryFromBackend();
-      await fetchRecentShifts();
-
-      // Show success message
-      setModalData({
-        title: 'Shift Completed',
-        message: `Total Duration: ${duration}\nStart: ${format(shiftStart, 'hh:mm a')}\nEnd: ${format(now, 'hh:mm a')}`,
-        type: 'success',
-        showCancel: false
-      });
-
-    } catch (error: any) {
-      console.error('Error ending shift:', error);
-      
-      // Show error message
-      Alert.alert(
-        'Error',
-        error.response?.data?.error || 'Failed to end shift. Please try again.'
-      );
-
-      // Keep shift active since the end request failed
-      setIsShiftActive(true);
-      startAnimations();
-    }
+        // Revert UI state
+        setIsShiftActive(true);
+        setShiftStart(shiftStart);
+        startAnimations();
+      }
+    });
   };
 
   const handleEndShift = () => {
@@ -397,7 +398,7 @@ export default function EmployeeShiftTracker() {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-      
+
       // Process and set the recent shifts
       const formattedShifts = response.data.map((shift: RecentShift) => ({
         ...shift,
@@ -406,7 +407,7 @@ export default function EmployeeShiftTracker() {
         end_time: shift.end_time ? format(new Date(shift.end_time), 'hh:mm a') : 'Ongoing',
         duration: shift.duration ? parseFloat(shift.duration).toFixed(1) : '0.0'
       }));
-      
+
       setRecentShifts(formattedShifts);
     } catch (error) {
       console.error('Error fetching recent shifts:', error);
@@ -462,7 +463,7 @@ export default function EmployeeShiftTracker() {
           >
             <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Shift Tracker
           </Text>
           <View style={{ width: 40 }} />
@@ -485,9 +486,8 @@ export default function EmployeeShiftTracker() {
           }}>
             <TouchableOpacity
               onPress={isShiftActive ? handleEndShift : handleStartShift}
-              className={`w-40 h-40 rounded-full items-center justify-center ${
-                isShiftActive ? 'bg-red-500' : 'bg-green-500'
-              }`}
+              className={`w-40 h-40 rounded-full items-center justify-center ${isShiftActive ? 'bg-red-500' : 'bg-green-500'
+                }`}
             >
               <Animated.View style={{ transform: [{ rotate }] }}>
                 <Ionicons
@@ -525,9 +525,9 @@ export default function EmployeeShiftTracker() {
               className={`p-2 rounded-full ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
             >
               <Animated.View style={{ transform: [{ rotate: spin }] }}>
-                <Ionicons 
+                <Ionicons
                   name="refresh-outline"
-                  size={20} 
+                  size={20}
                   color={isDark ? '#9CA3AF' : '#6B7280'}
                 />
               </Animated.View>
@@ -536,8 +536,8 @@ export default function EmployeeShiftTracker() {
 
           {recentShifts.length > 0 ? (
             recentShifts.map((shift: RecentShift, index: number) => (
-              <View 
-                key={index} 
+              <View
+                key={index}
                 className={`mb-3 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
                 style={[styles.shiftCard, { borderLeftWidth: 4, borderLeftColor: '#3B82F6' }]}
               >
@@ -551,10 +551,10 @@ export default function EmployeeShiftTracker() {
                         Shift Time
                       </Text>
                       <View className="flex-row items-center">
-                        <Ionicons 
-                          name="time-outline" 
-                          size={16} 
-                          color={isDark ? '#9CA3AF' : '#6B7280'} 
+                        <Ionicons
+                          name="time-outline"
+                          size={16}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
                           style={{ marginRight: 4 }}
                         />
                         <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -567,10 +567,10 @@ export default function EmployeeShiftTracker() {
                         Duration
                       </Text>
                       <View className="flex-row items-center">
-                        <Ionicons 
-                          name="hourglass-outline" 
-                          size={16} 
-                          color={isDark ? '#9CA3AF' : '#6B7280'} 
+                        <Ionicons
+                          name="hourglass-outline"
+                          size={16}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
                           style={{ marginRight: 4 }}
                         />
                         <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -585,10 +585,10 @@ export default function EmployeeShiftTracker() {
           ) : (
             <View className={`p-8 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
               <View className="items-center">
-                <Ionicons 
-                  name="calendar-outline" 
-                  size={40} 
-                  color={isDark ? '#4B5563' : '#9CA3AF'} 
+                <Ionicons
+                  name="calendar-outline"
+                  size={40}
+                  color={isDark ? '#4B5563' : '#9CA3AF'}
                 />
                 <Text className={`text-center mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                   No recent shifts found
@@ -600,9 +600,8 @@ export default function EmployeeShiftTracker() {
 
         <TouchableOpacity
           onPress={() => router.push('/(dashboard)/employee/attendanceManagement')}
-          className={`mx-4 my-6 p-4 rounded-xl flex-row items-center justify-center ${
-            isDark ? 'bg-blue-900' : 'bg-blue-500'
-          }`}
+          className={`mx-4 my-6 p-4 rounded-xl flex-row items-center justify-center ${isDark ? 'bg-blue-900' : 'bg-blue-500'
+            }`}
           style={styles.attendanceButton}
         >
           <Ionicons name="calendar-outline" size={24} color="white" />
@@ -643,9 +642,8 @@ export default function EmployeeShiftTracker() {
                   }
                   setShowModal(false);
                 }}
-                className={`flex-1 py-3 rounded-lg ${
-                  modalData.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
-                }`}
+                className={`flex-1 py-3 rounded-lg ${modalData.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
+                  }`}
               >
                 <Text className="text-white text-center font-semibold">
                   {modalData.showCancel ? 'Confirm' : 'OK'}
@@ -661,13 +659,15 @@ export default function EmployeeShiftTracker() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   header: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   attendanceButton: {
     shadowColor: '#000',
@@ -683,4 +683,4 @@ const styles = {
     shadowRadius: 3,
     elevation: 2,
   },
-};
+});

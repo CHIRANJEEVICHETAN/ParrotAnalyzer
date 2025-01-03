@@ -1,4 +1,4 @@
-import React, { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, Image, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar as RNStatusBar, Image, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,6 +23,16 @@ export default function ManagementProfile() {
     });
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const isDark = theme === 'dark';
+
+    useEffect(() => {
+        if (Platform.OS === 'ios') {
+            RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+        } else {
+            RNStatusBar.setBackgroundColor(isDark ? '#1F2937' : '#FFFFFF');
+            RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+        }
+    }, [isDark]);
 
     useEffect(() => {
         const loadProfile = async () => {
@@ -134,9 +144,18 @@ export default function ManagementProfile() {
 
     return (
         <View style={styles.container}>
+            <RNStatusBar
+                backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+                barStyle={isDark ? 'light-content' : 'dark-content'}
+                translucent
+            />
+            
             <LinearGradient
-                colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-                style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+                colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+                style={[
+                    styles.header,
+                    { paddingTop: Platform.OS === 'ios' ? 60 : (RNStatusBar.currentHeight || 0) + 10 }
+                ]}
             >
                 <View className="flex-row items-center px-6 relative">
                     <TouchableOpacity

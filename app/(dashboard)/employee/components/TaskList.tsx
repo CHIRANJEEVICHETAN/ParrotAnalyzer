@@ -1,67 +1,82 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
+  RefreshControl,
   ScrollView,
-  Animated,
-  Easing,
+  Modal,
+  Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
+import { format } from 'date-fns';
 
 interface Task {
   id: number;
   title: string;
   description: string;
-  priority: 'low' | 'medium' | 'high';
   status: 'pending' | 'in_progress' | 'completed';
-  due_date: string;
+  priority: 'low' | 'medium' | 'high';
+  due_date: string | null;
   assigned_by_name: string;
 }
 
-interface TaskListProps {
+interface Props {
   tasks: Task[];
+  onRefresh: () => void;
+  refreshing: boolean;
   isDark: boolean;
-  onUpdateStatus: (taskId: number, newStatus: string) => void;
+  onUpdateStatus: (taskId: number, newStatus: 'pending' | 'in_progress' | 'completed') => void;
   activeTaskType: string;
   onChangeTaskType: (type: string) => void;
-  onRefresh: () => void;
-  isRefreshing?: boolean;
 }
 
 export default function TaskList({ 
   tasks, 
+  onRefresh, 
+  refreshing, 
   isDark, 
-  onUpdateStatus, 
-  activeTaskType, 
-  onChangeTaskType,
-  onRefresh,
-  isRefreshing = false 
-}: TaskListProps) {
-  const spinValue = React.useRef(new Animated.Value(0)).current;
+  onUpdateStatus,
+  activeTaskType,
+  onChangeTaskType 
+}: Props) {
+  const [selectedTask, setSelectedTask] = useState<number | null>(null);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [statusLoading, setStatusLoading] = useState<number | null>(null);
+  
+  const taskTypes = ['All Tasks', 'Pending', 'In Progress', 'Completed'];
+  const statusOptions = [
+    { value: 'pending', label: 'PENDING', icon: 'time-outline' },
+    { value: 'in_progress', label: 'IN PROGRESS', icon: 'play-outline' },
+    { value: 'completed', label: 'COMPLETED', icon: 'checkmark-circle-outline' }
+  ];
 
-  React.useEffect(() => {
-    if (isRefreshing) {
-      Animated.loop(
-        Animated.timing(spinValue, {
-          toValue: 1,
-          duration: 1000,
-          easing: Easing.linear,
-          useNativeDriver: true
-        })
-      ).start();
-    } else {
-      spinValue.setValue(0);
-    }
-  }, [isRefreshing]);
-
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg']
+  const filteredTasks = tasks.filter(task => {
+    if (activeTaskType === 'All Tasks') return true;
+    return task.status === activeTaskType.toLowerCase().replace(' ', '_');
   });
+
+  const handleStatusUpdate = async (taskId: number, newStatus: string) => {
+    setStatusLoading(taskId);
+    try {
+      await onUpdateStatus(taskId, newStatus as any);
+    } finally {
+      setStatusLoading(null);
+      setShowStatusModal(false);
+      setSelectedTask(null);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return '#F59E0B';
+      case 'in_progress': return '#3B82F6';
+      case 'completed': return '#10B981';
+      default: return '#6B7280';
+    }
+  };
 
   const getPriorityColor = (priority: string) => {
     switch (priority.toLowerCase()) {
@@ -72,257 +87,264 @@ export default function TaskList({
     }
   };
 
-  const getTaskTypeColor = (type: string, isActive: boolean) => {
-    if (isActive) {
-      return {
-        bg: '#3B82F6',
-        text: '#FFFFFF'
-      };
-    }
-    return {
-      bg: isDark ? '#374151' : '#F3F4F6',
-      text: isDark ? '#9CA3AF' : '#6B7280'
-    };
-  };
-
-  const filteredTasks = tasks.filter(task => 
-    activeTaskType === 'All Tasks' || 
-    task.status.toLowerCase().replace('_', ' ') === activeTaskType.toLowerCase()
-  );
-
-  const taskTypes = [
-    { label: 'All Tasks', value: 'All Tasks' },
-    { label: 'Pending', value: 'pending' },
-    { label: 'In Progress', value: 'in progress' },
-    { label: 'Completed', value: 'completed' }
-  ];
+  useEffect(() => {
+    console.log('Current tasks:', tasks.map(task => ({
+      id: task.id,
+      title: task.title,
+      due_date: task.due_date,
+      status: task.status
+    })));
+  }, [tasks]);
 
   return (
-    <View style={styles.container}>
-      {/* Task Type Selector and Refresh Button Row */}
-      <View style={styles.headerRow}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.taskTypeSelector}
-        >
-          {taskTypes.map((type) => (
-            <TouchableOpacity
-              key={type.label}
-              onPress={() => onChangeTaskType(type.label)}
-              style={[
-                styles.taskTypeButton,
-                { backgroundColor: getTaskTypeColor(type.label, activeTaskType === type.label).bg }
-              ]}
-            >
-              <Text style={[
-                styles.taskTypeText,
-                { color: getTaskTypeColor(type.label, activeTaskType === type.label).text }
-              ]}>
-                {type.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <TouchableOpacity
-          onPress={onRefresh}
-          disabled={isRefreshing}
-          style={[
-            styles.refreshButton,
-            { backgroundColor: isDark ? '#374151' : '#F3F4F6' }
-          ]}
-        >
-          <Animated.View style={{ transform: [{ rotate: spin }] }}>
-            <Ionicons 
-              name="refresh-outline"
-              size={20} 
-              color={isDark ? '#9CA3AF' : '#6B7280'}
-              style={styles.refreshIcon}
-            />
-          </Animated.View>
-        </TouchableOpacity>
-      </View>
-
-      {/* Task List */}
-      {filteredTasks.length === 0 ? (
-        <View style={[styles.emptyState, { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }]}>
-          <Ionicons 
-            name="calendar-outline" 
-            size={48} 
-            color={isDark ? '#4B5563' : '#9CA3AF'} 
-          />
-          <Text style={[styles.emptyText, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
-            No tasks for today
-          </Text>
-          <Text style={[styles.emptySubText, { color: isDark ? '#6B7280' : '#9CA3AF' }]}>
-            Check back later for new assignments
-          </Text>
-        </View>
-      ) : (
-        filteredTasks.map((task) => (
-          <View 
-            key={task.id}
-            style={[styles.taskCard, { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }]}
+    <View>
+      {/* Task Type Filter */}
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        className="mb-4"
+      >
+        {taskTypes.map((type) => (
+          <TouchableOpacity
+            key={type}
+            onPress={() => onChangeTaskType(type)}
+            className={`mr-2 px-4 py-2 rounded-full ${
+              activeTaskType === type 
+                ? 'bg-blue-500' 
+                : isDark ? 'bg-gray-800' : 'bg-gray-100'
+            }`}
           >
-            <View style={styles.taskHeader}>
-              <Text style={[styles.taskTitle, { color: isDark ? '#FFFFFF' : '#111827' }]}>
-                {task.title}
-              </Text>
-              <View style={[
-                styles.priorityBadge,
-                { backgroundColor: `${getPriorityColor(task.priority)}20` }
-              ]}>
-                <Text style={[styles.priorityText, { color: getPriorityColor(task.priority) }]}>
-                  {task.priority.toUpperCase()}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={[styles.taskDescription, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
-              {task.description}
+            <Text className={
+              activeTaskType === type
+                ? 'text-white font-medium'
+                : isDark ? 'text-gray-300' : 'text-gray-600'
+            }>
+              {type}
             </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-            <View style={styles.taskFooter}>
-              <View style={styles.statusContainer}>
-                <Text style={[styles.label, { color: isDark ? '#D1D5DB' : '#374151' }]}>
-                  Status:
+      <ScrollView
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']} // Blue color for refresh spinner
+            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
+            progressBackgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+          />
+        }
+      >
+        {filteredTasks.length === 0 ? (
+          <View className={`p-8 rounded-lg items-center justify-center ${
+            isDark ? 'bg-gray-800' : 'bg-white'
+          }`}>
+            <Ionicons 
+              name="calendar-outline" 
+              size={48} 
+              color={isDark ? '#4B5563' : '#9CA3AF'} 
+            />
+            <Text className={`mt-4 text-lg font-medium ${
+              isDark ? 'text-gray-400' : 'text-gray-500'
+            }`}>
+              No tasks available
+            </Text>
+          </View>
+        ) : (
+          filteredTasks.map((task) => (
+            <View 
+              key={task.id}
+              style={[
+                styles.taskCard,
+                { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
+              ]}
+              className="mb-4 p-4 rounded-xl"
+            >
+              <View style={styles.taskContent}>
+                <Text className={`text-lg font-semibold mb-2 ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                  {task.title}
                 </Text>
-                <Picker
-                  selectedValue={task.status}
-                  onValueChange={(value) => onUpdateStatus(task.id, value)}
-                  style={[styles.statusPicker, { color: isDark ? '#FFFFFF' : '#111827' }]}
+                <Text className={`mb-2 ${
+                  isDark ? 'text-gray-400' : 'text-gray-600'
+                }`}>
+                  {task.description}
+                </Text>
+
+                <Text className={`text-sm mb-3 ${
+                  isDark ? 'text-gray-400' : 'text-gray-600'
+                }`}>
+                  Due: {task.due_date ? format(new Date(task.due_date), 'MMM dd, yyyy') : 'Not set'}
+                </Text>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedTask(task.id);
+                    setShowStatusModal(true);
+                  }}
+                  className="flex-row items-center self-end"
+                  style={[
+                    styles.statusButton,
+                    { backgroundColor: `${getStatusColor(task.status)}20` }
+                  ]}
+                  disabled={statusLoading === task.id}
                 >
-                  <Picker.Item label="Pending" value="pending" />
-                  <Picker.Item label="In Progress" value="in_progress" />
-                  <Picker.Item label="Completed" value="completed" />
-                </Picker>
+                  {statusLoading === task.id ? (
+                    <ActivityIndicator 
+                      size="small" 
+                      color={getStatusColor(task.status)} 
+                      style={{ marginRight: 8 }}
+                    />
+                  ) : (
+                    <Ionicons
+                      name={statusOptions.find(s => s.value === task.status)?.icon as any}
+                      size={20}
+                      color={getStatusColor(task.status)}
+                    />
+                  )}
+                  <Text style={[
+                    styles.statusText,
+                    { color: getStatusColor(task.status) }
+                  ]}>
+                    {task.status.replace('_', ' ').toUpperCase()}
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={20}
+                    color={getStatusColor(task.status)}
+                    style={{ marginLeft: 8 }}
+                  />
+                </TouchableOpacity>
+
+                <View className="flex-row justify-between items-center mt-3">
+                  <Text className={`text-sm ${
+                    isDark ? 'text-gray-400' : 'text-gray-600'
+                  }`}>
+                    By: {task.assigned_by_name}
+                  </Text>
+                  <View style={[
+                    styles.priorityBadge,
+                    { backgroundColor: `${getPriorityColor(task.priority)}20` }
+                  ]}>
+                    <Text style={{ color: getPriorityColor(task.priority) }}>
+                      {task.priority.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
+          ))
+        )}
+      </ScrollView>
 
-            <View style={[
-              styles.assignedByContainer,
-              { borderTopColor: isDark ? '#374151' : '#E5E7EB' }
-            ]}>
-              <Text style={[styles.assignedBy, { color: isDark ? '#D1D5DB' : '#374151' }]}>
-                Assigned by: {task.assigned_by_name}
-              </Text>
-            </View>
+      {/* Status Update Modal */}
+      <Modal
+        visible={showStatusModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowStatusModal(false)}
+      >
+        <Pressable 
+          style={styles.modalOverlay}
+          onPress={() => setShowStatusModal(false)}
+        >
+          <View style={[
+            styles.modalContent,
+            { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' }
+          ]}>
+            {statusOptions.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                onPress={() => handleStatusUpdate(selectedTask!, option.value)}
+                style={[
+                  styles.statusOption,
+                  { borderBottomColor: isDark ? '#374151' : '#E5E7EB' }
+                ]}
+              >
+                <Ionicons
+                  name={option.icon as any}
+                  size={24}
+                  color={getStatusColor(option.value)}
+                />
+                <Text style={[
+                  styles.statusOptionText,
+                  { color: isDark ? '#FFFFFF' : '#111827' }
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
-        ))
-      )}
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  taskTypeSelector: {
-    flexDirection: 'row',
-    paddingVertical: 8,
-  },
-  taskTypeButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-  },
-  taskTypeText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
   taskCard: {
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { 
+      width: 2,
+      height: 2
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+    backgroundColor: 'transparent',
+    margin: 1,
   },
-  taskHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  taskTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+  taskContent: {
     flex: 1,
-    marginRight: 12,
+  },
+  statusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignSelf: 'flex-end',
+    maxWidth: '50%',
+  },
+  statusText: {
+    marginLeft: 8,
+    fontWeight: '500',
+    fontSize: 12,
   },
   priorityBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  priorityText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  taskDescription: {
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  taskFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  label: {
-    fontSize: 14,
-    marginRight: 8,
-  },
-  statusPicker: {
-    width: 150,
-  },
-  assignedByContainer: {
-    marginTop: 4,
-    paddingTop: 8,
-    borderTopWidth: 1,
-  },
-  assignedBy: {
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  emptyState: {
-    padding: 32,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 12,
-    alignItems: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
-    marginTop: 16,
+    alignItems: 'center',
   },
-  emptyText: {
-    fontSize: 16,
-    marginTop: 8,
+  modalContent: {
+    width: '60%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'absolute',
+    right: 20,
+    top: '40%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  emptySubText: {
-    fontSize: 14,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  headerRow: {
+  statusOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingRight: 8,
+    padding: 12,
+    borderBottomWidth: 1,
   },
-  refreshButton: {
-    padding: 8,
-    borderRadius: 20,
-    marginLeft: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  refreshIcon: {
-    opacity: 0.8,
+  statusOptionText: {
+    marginLeft: 12,
+    fontWeight: '500',
   },
 }); 

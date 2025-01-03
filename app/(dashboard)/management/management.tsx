@@ -8,6 +8,21 @@ import type { NavItem } from '../../types/nav';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
+import { StatusBar as RNStatusBar } from 'react-native';
+
+interface Activity {
+    title: string;
+    type: 'expense' | string;
+    description: {
+        employee_name?: string;
+        amount?: string;
+        department?: string;
+        group_admin?: string;
+        status?: string;
+        name?: string;
+    };
+    time: string;
+}
 
 export default function ManagementDashboard() {
     const { theme } = ThemeContext.useTheme();
@@ -17,7 +32,7 @@ export default function ManagementDashboard() {
     const [dashboardData, setDashboardData] = useState({
         totalTeams: 0,
         userLimit: 0,
-        recentActivities: [],
+        recentActivities: [] as Activity[],
         analytics: {
             teamPerformance: { value: 0, trend: '0%' },
             attendanceRate: { value: 0, trend: '0%' },
@@ -41,9 +56,9 @@ export default function ManagementDashboard() {
                 setDashboardData(response.data);
             } catch (error) {
                 console.error('Error details:', {
-                    message: error.message,
-                    response: error.response?.data,
-                    status: error.response?.status
+                    message: (error as Error).message,
+                    response: (error as any).response?.data,
+                    status: (error as any).response?.status
                 });
                 setDashboardData({
                     totalTeams: 0,
@@ -64,19 +79,37 @@ export default function ManagementDashboard() {
         fetchDashboardData();
     }, [token]);
 
+    useEffect(() => {
+        if (Platform.OS === 'ios') {
+            RNStatusBar.setBarStyle(theme === 'dark' ? 'light-content' : 'dark-content');
+        } else {
+            RNStatusBar.setBackgroundColor(theme === 'dark' ? '#1F2937' : '#FFFFFF');
+            RNStatusBar.setBarStyle(theme === 'dark' ? 'light-content' : 'dark-content');
+        }
+    }, [theme]);
+
     const navItems: NavItem[] = [
-        { icon: 'home-outline', label: 'Home', href: '/(dashboard)/management' },
-        { icon: 'analytics-outline', label: 'Analytics', href: '/(dashboard)/management/analytics' },
+        { icon: 'home-outline', label: 'Home', href: '/management' },
+        { icon: 'analytics-outline', label: 'Analytics', href: '/management/analytics' },
         // { icon: 'checkmark-circle-outline', label: 'Approvals', href: '/(dashboard)/management/approvals' },
-        { icon: 'people-circle-outline', label: 'Group Admins', href: 'management/group-admin-management' },
-        { icon: 'person-outline', label: 'Profile', href: '/(dashboard)/management/profile' },
+        { icon: 'people-circle-outline', label: 'Group Admins', href: '/management/group-admin-management' },
+        { icon: 'person-outline', label: 'Profile', href: '/management/profile' },
     ];
     return (
         <View className="flex-1" style={styles.container as ViewStyle}>
+            <StatusBar
+                backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
+                barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+                translucent
+            />
+
             {/* Enhanced Header with Gradient */}
             <LinearGradient
                 colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']} 
-                style={styles.header as ViewStyle}
+                style={[
+                    styles.header,
+                    { paddingTop: Platform.OS === 'ios' ? 50 : RNStatusBar.currentHeight ?? 0 }
+                ] as unknown as ViewStyle}
             >
                 <View className="flex-row items-center justify-between px-6" style={{ paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }}>
                     <View>
@@ -120,13 +153,15 @@ export default function ManagementDashboard() {
                                     label: 'Total Teams', 
                                     value: dashboardData.totalTeams.toString(), 
                                     icon: 'people', 
-                                    trend: '+2' 
+                                    trend: '+2',
+                                    onPress: () => {}
                                 },
                                 { 
                                     label: 'Total Users Allowed', 
                                     value: dashboardData.userLimit.toString(), 
                                     icon: 'people-circle', 
-                                    trend: null 
+                                    trend: null,
+                                    onPress: () => {}
                                 }
                             ].map((metric) => (
                                 <TouchableOpacity
@@ -302,7 +337,7 @@ export default function ManagementDashboard() {
                                                                 description.status === 'approved' ? 'text-green-500' :
                                                                 'text-red-500'
                                                             }`}>
-                                                                {description.status.toUpperCase()}
+                                                                {description.status?.toUpperCase() ?? 'UNKNOWN'}
                                                             </Text>
                                                         </View>
                                                     ) : (
@@ -483,6 +518,7 @@ export default function ManagementDashboard() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: 'transparent',
     },
     header: {
         shadowColor: '#000',
@@ -491,6 +527,7 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 3,
         paddingBottom: 16,
+        paddingHorizontal: 16,
     },
     headerTitle: {
         fontSize: 28,

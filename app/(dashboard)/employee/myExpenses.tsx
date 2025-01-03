@@ -327,6 +327,7 @@ export default function MyExpenses() {
         ) : (
           filteredExpenses.map((expense, index) => (
             <View
+            key={expense.id}
               style={[
                 styles.expenseCard,
                 { backgroundColor: isDark ? '#1F2937' : '#FFFFFF' },

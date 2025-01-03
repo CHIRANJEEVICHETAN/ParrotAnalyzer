@@ -4,7 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../../context/ThemeContext';
 import { StyleSheet } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface TeamMember {
   id: string;
@@ -69,18 +69,30 @@ export default function TeamManagementScreen() {
     );
   };
 
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+    } else {
+      RNStatusBar.setBackgroundColor(isDark ? '#1F2937' : '#FFFFFF');
+      RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+    }
+  }, [isDark]);
+
   return (
     <View style={{ flex: 1, backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <RNStatusBar
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent
+      />
       {/* Header */}
-      <View style={[
-        styles.header,
-        {
-          backgroundColor: isDark ? '#111827' : '#FFFFFF',
-          borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-          marginTop: Platform.OS === 'ios' ? 35 : 25,
-        }
-      ]}>
+      <LinearGradient
+        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        style={[
+          styles.header,
+          { paddingTop: Platform.OS === 'ios' ? 60 : (RNStatusBar.currentHeight || 0) + 10 }
+        ]}
+      >
         <View className="flex-row items-center px-4" style={{ paddingBottom: 8 }}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -92,7 +104,7 @@ export default function TeamManagementScreen() {
             Team Management
           </Text>
         </View>
-      </View>
+      </LinearGradient>
 
       {/* Search and Filter */}
       <View className="px-4 py-3">
@@ -214,8 +226,12 @@ export default function TeamManagementScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 20,
-    borderBottomWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+    paddingBottom: 16,
   },
   card: {
     shadowColor: '#000',

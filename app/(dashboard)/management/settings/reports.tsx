@@ -7,7 +7,6 @@ import ThemeContext from '../../../context/ThemeContext';
 import { StyleSheet } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StatusBar } from 'expo-status-bar';
 
 interface ReportSettings {
   reportTitle: string;
@@ -49,6 +48,15 @@ export default function ReportSettingsScreen() {
   useEffect(() => {
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+    } else {
+      RNStatusBar.setBackgroundColor(isDark ? '#1F2937' : '#FFFFFF');
+      RNStatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
+    }
+  }, [isDark]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -93,16 +101,19 @@ export default function ReportSettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <RNStatusBar
+        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent
+      />
       {/* Header */}
-      <View style={[
-        styles.header, 
-        { 
-          backgroundColor: isDark ? '#111827' : '#FFFFFF',
-          borderBottomColor: isDark ? '#374151' : '#E5E7EB',
-          marginTop: Platform.OS === 'ios' ? 35 : 25,
-        }
-      ]}>
+      <LinearGradient
+        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        style={[
+          styles.header,
+          { paddingTop: Platform.OS === 'ios' ? 60 : (RNStatusBar.currentHeight || 0) + 10 }
+        ]}
+      >
         <View className="flex-row items-center px-4" style={{ paddingBottom: 8 }}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -114,7 +125,7 @@ export default function ReportSettingsScreen() {
             Report Settings
           </Text>
         </View>
-      </View>
+      </LinearGradient>
 
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Basic Settings */}
@@ -248,8 +259,12 @@ export default function ReportSettingsScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingTop: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 20,
-    borderBottomWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+    paddingBottom: 16,
   },
   backButton: {
     shadowColor: '#000',
