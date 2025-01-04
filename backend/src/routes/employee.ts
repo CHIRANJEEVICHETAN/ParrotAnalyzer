@@ -276,8 +276,8 @@ router.get('/shifts/recent', verifyToken, async (req: CustomRequest, res: Respon
     const result = await client.query(
       `SELECT 
         id,
-        start_time,
-        end_time,
+        start_time AT TIME ZONE 'Asia/Kolkata' as start_time,
+        end_time AT TIME ZONE 'Asia/Kolkata' as end_time,
         EXTRACT(EPOCH FROM duration)/3600 as duration,
         total_kilometers,
         total_expenses
@@ -288,7 +288,13 @@ router.get('/shifts/recent', verifyToken, async (req: CustomRequest, res: Respon
       [req.user.id]
     );
 
-    res.json(result.rows);
+    // Add timezone information to the response
+    const shiftsWithTimezone = result.rows.map(shift => ({
+      ...shift,
+      timezone: 'Asia/Kolkata'
+    }));
+
+    res.json(shiftsWithTimezone);
   } catch (error) {
     console.error('Error fetching recent shifts:', error);
     res.status(500).json({ error: 'Failed to fetch recent shifts' });

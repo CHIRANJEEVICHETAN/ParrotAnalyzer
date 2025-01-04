@@ -285,8 +285,11 @@ export default function EmployeeDashboard() {
               resizeMode="contain"
             />
           </TouchableOpacity>
-          <View>
-            <Text style={[styles.welcomeText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+          <View style={styles.headerTextContainer}>
+            <Text 
+              numberOfLines={1} 
+              style={[styles.welcomeText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}
+            >
               {greeting}, {user?.name}
             </Text>
             <Text style={[styles.subText, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
@@ -457,6 +460,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+  },
+  headerTextContainer: {
+    flex: 1,
+    marginHorizontal: 12,
   },
   logo: {
     width: 50,

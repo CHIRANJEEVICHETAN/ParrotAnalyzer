@@ -400,13 +400,20 @@ export default function EmployeeShiftTracker() {
       );
 
       // Process and set the recent shifts
-      const formattedShifts = response.data.map((shift: RecentShift) => ({
-        ...shift,
-        date: format(new Date(shift.start_time), 'yyyy-MM-dd'),
-        start_time: format(new Date(shift.start_time), 'hh:mm a'),
-        end_time: shift.end_time ? format(new Date(shift.end_time), 'hh:mm a') : 'Ongoing',
-        duration: shift.duration ? parseFloat(shift.duration).toFixed(1) : '0.0'
-      }));
+      const formattedShifts = response.data.map((shift: RecentShift) => {
+        // Since timestamps are already in IST from backend, just create Date objects
+        const startDate = new Date(shift.start_time);
+        const endDate = shift.end_time ? new Date(shift.end_time) : null;
+        
+        return {
+          ...shift,
+          date: format(startDate, 'yyyy-MM-dd'),
+          // Format times in 12-hour format
+          start_time: format(startDate, 'hh:mm a'),
+          end_time: endDate ? format(endDate, 'hh:mm a') : 'Ongoing',
+          duration: shift.duration ? parseFloat(shift.duration).toFixed(1) : '0.0'
+        };
+      });
 
       setRecentShifts(formattedShifts);
     } catch (error) {
