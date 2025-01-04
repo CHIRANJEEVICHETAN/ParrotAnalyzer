@@ -17,6 +17,26 @@ import ThemeContext from '../context/ThemeContext';
 import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
 
+interface PasswordValidation {
+  hasMinLength: boolean;
+  hasMaxLength: boolean;
+  hasUpperCase: boolean;
+  hasLowerCase: boolean;
+  hasNumber: boolean;
+  hasSpecialChar: boolean;
+}
+
+const validatePassword = (password: string): PasswordValidation => {
+  return {
+    hasMinLength: password.length >= 8,
+    hasMaxLength: password.length <= 16,
+    hasUpperCase: /[A-Z]/.test(password),
+    hasLowerCase: /[a-z]/.test(password),
+    hasNumber: /[0-9]/.test(password),
+    hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+  };
+};
+
 export default function ForgotPassword() {
   const { theme } = ThemeContext.useTheme();
   const router = useRouter();
@@ -28,6 +48,18 @@ export default function ForgotPassword() {
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordValidation, setPasswordValidation] = useState<PasswordValidation>({
+    hasMinLength: false,
+    hasMaxLength: true,
+    hasUpperCase: false,
+    hasLowerCase: false,
+    hasNumber: false,
+    hasSpecialChar: false,
+  });
+
+  const isPasswordValid = (validation: PasswordValidation): boolean => {
+    return Object.values(validation).every(value => value === true);
+  };
 
   const handleSendOTP = async () => {
     if (!email) {
@@ -79,6 +111,11 @@ export default function ForgotPassword() {
       return;
     }
 
+    if (!isPasswordValid(passwordValidation)) {
+      Alert.alert('Error', 'Password does not meet security requirements');
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       Alert.alert('Error', 'Passwords do not match');
       return;
@@ -102,6 +139,29 @@ export default function ForgotPassword() {
       setIsLoading(false);
     }
   };
+
+  const PasswordRequirements = () => (
+    <View className="mt-2 mb-4">
+      {Object.entries(passwordValidation).map(([key, isValid]) => (
+        <View key={key} className="flex-row items-center mb-1">
+          <Ionicons
+            name={isValid ? 'checkmark-circle' : 'close-circle'}
+            size={16}
+            color={isValid ? '#10B981' : '#EF4444'}
+            style={{ marginRight: 8 }}
+          />
+          <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+            {key === 'hasMinLength' && 'Minimum 8 characters'}
+            {key === 'hasMaxLength' && 'Maximum 16 characters'}
+            {key === 'hasUpperCase' && 'At least one uppercase letter'}
+            {key === 'hasLowerCase' && 'At least one lowercase letter'}
+            {key === 'hasNumber' && 'At least one number'}
+            {key === 'hasSpecialChar' && 'At least one special character'}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
 
   return (
     <KeyboardAvoidingView
@@ -241,15 +301,20 @@ export default function ForgotPassword() {
                     />
                     <TextInput
                       value={newPassword}
-                      onChangeText={setNewPassword}
+                      onChangeText={(text) => {
+                        setNewPassword(text);
+                        setPasswordValidation(validatePassword(text));
+                      }}
                       placeholder="Enter new password"
                       secureTextEntry
+                      maxLength={16}
                       className={`flex-1 ${
                         isDark ? 'text-white' : 'text-gray-900'
                       }`}
                       placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
                     />
                   </View>
+                  <PasswordRequirements />
                 </View>
 
                 <View style={styles.inputContainer}>

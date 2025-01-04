@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 import ThemeContext from './context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import AuthContext from './context/AuthContext';
-import { PDFGenerator } from './(dashboard)/Group-Admin/reports/services/PDFGenerator';
 import * as Notifications from 'expo-notifications';
 
 // Configure notification behavior
@@ -50,7 +49,6 @@ export default function SplashScreen() {
     // Initialize notifications and PDF handler
     const initializeApp = async () => {
       await requestNotificationPermissions();
-      PDFGenerator.setupNotificationHandler();
     };
 
     initializeApp();
