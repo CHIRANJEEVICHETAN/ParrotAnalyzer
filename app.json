@@ -1,17 +1,12 @@
 {
   "expo": {
     "name": "Parrot Analyzer",
-    "slug": "parrotanalyzer",
+    "slug": "parraotanalyzer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/images/SplashScreen.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
@@ -21,10 +16,7 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.loginware.parrotanalyzer",
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
+      "package": "com.loginware.parraotanalyzer"
     },
     "web": {
       "bundler": "metro",
@@ -33,6 +25,14 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
       "expo-secure-store",
       [
         "expo-image-picker",
@@ -50,9 +50,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "79d59973-d62f-49e9-98c0-daf8ef264488"
+        "projectId": "593351fc-6ce3-4e49-8d3e-f0d33c486168"
       }
     },
-    "owner": "loginwaresofttec"
+    "owner": "loginware"
   }
 }
