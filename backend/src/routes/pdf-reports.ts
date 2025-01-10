@@ -301,6 +301,26 @@ async function getAttendanceReportData(client: PoolClient, adminId: string) {
 }
 
 async function getTaskReportData(client: PoolClient, adminId: string) {
+  // Get company details first
+  const companyResult = await client.query(`
+    SELECT 
+      c.name,
+      encode(c.logo, 'base64') as logo,
+      c.address,
+      c.phone as contact
+    FROM companies c
+    JOIN users u ON u.company_id = c.id
+    WHERE u.id = $1`,
+    [adminId]
+  );
+
+  const companyInfo = companyResult.rows[0] || {
+    name: '',
+    logo: '',
+    address: '',
+    contact: ''
+  };
+
   // Get summary data
   const summaryResult = await client.query(`
     WITH task_stats AS (
@@ -378,29 +398,43 @@ async function getTaskReportData(client: PoolClient, adminId: string) {
   
   return {
     summary: {
-      totalTasks,
-      completedTasks: parseInt(summaryResult.rows[0].completed_tasks),
-      completionRate: parseFloat(summaryResult.rows[0].completion_rate),
-      overdueTasks: parseInt(summaryResult.rows[0].overdue_tasks),
-      avgCompletionTime: parseFloat(summaryResult.rows[0].avg_completion_time)
+      totalTasks: parseInt(summaryResult.rows[0]?.total_tasks || '0'),
+      completedTasks: parseInt(summaryResult.rows[0]?.completed_tasks || '0'),
+      completionRate: parseFloat(summaryResult.rows[0]?.completion_rate || '0'),
+      overdueTasks: parseInt(summaryResult.rows[0]?.overdue_tasks || '0'),
+      avgCompletionTime: summaryResult.rows[0]?.avg_completion_time !== null 
+        ? parseFloat(summaryResult.rows[0].avg_completion_time) 
+        : 0
     },
     statusBreakdown: statusResult.rows.map(row => ({
-      status: row.status,
-      count: parseInt(row.count),
-      percentage: ((parseInt(row.count) / totalTasks) * 100).toFixed(1)
+      status: row.status || 'Unknown',
+      count: parseInt(row.count || '0'),
+      percentage: totalTasks > 0 
+        ? ((parseInt(row.count || '0') / totalTasks) * 100).toFixed(1)
+        : '0.0'
     })),
     priorityBreakdown: priorityResult.rows.map(row => ({
-      priority: row.priority,
-      count: parseInt(row.count),
-      percentage: ((parseInt(row.count) / totalTasks) * 100).toFixed(1)
+      priority: row.priority || 'Unknown',
+      count: parseInt(row.count || '0'),
+      percentage: totalTasks > 0 
+        ? ((parseInt(row.count || '0') / totalTasks) * 100).toFixed(1)
+        : '0.0'
     })),
     employeePerformance: employeeResult.rows.map(row => ({
-      employeeName: row.employee_name,
-      totalTasks: parseInt(row.total_tasks),
-      completedTasks: parseInt(row.completed_tasks),
-      onTimeCompletion: parseFloat(row.on_time_completion),
-      avgCompletionTime: parseFloat(row.avg_completion_time)
-    }))
+      employeeName: row.employee_name || 'Unknown',
+      totalTasks: parseInt(row.total_tasks || '0'),
+      completedTasks: parseInt(row.completed_tasks || '0'),
+      onTimeCompletion: parseFloat(row.on_time_completion || '0'),
+      avgCompletionTime: row.avg_completion_time !== null 
+        ? parseFloat(row.avg_completion_time) 
+        : 0
+    })),
+    companyInfo: {
+      name: companyInfo.name || '',
+      logo: companyInfo.logo || '',
+      address: companyInfo.address || '',
+      contact: companyInfo.contact || ''
+    }
   };
 }
 
