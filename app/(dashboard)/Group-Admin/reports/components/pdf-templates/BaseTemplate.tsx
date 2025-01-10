@@ -19,16 +19,15 @@ export const generateBaseTemplate = ({
   date,
   content,
   theme = 'light',
-  logo = process.env.EXPO_PUBLIC_COMPANY_LOGO_URL,
   companyInfo
 }: BaseTemplateProps): string => {
   const isDark = theme === 'dark';
   
   // Use companyInfo if provided, fallback to env variables
-  const companyName = companyInfo?.name || process.env.EXPO_PUBLIC_COMPANY_NAME;
-  const companyLogo = companyInfo?.logo || logo;
-  const companyAddress = companyInfo?.address || process.env.EXPO_PUBLIC_COMPANY_ADDRESS;
-  const companyContact = companyInfo?.contact || process.env.EXPO_PUBLIC_COMPANY_CONTACT;
+  const companyName = companyInfo?.name || 'Company Name';
+  const companyLogo = companyInfo?.logo || 'Company Logo';
+  const companyAddress = companyInfo?.address || 'Company Address';
+  const companyContact = companyInfo?.contact || 'Company Contact';
 
   // Ensure we're not wrapping content that's already an HTML document
   const isContentHTML = content.trim().toLowerCase().startsWith('<!doctype html') || 
