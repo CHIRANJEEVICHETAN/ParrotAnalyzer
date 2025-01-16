@@ -3,7 +3,7 @@ name: CI/CD for Parrot Analyzer
 on:
   push:
     branches:
-      - react-native-middle-version
+      - main
     paths:
       - 'backend/**'  # Trigger only if files in the backend folder change
 
