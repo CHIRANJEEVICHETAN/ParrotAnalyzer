@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Image,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -20,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import BottomNav from '../../components/BottomNav';
 import { employeeNavItems } from './utils/navigationItems';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { IconProps } from '@expo/vector-icons/build/createIconSet';
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -96,6 +98,15 @@ const ProgressBar: React.FC<ProgressBarProps> = ({ value, maxValue, color, isDar
   );
 };
 
+const CACHE_KEYS = {
+  PROFILE_STATS: 'profile_stats',
+  PROFILE_ACTIVITIES: 'profile_activities',
+  PROFILE_IMAGE: 'profile_image',
+  LAST_FETCH: 'profile_last_fetch',
+};
+
+const CACHE_DURATION = 5 * 60 * 1000;
+
 export default function Profile() {
   const { theme } = ThemeContext.useTheme();
   const { user, token } = AuthContext.useAuth();
@@ -111,6 +122,7 @@ export default function Profile() {
   });
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const WORK_HOURS_PER_DAY = 8;
   const WORK_DAYS_PER_MONTH = 22; // Average working days in a month
@@ -124,22 +136,48 @@ export default function Profile() {
     }
   }, [user?.id]);
 
-  const fetchProfileImage = async () => {
+  const fetchProfileImage = async (forceRefresh = false) => {
     try {
+      if (!forceRefresh) {
+        const cachedImage = await AsyncStorage.getItem(CACHE_KEYS.PROFILE_IMAGE);
+        if (cachedImage) {
+          setProfileImage(cachedImage);
+          return;
+        }
+      }
+
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/users/profile-image/${user?.id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
       if (response.data.image) {
         setProfileImage(response.data.image);
+        await AsyncStorage.setItem(CACHE_KEYS.PROFILE_IMAGE, response.data.image);
       }
     } catch (error) {
       console.error('Error fetching profile image:', error);
     }
   };
 
-  const fetchProfileStats = async () => {
+  const fetchProfileStats = async (forceRefresh = false) => {
     try {
+      if (!forceRefresh) {
+        const lastFetch = await AsyncStorage.getItem(CACHE_KEYS.LAST_FETCH);
+        const cachedStats = await AsyncStorage.getItem(CACHE_KEYS.PROFILE_STATS);
+        const cachedActivities = await AsyncStorage.getItem(CACHE_KEYS.PROFILE_ACTIVITIES);
+
+        if (lastFetch && cachedStats && cachedActivities) {
+          const timeSinceLastFetch = Date.now() - parseInt(lastFetch);
+          if (timeSinceLastFetch < CACHE_DURATION) {
+            setStats(JSON.parse(cachedStats));
+            setActivities(JSON.parse(cachedActivities));
+            setIsLoading(false);
+            return;
+          }
+        }
+      }
+
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/employee/profile-stats`,
         {
@@ -147,15 +185,24 @@ export default function Profile() {
         }
       );
       
-      setStats(response.data.stats);
-      setActivities(response.data.recentActivities.map((activity: any) => ({
+      const formattedStats = response.data.stats;
+      const formattedActivities = response.data.recentActivities.map((activity: any) => ({
         type: activity.type,
         title: activity.title,
         description: activity.description,
         time: format(new Date(activity.time), 'MMM dd, yyyy'),
         icon: getActivityIcon(activity.type),
         color: getActivityColor(activity.type)
-      })));
+      }));
+
+      setStats(formattedStats);
+      setActivities(formattedActivities);
+
+      await Promise.all([
+        AsyncStorage.setItem(CACHE_KEYS.PROFILE_STATS, JSON.stringify(formattedStats)),
+        AsyncStorage.setItem(CACHE_KEYS.PROFILE_ACTIVITIES, JSON.stringify(formattedActivities)),
+        AsyncStorage.setItem(CACHE_KEYS.LAST_FETCH, Date.now().toString())
+      ]);
     } catch (error) {
       console.error('Error fetching profile stats:', error);
     } finally {
@@ -221,6 +268,20 @@ export default function Profile() {
     return role.charAt(0).toUpperCase() + role.slice(1);
   };
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        fetchProfileImage(true),
+        fetchProfileStats(true)
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   return (
     <View className="flex-1">
       {/* Header */}
@@ -247,6 +308,15 @@ export default function Profile() {
       <ScrollView 
         className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']}
+            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
+            progressBackgroundColor={isDark ? '#374151' : '#F3F4F6'}
+          />
+        }
       >
         {/* Profile Info */}
         <View className={`m-4 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`} style={styles.card}>
@@ -318,7 +388,7 @@ export default function Profile() {
         </View>
 
         {/* My Expenses Section */}
-        <View className="mx-4">
+        <View className="mx-4 mt-3">
           <TouchableOpacity
             onPress={() => router.push('/(dashboard)/employee/myExpenses')}
             style={[styles.card]}
@@ -512,3 +582,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
+
+export const clearProfileCache = async () => {
+  try {
+    const keys = Object.values(CACHE_KEYS);
+    await AsyncStorage.multiRemove(keys);
+  } catch (error) {
+    console.error('Error clearing profile cache:', error);
+  }
+};

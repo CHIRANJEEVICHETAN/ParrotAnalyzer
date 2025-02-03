@@ -11,12 +11,14 @@ import {
   StatusBar,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import ThemeContext from '../../context/ThemeContext';
 import AuthContext from '../../context/AuthContext';
 import { format, differenceInSeconds, differenceInHours, differenceInMinutes } from 'date-fns';
@@ -66,7 +68,7 @@ interface FormData {
   tollCharges: string;
   otherExpenses: string;
   advanceTaken: string;
-  supportingDocs: any[];
+  supportingDocs: DocumentFile[];
 }
 
 interface EmployeeDetails {
@@ -77,7 +79,18 @@ interface EmployeeDetails {
   company_name: string;
 }
 
+interface DocumentFile {
+  uri: string;
+  type: string;
+  name: string;
+  isImage?: boolean;
+}
+
 const EXPO_PUBLIC_API_URL = process.env.EXPO_PUBLIC_API_URL;
+
+const CACHE_KEYS = {
+  EMPLOYEE_DETAILS: 'employee_expense_details',
+};
 
 const calculateTravelTime = (startTime: string | Date, endTime: string | Date) => {
   if (!startTime || !endTime) return '--:--';
@@ -802,6 +815,147 @@ export default function EmployeeExpenses() {
     );
   };
 
+  // Add this function to load cached employee details
+  const loadCachedEmployeeDetails = async () => {
+    try {
+      const cachedDetails = await AsyncStorage.getItem(CACHE_KEYS.EMPLOYEE_DETAILS);
+      if (cachedDetails) {
+        const details = JSON.parse(cachedDetails);
+        setFormData(prev => ({
+          ...prev,
+          employeeName: details.employeeName || '',
+          employeeNumber: details.employeeNumber || '',
+          department: details.department || '',
+          designation: details.designation || '',
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading cached employee details:', error);
+    }
+  };
+
+  // Add this function to save employee details to cache
+  const saveEmployeeDetailsToCache = async (details: any) => {
+    try {
+      await AsyncStorage.setItem(CACHE_KEYS.EMPLOYEE_DETAILS, JSON.stringify(details));
+    } catch (error) {
+      console.error('Error saving employee details to cache:', error);
+    }
+  };
+
+  // Add this function to handle document upload options
+  const handleDocumentUpload = () => {
+    Alert.alert(
+      'Upload Document',
+      'Choose upload method',
+      [
+        {
+          text: 'Take Photo',
+          onPress: () => captureImage(),
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: () => pickDocument(),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // Add function to capture image using camera
+  const captureImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Camera permission is required to take photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: true,
+      });
+
+      if (!result.canceled) {
+        const newDoc: DocumentFile = {
+          uri: result.assets[0].uri,
+          type: 'image/jpeg',
+          name: `photo_${Date.now()}.jpg`,
+          isImage: true,
+        };
+
+        setFormData(prev => ({
+          ...prev,
+          supportingDocs: [...prev.supportingDocs, newDoc],
+        }));
+      }
+    } catch (error) {
+      console.error('Error capturing image:', error);
+      Alert.alert('Error', 'Failed to capture image');
+    }
+  };
+
+  // Modify the existing document pick function
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        multiple: true
+      });
+
+      if (!result.canceled) {
+        const newFiles = result.assets.map(asset => ({
+          uri: asset.uri,
+          type: asset.mimeType || 'application/octet-stream',
+          name: asset.name,
+          isImage: asset.mimeType?.startsWith('image/'),
+        }));
+
+        setFormData(prev => ({
+          ...prev,
+          supportingDocs: [...prev.supportingDocs, ...newFiles],
+        }));
+      }
+    } catch (error) {
+      console.error('Error picking document:', error);
+      Alert.alert('Error', 'Failed to pick document');
+    }
+  };
+
+  // Add function to remove document
+  const removeDocument = (index: number) => {
+    Alert.alert(
+      'Remove Document',
+      'Are you sure you want to remove this document?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            setFormData(prev => ({
+              ...prev,
+              supportingDocs: prev.supportingDocs.filter((_, i) => i !== index),
+            }));
+          },
+        },
+      ]
+    );
+  };
+
+  // Add useEffect to load cached data
+  useEffect(() => {
+    loadCachedEmployeeDetails();
+  }, []);
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1461,36 +1615,69 @@ export default function EmployeeExpenses() {
               {numberToWords(Math.abs(amountPayable))} Rupees Only
             </Text>
           </View>
+        </View>
 
-          {/* Document Upload Button */}
-          <TouchableOpacity
-            style={[styles.uploadButton, { backgroundColor: theme === 'dark' ? '#374151' : '#E5E7EB' }]}
-            onPress={handleDocumentPick}
-          >
-            <Ionicons
-              name="cloud-upload-outline"
-              size={24}
-              color={theme === 'dark' ? '#FFFFFF' : '#111827'}
-            />
-            <Text style={[styles.uploadButtonText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
-              Upload Supporting Documents
-            </Text>
-          </TouchableOpacity>
+        {/* Document Upload Section */}
+        <TouchableOpacity
+          style={[styles.uploadButton, { backgroundColor: theme === 'dark' ? '#374151' : '#E5E7EB' }]}
+          onPress={handleDocumentUpload}
+        >
+          <Ionicons
+            name="cloud-upload-outline"
+            size={24}
+            color={theme === 'dark' ? '#FFFFFF' : '#111827'}
+          />
+          <Text style={[styles.uploadButtonText, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+            Upload Supporting Documents
+          </Text>
+        </TouchableOpacity>
 
-          {/* Display uploaded files */}
-          {formData.supportingDocs.length > 0 && (
-            <View style={styles.uploadedFiles}>
-              {formData.supportingDocs.map((doc, index) => (
-                <Text
-                  key={index}
-                  style={[styles.fileName, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}
+        {/* Display uploaded files */}
+        {formData.supportingDocs.length > 0 && (
+          <View style={styles.uploadedFiles}>
+            {formData.supportingDocs.map((doc, index) => (
+              <View 
+                key={index}
+                style={[
+                  styles.uploadedFile,
+                  { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
+                ]}
+              >
+                {doc.isImage ? (
+                  <Image
+                    source={{ uri: doc.uri }}
+                    style={styles.documentThumbnail}
+                  />
+                ) : (
+                  <Ionicons
+                    name="document-outline"
+                    size={24}
+                    color={theme === 'dark' ? '#FFFFFF' : '#111827'}
+                  />
+                )}
+                <Text 
+                  style={[
+                    styles.fileName,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#111827' }
+                  ]}
+                  numberOfLines={1}
                 >
                   {doc.name}
                 </Text>
-              ))}
-            </View>
-          )}
-        </View>
+                <TouchableOpacity
+                  onPress={() => removeDocument(index)}
+                  style={styles.removeButton}
+                >
+                  <Ionicons
+                    name="close-circle"
+                    size={24}
+                    color={theme === 'dark' ? '#EF4444' : '#DC2626'}
+                  />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Submit Button */}
         <TouchableOpacity
@@ -1692,11 +1879,27 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   uploadedFiles: {
-    marginTop: 12,
+    marginTop: 10,
+  },
+  uploadedFile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    marginVertical: 5,
+    borderRadius: 8,
+  },
+  documentThumbnail: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
+    marginRight: 10,
   },
   fileName: {
-    fontSize: 14,
-    marginBottom: 4,
+    flex: 1,
+    marginRight: 10,
+  },
+  removeButton: {
+    padding: 4,
   },
   submitButton: {
     padding: 16,
