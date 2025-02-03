@@ -67,9 +67,11 @@ export default function CreateEmployee() {
       errors.password = 'Password must contain uppercase, lowercase and numbers';
     }
 
-    // Phone validation (optional)
-    if (formData.phone && !/^\+?[1-9]\d{9,11}$/.test(formData.phone)) {
-      errors.phone = 'Invalid phone number format';
+    // Phone validation
+    if (formData.phone) {
+      if (!/^\+91\d{10}$/.test(formData.phone)) {
+        errors.phone = 'Please enter a valid 10-digit number';
+      }
     }
 
     return errors;
@@ -173,7 +175,13 @@ export default function CreateEmployee() {
             { key: 'name', label: 'Full Name', placeholder: 'Enter full name' },
             { key: 'employeeNumber', label: 'Employee Number', placeholder: 'Enter employee number' },
             { key: 'email', label: 'Email Address', placeholder: 'Enter email address', keyboardType: 'email-address' },
-            { key: 'phone', label: 'Phone Number', placeholder: 'Enter phone number', keyboardType: 'phone-pad' },
+            { 
+              key: 'phone', 
+              label: 'Phone Number', 
+              placeholder: 'Enter 10 digit number', 
+              keyboardType: 'phone-pad',
+              prefix: '+91'
+            },
             { key: 'department', label: 'Department', placeholder: 'Enter department' },
             { key: 'designation', label: 'Designation', placeholder: 'Enter designation' },
             { key: 'password', label: 'Password', placeholder: 'Enter password', secure: true }
@@ -182,25 +190,53 @@ export default function CreateEmployee() {
               <Text className={`mb-2 font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                 {field.label}
               </Text>
-              <TextInput
-                value={formData[field.key as keyof EmployeeFormData] as string}
-                onChangeText={(text) => {
-                  setFormData(prev => ({ ...prev, [field.key]: text }));
-                  if (validationErrors[field.key]) {
-                    setValidationErrors(prev => ({ ...prev, [field.key]: '' }));
-                  }
-                }}
-                placeholder={field.placeholder}
-                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                className={`p-4 rounded-lg ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-50 text-gray-900'}`}
-                style={[
-                  styles.input,
-                  validationErrors[field.key] ? styles.inputError : null
-                ]}
-                secureTextEntry={field.secure}
-                keyboardType={field.keyboardType as any || 'default'}
-                autoCapitalize={field.key === 'email' ? 'none' : 'words'}
-              />
+              {field.prefix ? (
+                <View className={`flex-row items-center rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}
+                  style={[
+                    styles.input,
+                    validationErrors[field.key] ? styles.inputError : null
+                  ]}>
+                  <Text className={`pl-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {field.prefix}
+                  </Text>
+                  <TextInput
+                    value={formData[field.key].replace(/^\+91/, '')}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/\D/g, '').slice(0, 10);
+                      const formattedNumber = cleaned ? `+91${cleaned}` : '';
+                      setFormData(prev => ({ ...prev, [field.key]: formattedNumber }));
+                      if (validationErrors[field.key]) {
+                        setValidationErrors(prev => ({ ...prev, [field.key]: '' }));
+                      }
+                    }}
+                    placeholder={field.placeholder}
+                    placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                    className={`flex-1 p-4 ${isDark ? 'text-white' : 'text-gray-900'}`}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                  />
+                </View>
+              ) : (
+                <TextInput
+                  value={formData[field.key as keyof EmployeeFormData] as string}
+                  onChangeText={(text) => {
+                    setFormData(prev => ({ ...prev, [field.key]: text }));
+                    if (validationErrors[field.key]) {
+                      setValidationErrors(prev => ({ ...prev, [field.key]: '' }));
+                    }
+                  }}
+                  placeholder={field.placeholder}
+                  placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                  className={`p-4 rounded-lg ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-50 text-gray-900'}`}
+                  style={[
+                    styles.input,
+                    validationErrors[field.key] ? styles.inputError : null
+                  ]}
+                  secureTextEntry={field.secure}
+                  keyboardType={field.keyboardType as any || 'default'}
+                  autoCapitalize={field.key === 'email' ? 'none' : 'words'}
+                />
+              )}
               {validationErrors[field.key] && (
                 <Text className="mt-1 text-red-500 text-sm">
                   {validationErrors[field.key]}
