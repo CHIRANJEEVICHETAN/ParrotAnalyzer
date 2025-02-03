@@ -1112,7 +1112,7 @@ export default function EmployeeExpenses() {
             <Text style={[styles.label, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
               Total Travel Time
             </Text>
-            <Text style={[styles.calculatedValue, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+            <Text style={[styles.calculatedValue, { color: theme === 'dark' ? '#FFFFFF' : '#111827', backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}>
               {calculateTravelTime(formData.startDateTime, formData.endDateTime)}
             </Text>
           </View>
@@ -1121,7 +1121,7 @@ export default function EmployeeExpenses() {
             <Text style={[styles.label, { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }]}>
               Average Speed (KM/H)
             </Text>
-            <Text style={[styles.calculatedValue, { color: theme === 'dark' ? '#FFFFFF' : '#111827' }]}>
+            <Text style={[styles.calculatedValue, { color: theme === 'dark' ? '#FFFFFF' : '#111827', backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}>
               {calculateAverageSpeed(formData.totalKilometers, formData.startDateTime, formData.endDateTime)}
             </Text>
           </View>
