@@ -14,11 +14,20 @@ interface EmployeeFormData {
   password: string;
   department: string;
   designation: string;
-  can_submit_expenses_anytime?: boolean;
+  can_submit_expenses_anytime: boolean;
 }
 
 interface ValidationErrors {
   [key: string]: string;
+}
+
+interface Field {
+  key: keyof EmployeeFormData;
+  label: string;
+  placeholder: string;
+  keyboardType?: string;
+  prefix?: string;
+  secure?: boolean;
 }
 
 export default function CreateEmployee() {
@@ -200,7 +209,9 @@ export default function CreateEmployee() {
                     {field.prefix}
                   </Text>
                   <TextInput
-                    value={formData[field.key].replace(/^\+91/, '')}
+                    value={typeof formData[field.key as keyof EmployeeFormData] === 'string' 
+                      ? (formData[field.key as keyof EmployeeFormData] as string).replace(/^\+91/, '') 
+                      : ''}
                     onChangeText={(text) => {
                       const cleaned = text.replace(/\D/g, '').slice(0, 10);
                       const formattedNumber = cleaned ? `+91${cleaned}` : '';
@@ -218,7 +229,7 @@ export default function CreateEmployee() {
                 </View>
               ) : (
                 <TextInput
-                  value={formData[field.key as keyof EmployeeFormData] as string}
+                  value={formData[field.key as keyof EmployeeFormData]}
                   onChangeText={(text) => {
                     setFormData(prev => ({ ...prev, [field.key]: text }));
                     if (validationErrors[field.key]) {
