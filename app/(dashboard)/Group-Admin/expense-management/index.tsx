@@ -32,6 +32,13 @@ interface ExpenseDetail {
   management_approved: boolean | null;
 }
 
+interface ExpenseStats {
+  totalExpenses: number;
+  averageExpense: number;
+  pendingExpenses: number;
+  approvedExpenses: number;
+}
+
 const formatAmount = (amount: string | number | undefined): string => {
   if (amount === undefined || amount === null) return '0.00';
   const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
@@ -52,6 +59,12 @@ export default function ExpenseManagement() {
   const [selectedExpenseId, setSelectedExpenseId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState<ExpenseStats>({
+    totalExpenses: 0,
+    averageExpense: 0,
+    pendingExpenses: 0,
+    approvedExpenses: 0,
+  });
 
   const checkUserRole = async () => {
     try {
@@ -81,35 +94,53 @@ export default function ExpenseManagement() {
       );
       return;
     }
-    
+
     checkUserRole();
-    
+
     fetchExpenses();
   }, [user]);
+
+  const calculateStats = (expenseData: ExpenseDetail[]) => {
+    const approved = expenseData.filter(e => e.group_admin_approved === true);
+    const pending = expenseData.filter(e => e.group_admin_approved === null);
+    const total = expenseData.reduce((sum, expense) =>
+      sum + (typeof expense.total_amount === 'string'
+        ? parseFloat(expense.total_amount)
+        : expense.total_amount), 0
+    );
+
+    setStats({
+      totalExpenses: total,
+      averageExpense: expenseData.length ? total / expenseData.length : 0,
+      pendingExpenses: pending.length,
+      approvedExpenses: approved.length,
+    });
+  };
 
   const fetchExpenses = async () => {
     try {
       console.log('Fetching expenses with token:', token?.substring(0, 20) + '...');
-      
+
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/expenses`,
         {
-          headers: { 
+          headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           }
         }
       );
-      
+
       console.log('Expenses response:', response.data);
       setExpenses(response.data);
+      calculateStats(response.data);
     } catch (error) {
       console.error('Error fetching expenses:', {
         error,
         response: axios.isAxiosError(error) ? error.response?.data : null,
         status: axios.isAxiosError(error) ? error.response?.status : null
       });
-      
+
       if (axios.isAxiosError(error)) {
         if (error.response?.status === 403) {
           Alert.alert(
@@ -149,15 +180,15 @@ export default function ExpenseManagement() {
         { approved: true },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      setExpenses(prevExpenses => 
-        prevExpenses.map(expense => 
-          expense.id === id 
+
+      setExpenses(prevExpenses =>
+        prevExpenses.map(expense =>
+          expense.id === id
             ? { ...expense, status: 'approved', group_admin_approved: true }
             : expense
         )
       );
-      
+
       Alert.alert('Success', 'Expense approved successfully');
     } catch (error) {
       console.error('Error approving expense:', error);
@@ -179,21 +210,21 @@ export default function ExpenseManagement() {
       setActionLoading(id);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
-        { 
+        {
           approved: false,
-          comments: reason 
+          comments: reason
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      setExpenses(prevExpenses => 
-        prevExpenses.map(expense => 
-          expense.id === id 
+
+      setExpenses(prevExpenses =>
+        prevExpenses.map(expense =>
+          expense.id === id
             ? { ...expense, status: 'rejected', group_admin_approved: false }
             : expense
         )
       );
-      
+
       Alert.alert('Success', 'Expense rejected successfully');
     } catch (error) {
       console.error('Error rejecting expense:', error);
@@ -209,10 +240,10 @@ export default function ExpenseManagement() {
   };
 
   const filteredExpenses = expenses.filter(expense => {
-    const matchesSearch = 
+    const matchesSearch =
       expense.employee_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       expense.employee_number.toLowerCase().includes(searchQuery.toLowerCase());
-    
+
     switch (activeTab) {
       case 'pending':
         return matchesSearch && expense.group_admin_approved === null;
@@ -244,7 +275,7 @@ export default function ExpenseManagement() {
       />
 
       {/* Header */}
-      <View 
+      <View
         className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
         style={styles.header}
       >
@@ -254,10 +285,10 @@ export default function ExpenseManagement() {
             className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
             style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
           >
-            <Ionicons 
-              name="arrow-back" 
-              size={24} 
-              color={isDark ? '#FFFFFF' : '#111827'} 
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={isDark ? '#FFFFFF' : '#111827'}
             />
           </TouchableOpacity>
           <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
@@ -269,18 +300,17 @@ export default function ExpenseManagement() {
         </View>
       </View>
 
-      {/* Search Bar */}
-      <View className="p-4">
-        <View 
-          className={`flex-row items-center px-4 rounded-lg ${
-            isDark ? 'bg-gray-800' : 'bg-white'
-          }`}
+      {/* Search Bar - Move it closer to stats */}
+      <View className="px-4 mt-2">
+        <View
+          className={`flex-row items-center px-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'
+            }`}
           style={styles.searchBar}
         >
-          <Ionicons 
-            name="search" 
-            size={20} 
-            color={isDark ? '#9CA3AF' : '#6B7280'} 
+          <Ionicons
+            name="search"
+            size={20}
+            color={isDark ? '#9CA3AF' : '#6B7280'}
           />
           <TextInput
             placeholder="Search by employee name or number..."
@@ -292,30 +322,160 @@ export default function ExpenseManagement() {
         </View>
       </View>
 
-      {/* Tab Buttons */}
-      <View className="flex-row px-4 mb-4">
-        {['pending', 'approved', 'rejected'].map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            onPress={() => setActiveTab(tab as typeof activeTab)}
-            className={`flex-1 py-2 px-4 rounded-lg mr-2 ${
-              activeTab === tab
-                ? isDark ? 'bg-blue-600' : 'bg-blue-500'
-                : isDark ? 'bg-gray-800' : 'bg-white'
-            }`}
-            style={styles.tabButton}
-          >
-            <Text className={`text-center font-medium ${
-              activeTab === tab ? 'text-white' : isDark ? 'text-gray-300' : 'text-gray-600'
-            }`}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Stats Section */}
+      <View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="px-4"
+          contentContainerStyle={{ paddingRight: 20 }}
+        >
+          <View className="flex-row gap-4 pt-4 pb-2">
+            {/* Total Expenses */}
+            <View
+              className={`p-3 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              style={[styles.statCard, { width: 150 }]}
+            >
+              <View className="flex-row items-center justify-between mb-1">
+                <View
+                  className={`p-2 rounded-full ${isDark ? 'bg-blue-500/20' : 'bg-blue-100'}`}
+                >
+                  <Ionicons
+                    name="wallet-outline"
+                    size={18}
+                    color={isDark ? '#60A5FA' : '#3B82F6'}
+                  />
+                </View>
+                <Text className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
+                  Total
+                </Text>
+              </View>
+              <Text className={`text-xl font-bold mb-0.5 ${isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                ₹{formatAmount(stats.totalExpenses)}
+              </Text>
+              <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'
+                }`}>
+                Total Expenses
+              </Text>
+            </View>
+
+            {/* Average Expenses */}
+            <View
+              className={`p-3 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              style={[styles.statCard, { width: 150 }]}
+            >
+              <View className="flex-row items-center justify-between mb-1">
+                <View
+                  className={`p-2 rounded-full ${isDark ? 'bg-green-500/20' : 'bg-green-100'}`}
+                >
+                  <Ionicons
+                    name="trending-up-outline"
+                    size={18}
+                    color={isDark ? '#34D399' : '#10B981'}
+                  />
+                </View>
+                <Text className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
+                  Average
+                </Text>
+              </View>
+              <Text className={`text-xl font-bold mb-0.5 ${isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                ₹{formatAmount(stats.averageExpense)}
+              </Text>
+              <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'
+                }`}>
+                Average per Claim
+              </Text>
+            </View>
+
+            {/* Pending Expenses */}
+            <View
+              className={`p-3 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              style={[styles.statCard, { width: 150 }]}
+            >
+              <View className="flex-row items-center justify-between mb-1">
+                <View
+                  className={`p-2 rounded-full ${isDark ? 'bg-yellow-500/20' : 'bg-yellow-100'}`}
+                >
+                  <Ionicons
+                    name="time-outline"
+                    size={18}
+                    color={isDark ? '#FBBF24' : '#F59E0B'}
+                  />
+                </View>
+                <Text className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
+                  Pending
+                </Text>
+              </View>
+              <Text className={`text-xl font-bold mb-0.5 ${isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                {stats.pendingExpenses}
+              </Text>
+              <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'
+                }`}>
+                Pending Claims
+              </Text>
+            </View>
+
+            {/* Approved Expenses */}
+            <View
+              className={`p-3 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+              style={[styles.statCard, { width: 150 }]}
+            >
+              <View className="flex-row items-center justify-between mb-1">
+                <View
+                  className={`p-2 rounded-full ${isDark ? 'bg-purple-500/20' : 'bg-purple-100'}`}
+                >
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={18}
+                    color={isDark ? '#A78BFA' : '#8B5CF6'}
+                  />
+                </View>
+                <Text className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
+                  Approved
+                </Text>
+              </View>
+              <Text className={`text-xl font-bold mb-0.5 ${isDark ? 'text-white' : 'text-gray-900'
+                }`}>
+                {stats.approvedExpenses}
+              </Text>
+              <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'
+                }`}>
+                Approved Claims
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
+
+        {/* Tab Buttons - Adjust top margin */}
+        <View className="flex-row px-4 mt-2 mb-2">
+          {['pending', 'approved', 'rejected'].map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => setActiveTab(tab as typeof activeTab)}
+              className={`flex-1 py-2 px-4 rounded-lg mr-2 ${activeTab === tab
+                  ? isDark ? 'bg-blue-600' : 'bg-blue-500'
+                  : isDark ? 'bg-gray-800' : 'bg-white'
+                }`}
+              style={styles.tabButton}
+            >
+              <Text className={`text-center font-medium ${activeTab === tab ? 'text-white' : isDark ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {/* Expense List */}
-      <ScrollView 
+      <ScrollView
         className="flex-1 px-4"
         refreshControl={
           <RefreshControl
@@ -367,13 +527,12 @@ export default function ExpenseManagement() {
                   <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                     ₹{formatAmount(expense.total_amount)}
                   </Text>
-                  <Text className={`text-sm ${
-                    expense.status === 'approved' 
-                      ? 'text-green-500' 
+                  <Text className={`text-sm ${expense.status === 'approved'
+                      ? 'text-green-500'
                       : expense.status === 'rejected'
                         ? 'text-red-500'
                         : isDark ? 'text-gray-400' : 'text-gray-600'
-                  }`}>
+                    }`}>
                     {expense.status.toUpperCase()}
                   </Text>
                 </View>
@@ -387,9 +546,8 @@ export default function ExpenseManagement() {
                       handleApprove(expense.id);
                     }}
                     disabled={actionLoading === expense.id}
-                    className={`bg-green-500 px-4 py-2 rounded-lg mr-3 ${
-                      actionLoading === expense.id ? 'opacity-50' : ''
-                    }`}
+                    className={`bg-green-500 px-4 py-2 rounded-lg mr-3 ${actionLoading === expense.id ? 'opacity-50' : ''
+                      }`}
                     style={styles.actionButton}
                   >
                     {actionLoading === expense.id ? (
@@ -405,9 +563,8 @@ export default function ExpenseManagement() {
                       setRejectModalVisible(true);
                     }}
                     disabled={actionLoading === expense.id}
-                    className={`bg-red-500 px-4 py-2 rounded-lg ${
-                      actionLoading === expense.id ? 'opacity-50' : ''
-                    }`}
+                    className={`bg-red-500 px-4 py-2 rounded-lg ${actionLoading === expense.id ? 'opacity-50' : ''
+                      }`}
                     style={styles.actionButton}
                   >
                     {actionLoading === expense.id ? (
@@ -454,7 +611,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-    height: 50,
+    height: 45,
   },
   tabButton: {
     shadowColor: '#000',
@@ -479,5 +636,13 @@ const styles = StyleSheet.create({
     elevation: 4,
     borderWidth: 1,
     borderColor: 'transparent',
+  },
+  statCard: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    height: 100,
   },
 }); 
