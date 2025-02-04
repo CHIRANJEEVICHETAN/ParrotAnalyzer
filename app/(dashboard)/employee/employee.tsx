@@ -760,17 +760,19 @@ const styles = StyleSheet.create({
   attendanceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
   liveIndicator: {
     backgroundColor: '#10B981',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    marginLeft: 0,
   },
   liveText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 7,
     fontWeight: '600',
+    lineHeight: 10,
   },
 });
