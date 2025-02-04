@@ -14,7 +14,6 @@ interface Employee {
   email: string;
   phone: string;
   created_at: string;
-  can_submit_expenses_anytime: boolean;
 }
 
 interface LoadingToggles {
@@ -52,39 +51,6 @@ export default function EmployeeManagement() {
       setError(error.response?.data?.error || 'Failed to fetch employees');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleToggleAccess = async (employeeId: number, currentValue: boolean) => {
-    try {
-      setLoadingToggles(prev => ({ ...prev, [employeeId]: true }));
-
-      const response = await axios.patch(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin/employees/${employeeId}/access`,
-        { can_submit_expenses_anytime: !currentValue },
-        { 
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          } 
-        }
-      );
-
-      if (response.data) {
-        setEmployees(prev => prev.map(emp => 
-          emp.id === employeeId 
-            ? { ...emp, can_submit_expenses_anytime: !currentValue }
-            : emp
-        ));
-      }
-    } catch (error: any) {
-      console.error('Error updating access:', error.response?.data || error);
-      Alert.alert(
-        'Error',
-        error.response?.data?.details || 'Failed to update access permission'
-      );
-    } finally {
-      setLoadingToggles(prev => ({ ...prev, [employeeId]: false }));
     }
   };
 
@@ -288,37 +254,12 @@ export default function EmployeeManagement() {
                   )}
                 </View>
 
-                <View className="flex-row items-center">
-                  <TouchableOpacity
-                    onPress={() => handleToggleAccess(
-                      employee.id,
-                      employee.can_submit_expenses_anytime
-                    )}
-                    disabled={loadingToggles[employee.id]}
-                    className={`mr-4 p-2 rounded-lg ${
-                      employee.can_submit_expenses_anytime
-                        ? (isDark ? 'bg-green-600' : 'bg-green-500')
-                        : (isDark ? 'bg-gray-600' : 'bg-gray-400')
-                    }`}
-                  >
-                    {loadingToggles[employee.id] ? (
-                      <ActivityIndicator size="small" color="white" />
-                    ) : (
-                      <Ionicons
-                        name={employee.can_submit_expenses_anytime ? 'checkmark' : 'close'}
-                        size={20}
-                        color="white"
-                      />
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleDeleteEmployee(employee.id)}
-                    className="p-2 rounded-lg bg-red-500"
-                  >
-                    <Ionicons name="trash" size={20} color="white" />
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  onPress={() => handleDeleteEmployee(employee.id)}
+                  className="p-2 rounded-lg bg-red-500"
+                >
+                  <Ionicons name="trash" size={20} color="white" />
+                </TouchableOpacity>
               </View>
             </View>
           ))
