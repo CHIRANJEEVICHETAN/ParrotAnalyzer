@@ -193,4 +193,41 @@ router.get('/admin', verifyToken, adminMiddleware, async (req: CustomRequest, re
   }
 });
 
+// Add this new endpoint for task statistics
+router.get('/stats', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const result = await client.query(`
+      SELECT 
+        COUNT(*) as total_tasks,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks,
+        COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_tasks,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_tasks
+      FROM employee_tasks 
+      WHERE assigned_to = $1`,
+      [req.user.id]
+    );
+
+    const stats = result.rows[0];
+    const total = parseInt(stats.total_tasks) || 0;
+
+    res.json({
+      total,
+      completed: parseInt(stats.completed_tasks) || 0,
+      inProgress: parseInt(stats.in_progress_tasks) || 0,
+      pending: parseInt(stats.pending_tasks) || 0,
+      completionRate: total ? Math.round((parseInt(stats.completed_tasks) / total) * 100) : 0
+    });
+  } catch (error) {
+    console.error('Error fetching task stats:', error);
+    res.status(500).json({ error: 'Failed to fetch task statistics' });
+  } finally {
+    client.release();
+  }
+});
+
 export default router; 

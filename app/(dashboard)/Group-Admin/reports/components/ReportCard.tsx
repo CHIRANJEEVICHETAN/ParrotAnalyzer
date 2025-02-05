@@ -1,18 +1,16 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  ActivityIndicator, 
+  StyleSheet,
+  Modal,
+  Pressable 
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ReportSection } from '../types';
 import { PDFGenerator } from '../services/PDFGenerator';
-import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
-import * as DocumentPicker from 'expo-document-picker';
-import { generateExpenseReport } from './pdf-templates/ExpenseTemplate';
-import { generateAttendanceReport } from './pdf-templates/AttendanceTemplate';
-import { generateTaskReport } from './pdf-templates/TaskTemplate';
-import { generateTravelReport } from './pdf-templates/TravelTemplate';
-import { generatePerformanceReport } from './pdf-templates/PerformanceTemplate';
-import { generateLeaveReport } from './pdf-templates/LeaveTemplate';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface ReportCardProps {
   section: ReportSection;
@@ -21,15 +19,16 @@ interface ReportCardProps {
 }
 
 export default function ReportCard({ section, isDark, children }: ReportCardProps) {
-  const [isExporting, setIsExporting] = React.useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [showActionMenu, setShowActionMenu] = useState(false);
 
-  const handleExportPDF = async () => {
+  const handleExportAction = async (action: 'open' | 'share') => {
     try {
       setIsExporting(true);
-      await PDFGenerator.generateAndSharePDF(section);
+      setShowActionMenu(false);
+      await PDFGenerator.generateAndHandlePDF(section, action);
     } catch (error) {
-      console.error('Error exporting PDF:', error);
-      Alert.alert('Error', 'Failed to export PDF');
+      console.error('Error handling PDF:', error);
     } finally {
       setIsExporting(false);
     }
@@ -60,30 +59,32 @@ export default function ReportCard({ section, isDark, children }: ReportCardProp
           </Text>
         </View>
         <TouchableOpacity
-          onPress={handleExportPDF}
+          onPress={() => setShowActionMenu(true)}
           disabled={isExporting}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: '#3B82F6',
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            borderRadius: 6,
-            opacity: isExporting ? 0.5 : 1
-          }}
+          style={[
+            styles.exportButton,
+            {
+              backgroundColor: '#3B82F6',
+              opacity: isExporting ? 0.5 : 1
+            }
+          ]}
         >
           {isExporting ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <>
-              <Ionicons name="share-outline" size={18} color="#FFFFFF" />
+              <Ionicons 
+                name="document-text-outline" 
+                size={18} 
+                color="#FFFFFF" 
+              />
               <Text style={{ 
                 color: '#FFFFFF', 
                 marginLeft: 6,
                 fontSize: 14,
                 fontWeight: '500'
               }}>
-                Share PDF
+                Export PDF
               </Text>
             </>
           )}
@@ -91,6 +92,78 @@ export default function ReportCard({ section, isDark, children }: ReportCardProp
       </View>
 
       {children}
+
+      {/* Updated Modal Design */}
+      <Modal
+        visible={showActionMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowActionMenu(false)}
+      >
+        <Pressable 
+          style={styles.modalOverlay}
+          onPress={() => setShowActionMenu(false)}
+        >
+          <Pressable 
+            style={[
+              styles.actionMenu,
+              {
+                backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+              }
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '600',
+              color: isDark ? '#FFFFFF' : '#111827',
+              marginBottom: 16,
+              textAlign: 'center'
+            }}>
+              Export Options
+            </Text>
+            
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                {
+                  backgroundColor: '#3B82F6',
+                  marginBottom: 12,
+                }
+              ]}
+              onPress={() => handleExportAction('open')}
+            >
+              <Ionicons 
+                name="open-outline" 
+                size={22} 
+                color="#FFFFFF" 
+              />
+              <Text style={styles.actionButtonText}>
+                Open PDF
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                {
+                  backgroundColor: '#3B82F6',
+                }
+              ]}
+              onPress={() => handleExportAction('share')}
+            >
+              <Ionicons 
+                name="share-outline" 
+                size={22} 
+                color="#FFFFFF" 
+              />
+              <Text style={styles.actionButtonText}>
+                Share PDF
+              </Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -102,5 +175,41 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-  }
+  },
+  exportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionMenu: {
+    width: '85%',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 10,
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    marginLeft: 10,
+    fontSize: 16,
+    fontWeight: '500',
+  },
 }); 

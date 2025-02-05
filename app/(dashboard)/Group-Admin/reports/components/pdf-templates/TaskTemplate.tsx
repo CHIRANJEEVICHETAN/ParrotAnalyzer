@@ -1,4 +1,4 @@
-import { generateBaseTemplate } from './BaseTemplate';
+import { generateBaseTemplate, TemplateOptions } from './BaseTemplate';
 
 interface TaskData {
   summary: {
@@ -33,7 +33,7 @@ interface TaskData {
   };
 }
 
-export const generateTaskReport = (data: TaskData, theme: 'light' | 'dark'): string => {
+export const generateTaskReport = (data: TaskData, options: TemplateOptions): string => {
   // Add safe checks for data access
   const summary = data?.summary || {};
   const statusBreakdown = data?.statusBreakdown || [];
@@ -134,7 +134,8 @@ export const generateTaskReport = (data: TaskData, theme: 'light' | 'dark'): str
     title: 'Task Report',
     date: new Date().toLocaleDateString(),
     content,
-    theme,
-    companyInfo: data.companyInfo
+    theme: options.theme,
+    companyInfo: options.companyInfo,
+    adminName: options.adminName
   });
 }; 

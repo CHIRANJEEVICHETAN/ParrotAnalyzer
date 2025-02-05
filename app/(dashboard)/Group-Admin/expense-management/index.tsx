@@ -94,9 +94,9 @@ export default function ExpenseManagement() {
       );
       return;
     }
-
+    
     checkUserRole();
-
+    
     fetchExpenses();
   }, [user]);
 
@@ -120,17 +120,17 @@ export default function ExpenseManagement() {
   const fetchExpenses = async () => {
     try {
       console.log('Fetching expenses with token:', token?.substring(0, 20) + '...');
-
+      
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/expenses`,
         {
-          headers: {
+          headers: { 
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           }
         }
       );
-
+      
       console.log('Expenses response:', response.data);
       setExpenses(response.data);
       calculateStats(response.data);
@@ -140,7 +140,7 @@ export default function ExpenseManagement() {
         response: axios.isAxiosError(error) ? error.response?.data : null,
         status: axios.isAxiosError(error) ? error.response?.status : null
       });
-
+      
       if (axios.isAxiosError(error)) {
         if (error.response?.status === 403) {
           Alert.alert(
@@ -180,15 +180,15 @@ export default function ExpenseManagement() {
         { approved: true },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      setExpenses(prevExpenses =>
-        prevExpenses.map(expense =>
-          expense.id === id
+      
+      setExpenses(prevExpenses => 
+        prevExpenses.map(expense => 
+          expense.id === id 
             ? { ...expense, status: 'approved', group_admin_approved: true }
             : expense
         )
       );
-
+      
       Alert.alert('Success', 'Expense approved successfully');
     } catch (error) {
       console.error('Error approving expense:', error);
@@ -210,21 +210,21 @@ export default function ExpenseManagement() {
       setActionLoading(id);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
-        {
+        { 
           approved: false,
-          comments: reason
+          comments: reason 
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      setExpenses(prevExpenses =>
-        prevExpenses.map(expense =>
-          expense.id === id
+      
+      setExpenses(prevExpenses => 
+        prevExpenses.map(expense => 
+          expense.id === id 
             ? { ...expense, status: 'rejected', group_admin_approved: false }
             : expense
         )
       );
-
+      
       Alert.alert('Success', 'Expense rejected successfully');
     } catch (error) {
       console.error('Error rejecting expense:', error);
@@ -240,10 +240,10 @@ export default function ExpenseManagement() {
   };
 
   const filteredExpenses = expenses.filter(expense => {
-    const matchesSearch =
+    const matchesSearch = 
       expense.employee_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       expense.employee_number.toLowerCase().includes(searchQuery.toLowerCase());
-
+    
     switch (activeTab) {
       case 'pending':
         return matchesSearch && expense.group_admin_approved === null;
@@ -275,7 +275,7 @@ export default function ExpenseManagement() {
       />
 
       {/* Header */}
-      <View
+      <View 
         className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
         style={styles.header}
       >
@@ -285,10 +285,10 @@ export default function ExpenseManagement() {
             className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
             style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
           >
-            <Ionicons
-              name="arrow-back"
-              size={24}
-              color={isDark ? '#FFFFFF' : '#111827'}
+            <Ionicons 
+              name="arrow-back" 
+              size={24} 
+              color={isDark ? '#FFFFFF' : '#111827'} 
             />
           </TouchableOpacity>
           <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
@@ -302,15 +302,15 @@ export default function ExpenseManagement() {
 
       {/* Search Bar - Move it closer to stats */}
       <View className="px-4 mt-2">
-        <View
+        <View 
           className={`flex-row items-center px-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'
-            }`}
+          }`}
           style={styles.searchBar}
         >
-          <Ionicons
-            name="search"
-            size={20}
-            color={isDark ? '#9CA3AF' : '#6B7280'}
+          <Ionicons 
+            name="search" 
+            size={20} 
+            color={isDark ? '#9CA3AF' : '#6B7280'} 
           />
           <TextInput
             placeholder="Search by employee name or number..."
@@ -455,27 +455,27 @@ export default function ExpenseManagement() {
 
         {/* Tab Buttons - Adjust top margin */}
         <View className="flex-row px-4 mt-2 mb-2">
-          {['pending', 'approved', 'rejected'].map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              onPress={() => setActiveTab(tab as typeof activeTab)}
+        {['pending', 'approved', 'rejected'].map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            onPress={() => setActiveTab(tab as typeof activeTab)}
               className={`flex-1 py-2 px-4 rounded-lg mr-2 ${activeTab === tab
-                  ? isDark ? 'bg-blue-600' : 'bg-blue-500'
-                  : isDark ? 'bg-gray-800' : 'bg-white'
-                }`}
-              style={styles.tabButton}
-            >
+                ? isDark ? 'bg-blue-600' : 'bg-blue-500'
+                : isDark ? 'bg-gray-800' : 'bg-white'
+            }`}
+            style={styles.tabButton}
+          >
               <Text className={`text-center font-medium ${activeTab === tab ? 'text-white' : isDark ? 'text-gray-300' : 'text-gray-600'
-                }`}>
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
+            }`}>
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        ))}
         </View>
       </View>
 
       {/* Expense List */}
-      <ScrollView
+      <ScrollView 
         className="flex-1 px-4"
         refreshControl={
           <RefreshControl
@@ -528,11 +528,11 @@ export default function ExpenseManagement() {
                     ₹{formatAmount(expense.total_amount)}
                   </Text>
                   <Text className={`text-sm ${expense.status === 'approved'
-                      ? 'text-green-500'
+                      ? 'text-green-500' 
                       : expense.status === 'rejected'
                         ? 'text-red-500'
                         : isDark ? 'text-gray-400' : 'text-gray-600'
-                    }`}>
+                  }`}>
                     {expense.status.toUpperCase()}
                   </Text>
                 </View>
@@ -547,7 +547,7 @@ export default function ExpenseManagement() {
                     }}
                     disabled={actionLoading === expense.id}
                     className={`bg-green-500 px-4 py-2 rounded-lg mr-3 ${actionLoading === expense.id ? 'opacity-50' : ''
-                      }`}
+                    }`}
                     style={styles.actionButton}
                   >
                     {actionLoading === expense.id ? (
@@ -564,7 +564,7 @@ export default function ExpenseManagement() {
                     }}
                     disabled={actionLoading === expense.id}
                     className={`bg-red-500 px-4 py-2 rounded-lg ${actionLoading === expense.id ? 'opacity-50' : ''
-                      }`}
+                    }`}
                     style={styles.actionButton}
                   >
                     {actionLoading === expense.id ? (

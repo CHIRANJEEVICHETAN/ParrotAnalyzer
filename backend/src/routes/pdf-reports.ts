@@ -41,17 +41,25 @@ router.get('/:type', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
     const { type } = req.params;
-    // Check if user exists in the request (added by verifyToken middleware)
     if (!req.user?.id) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const adminId = req.user.id;
-    let data;
     
-    // Get company details first
+    // Get admin details
+    const adminResult = await client.query(`
+      SELECT name as admin_name
+      FROM users
+      WHERE id = $1
+    `, [adminId]);
+    
+    const adminName = adminResult.rows[0]?.admin_name || 'Group Admin';
+    
+    // Get company details
     const companyInfo = await getCompanyDetails(client, adminId);
 
+    let data;
     switch (type) {
       case 'expense':
         data = await getExpenseReportData(client, adminId);
@@ -75,10 +83,11 @@ router.get('/:type', verifyToken, async (req: CustomRequest, res: Response) => {
         return res.status(400).json({ error: 'Invalid report type' });
     }
 
-    // Add company info to the response
+    // Add both company info and admin name to the response
     res.json({
       ...data,
-      companyInfo
+      companyInfo,
+      adminName
     });
   } catch (error) {
     console.error('Error fetching PDF report data:', error);

@@ -1,4 +1,4 @@
-import { generateBaseTemplate } from './BaseTemplate';
+import { generateBaseTemplate, TemplateOptions } from './BaseTemplate';
 
 interface AttendanceData {
   summary: {
@@ -27,7 +27,7 @@ interface AttendanceData {
   };
 }
 
-export const generateAttendanceReport = (data: AttendanceData, theme: 'light' | 'dark'): string => {
+export const generateAttendanceReport = (data: AttendanceData, options: TemplateOptions): string => {
   const content = `
     <div class="summary-section">
       <h2>Attendance Summary</h2>
@@ -100,7 +100,8 @@ export const generateAttendanceReport = (data: AttendanceData, theme: 'light' | 
     title: 'Attendance Report',
     date: new Date().toLocaleDateString(),
     content,
-    theme,
-    companyInfo: data.companyInfo
+    theme: options.theme,
+    companyInfo: options.companyInfo,
+    adminName: options.adminName
   });
 }; 
