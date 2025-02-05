@@ -51,11 +51,9 @@ export default function Support() {
     },
     {
       title: 'Live Chat',
-      description: 'Chat with our support team (Available 9 AM - 6 PM)',
+      description: 'Chat with our AI support assistant',
       icon: 'chatbubbles-outline',
-      action: () => {
-        Alert.alert('Live Chat', 'Live chat support will be available soon!');
-      }
+      action: () => router.push('/employee/settings/LiveChat')
     },
     {
       title: 'Help Center',
