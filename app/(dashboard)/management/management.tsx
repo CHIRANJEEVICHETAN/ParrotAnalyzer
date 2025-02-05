@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import { StatusBar as RNStatusBar } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Activity {
     title: string;
@@ -24,11 +25,21 @@ interface Activity {
     time: string;
 }
 
+interface QuickAction {
+    title: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    description: string;
+    route: string;
+    color: string;
+}
+
 export default function ManagementDashboard() {
     const { theme } = ThemeContext.useTheme();
     const router = useRouter();
     const { token } = useAuth();
     
+    const [refreshing, setRefreshing] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [dashboardData, setDashboardData] = useState({
         totalTeams: 0,
         userLimit: 0,
@@ -41,25 +52,56 @@ export default function ManagementDashboard() {
         }
     });
 
-    const [isLoading, setIsLoading] = useState(true);
+    const CACHE_KEY = 'management_dashboard_data';
+    const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes in milliseconds
 
-    useEffect(() => {
-        const fetchDashboardData = async () => {
-            try {
-                setIsLoading(true);
-                const response = await axios.get(
-                    `${process.env.EXPO_PUBLIC_API_URL}/api/management/dashboard-stats`,
-                    {
-                        headers: { Authorization: `Bearer ${token}` }
+    const fetchDashboardData = async (useCache = true) => {
+        try {
+            // Check cache first if useCache is true
+            if (useCache) {
+                const cachedData = await AsyncStorage.getItem(CACHE_KEY);
+                if (cachedData) {
+                    const { data, timestamp } = JSON.parse(cachedData);
+                    const isExpired = Date.now() - timestamp > CACHE_EXPIRY;
+                    
+                    if (!isExpired) {
+                        setDashboardData(data);
+                        setIsLoading(false);
+                        return;
                     }
-                );
-                setDashboardData(response.data);
-            } catch (error) {
-                console.error('Error details:', {
-                    message: (error as Error).message,
-                    response: (error as any).response?.data,
-                    status: (error as any).response?.status
-                });
+                }
+            }
+
+            // Fetch fresh data
+            const response = await axios.get(
+                `${process.env.EXPO_PUBLIC_API_URL}/api/management/dashboard-stats`,
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+
+            // Update state with new data
+            setDashboardData(response.data);
+
+            // Cache the new data
+            await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({
+                data: response.data,
+                timestamp: Date.now()
+            }));
+
+        } catch (error) {
+            console.error('Error details:', {
+                message: (error as Error).message,
+                response: (error as any).response?.data,
+                status: (error as any).response?.status
+            });
+            
+            // Try to get cached data as fallback
+            const cachedData = await AsyncStorage.getItem(CACHE_KEY);
+            if (cachedData) {
+                const { data } = JSON.parse(cachedData);
+                setDashboardData(data);
+            } else {
                 setDashboardData({
                     totalTeams: 0,
                     userLimit: 0,
@@ -71,11 +113,20 @@ export default function ManagementDashboard() {
                         expenseOverview: { value: 0, trend: '0%' }
                     }
                 });
-            } finally {
-                setIsLoading(false);
             }
-        };
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
+    const onRefresh = async () => {
+        setRefreshing(true);
+        await fetchDashboardData(false); // Force fetch fresh data
+        setRefreshing(false);
+    };
+
+    // Initial load
+    useEffect(() => {
         fetchDashboardData();
     }, [token]);
 
@@ -91,10 +142,21 @@ export default function ManagementDashboard() {
     const navItems: NavItem[] = [
         { icon: 'home-outline', label: 'Home', href: '/management' },
         { icon: 'analytics-outline', label: 'Analytics', href: '/management/analytics' },
-        // { icon: 'checkmark-circle-outline', label: 'Approvals', href: '/(dashboard)/management/approvals' },
+        { icon: 'calendar-outline', label: 'Leave', href: '/(dashboard)/management/leave-management' },
         { icon: 'people-circle-outline', label: 'Group Admins', href: '/management/group-admin-management' },
         { icon: 'person-outline', label: 'Profile', href: '/management/profile' },
     ];
+
+    const quickActions: QuickAction[] = [
+        {
+            title: 'Leave Management',
+            icon: 'calendar-outline',
+            description: 'Configure leave types, policies, and view analytics',
+            route: '/(dashboard)/management/leave-management',
+            color: '#3B82F6'
+        }
+    ];
+
     return (
         <View className="flex-1" style={styles.container as ViewStyle}>
             <StatusBar
@@ -139,6 +201,14 @@ export default function ManagementDashboard() {
                 className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
                 showsVerticalScrollIndicator={false}
                 style={styles.scrollView}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        colors={['#3B82F6']} // Android
+                        tintColor={theme === 'dark' ? '#FFFFFF' : '#3B82F6'} // iOS
+                    />
+                }
             >
                 {/* Quick Stats */}
                 <View className="px-6 py-4">
@@ -283,6 +353,77 @@ export default function ManagementDashboard() {
                             ))}
                         </ScrollView>
                     )}
+                </View>
+
+                {/* Leave Management Section - Updated UI */}
+                <View className="px-6 py-4">
+                    <TouchableOpacity
+                        onPress={() => router.push(quickActions[0].route as any)}
+                        className={`p-6 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
+                        style={styles.leaveCard}
+                    >
+                        <View className="flex-row items-center">
+                            <View 
+                                className="w-14 h-14 rounded-full items-center justify-center"
+                                style={{ backgroundColor: `${quickActions[0].color}20` }}
+                            >
+                                <Ionicons 
+                                    name={quickActions[0].icon} 
+                                    size={28} 
+                                    color={quickActions[0].color}
+                                />
+                            </View>
+                            <View className="flex-1 ml-4">
+                                <Text 
+                                    className={`text-xl font-semibold mb-1 ${
+                                        theme === 'dark' ? 'text-white' : 'text-gray-800'
+                                    }`}
+                                >
+                                    {quickActions[0].title}
+                                </Text>
+                                <Text 
+                                    className={`text-sm ${
+                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}
+                                >
+                                    {quickActions[0].description}
+                                </Text>
+                            </View>
+                            <Ionicons 
+                                name="chevron-forward" 
+                                size={24} 
+                                color={theme === 'dark' ? '#6B7280' : '#9CA3AF'}
+                            />
+                        </View>
+
+                        <View className="flex-row justify-between mt-6 pt-6 border-t border-gray-700">
+                            {[
+                                { label: 'Pending', value: '12', color: '#F59E0B', icon: 'time-outline' },
+                                { label: 'Approved', value: '8', color: '#10B981', icon: 'checkmark-circle-outline' },
+                                { label: 'Active', value: '45', color: '#3B82F6', icon: 'people-outline' }
+                            ].map((stat, index) => (
+                                <View key={stat.label} className="items-center flex-1">
+                                    <View 
+                                        className="w-10 h-10 rounded-full mb-2 items-center justify-center"
+                                        style={{ backgroundColor: `${stat.color}15` }}
+                                    >
+                                        <Ionicons name={stat.icon as keyof typeof Ionicons.glyphMap} size={20} color={stat.color} />
+                                    </View>
+                                    <Text 
+                                        className="text-lg font-bold mb-1"
+                                        style={{ color: stat.color }}
+                                    >
+                                        {stat.value}
+                                    </Text>
+                                    <Text className={`text-xs ${
+                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`}>
+                                        {stat.label}
+                                    </Text>
+                                </View>
+                            ))}
+                        </View>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Recent Activities Section */}
@@ -582,5 +723,26 @@ const styles = StyleSheet.create({
     },
     approvalItem: {
         backgroundColor: 'transparent',
+    },
+    leaveCard: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    statsContainer: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    iconContainer: {
+        width: 48,
+        height: 48,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
 }); 

@@ -94,4 +94,26 @@ export const adminMiddleware = async (req: CustomRequest, res: Response, next: N
     console.error('Admin middleware error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+};
+
+export const managementMiddleware = async (req: CustomRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const result = await pool.query(
+      'SELECT role FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (!result.rows.length || result.rows[0].role !== 'management') {
+      return res.status(403).json({ error: 'Management access required' });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Management middleware error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
 }; 

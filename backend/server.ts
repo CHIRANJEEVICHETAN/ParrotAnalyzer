@@ -19,6 +19,7 @@ import { errorLogger, errorHandler } from './src/middleware/errorHandler';
 import pdfReportRoutes from './src/routes/pdf-reports';
 import superAdminRoutes from './src/routes/super';
 import chatRoutes from './src/routes/chat';
+import leaveManagementRoutes from './src/routes/leave-management';
 
 dotenv.config();
 
@@ -50,6 +51,7 @@ app.use('/api/management', managementRoutes);
 app.use('/pdf-reports', pdfReportRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/leave-management', leaveManagementRoutes);
 
 // Test route at root level
 app.get('/api/test', (req, res) => {
@@ -104,6 +106,7 @@ initDB()
       console.log('- /api/management/*');
       console.log('- /pdf-reports/*');
       console.log('- /api/chat/*');
+      console.log('- /api/leave-management/*');
     });
   })
   .catch(error => {
