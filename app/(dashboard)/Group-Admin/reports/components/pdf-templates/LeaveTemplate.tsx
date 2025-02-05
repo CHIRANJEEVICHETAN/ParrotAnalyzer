@@ -1,4 +1,4 @@
-import { generateBaseTemplate } from './BaseTemplate';
+import { generateBaseTemplate, TemplateOptions } from './BaseTemplate';
 
 interface LeaveData {
   summary: {
@@ -53,7 +53,7 @@ interface LeaveData {
   };
 }
 
-export const generateLeaveReport = (data: LeaveData, theme: 'light' | 'dark'): string => {
+export const generateLeaveReport = (data: LeaveData, options: TemplateOptions): string => {
   const content = `
     <div class="summary-section">
       <h2>Leave Summary</h2>
@@ -180,7 +180,8 @@ export const generateLeaveReport = (data: LeaveData, theme: 'light' | 'dark'): s
     title: 'Leave Report',
     date: new Date().toLocaleDateString(),
     content,
-    theme,
-    companyInfo: data.companyInfo
+    theme: options.theme,
+    companyInfo: options.companyInfo,
+    adminName: options.adminName
   });
 }; 

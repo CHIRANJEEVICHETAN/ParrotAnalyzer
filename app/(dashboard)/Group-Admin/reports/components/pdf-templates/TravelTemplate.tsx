@@ -1,4 +1,4 @@
-import { generateBaseTemplate } from './BaseTemplate';
+import { generateBaseTemplate, TemplateOptions } from './BaseTemplate';
 
 interface TravelData {
   summary: {
@@ -41,7 +41,7 @@ interface TravelData {
   };
 }
 
-export const generateTravelReport = (data: TravelData, theme: 'light' | 'dark'): string => {
+export const generateTravelReport = (data: TravelData, options: TemplateOptions): string => {
   const content = `
     <div class="summary-section">
       <h2>Travel Summary</h2>
@@ -160,7 +160,8 @@ export const generateTravelReport = (data: TravelData, theme: 'light' | 'dark'):
     title: 'Travel Report',
     date: new Date().toLocaleDateString(),
     content,
-    theme,
-    companyInfo: data.companyInfo
+    theme: options.theme,
+    companyInfo: options.companyInfo,
+    adminName: options.adminName
   });
 }; 

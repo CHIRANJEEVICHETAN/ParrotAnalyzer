@@ -1,4 +1,4 @@
-import { generateBaseTemplate } from './BaseTemplate';
+import { generateBaseTemplate, TemplateOptions } from './BaseTemplate';
 
 interface PerformanceData {
   summary: {
@@ -47,7 +47,7 @@ interface PerformanceData {
   };
 }
 
-export const generatePerformanceReport = (data: PerformanceData, theme: 'light' | 'dark'): string => {
+export const generatePerformanceReport = (data: PerformanceData, options: TemplateOptions): string => {
   const content = `
     <div class="summary-section">
       <h2>Performance Overview</h2>
@@ -144,7 +144,8 @@ export const generatePerformanceReport = (data: PerformanceData, theme: 'light' 
     title: 'Performance Report',
     date: new Date().toLocaleDateString(),
     content,
-    theme,
-    companyInfo: data.companyInfo
+    theme: options.theme,
+    companyInfo: options.companyInfo,
+    adminName: options.adminName
   });
 }; 

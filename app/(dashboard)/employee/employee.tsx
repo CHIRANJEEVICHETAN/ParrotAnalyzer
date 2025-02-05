@@ -11,6 +11,7 @@ import {
   StatusBar,
   Alert,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -33,6 +34,15 @@ interface Task {
   priority: 'low' | 'medium' | 'high';
   due_date: string;
   assigned_by_name: string;
+}
+
+// Add this interface near your other interfaces
+interface TaskStats {
+  total: number;
+  completed: number;
+  inProgress: number;
+  pending: number;
+  completionRate: number;
 }
 
 export default function EmployeeDashboard() {
@@ -262,6 +272,120 @@ export default function EmployeeDashboard() {
     }
   };
 
+  // Add this component before your main component
+  const TaskProgressBar = () => {
+    const [stats, setStats] = useState<TaskStats | null>(null);
+    const [loading, setLoading] = useState(true);
+    const { theme } = ThemeContext.useTheme();
+    const isDark = theme === 'dark';
+
+    useEffect(() => {
+      const fetchTaskStats = async () => {
+        try {
+          const token = await AsyncStorage.getItem('auth_token');
+          const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/tasks/stats`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          const data = await response.json();
+          setStats(data);
+        } catch (error) {
+          console.error('Error fetching task stats:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchTaskStats();
+    }, []);
+
+    if (loading) {
+      return (
+        <View className="mx-4 mt-4">
+          <ActivityIndicator size="small" color="#3B82F6" />
+        </View>
+      );
+    }
+
+    if (!stats) return null;
+
+    return (
+      <View style={[
+        styles.mainContainer,
+        { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
+      ]} className="mx-4 mt-4">
+        <View className={`p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-md`}>
+          {/* Header */}
+          <View className="flex-row items-center mb-4">
+            <View className="flex-1">
+              <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Task Progress
+              </Text>
+              <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                {stats.total} Total Tasks
+              </Text>
+            </View>
+            <View className={`px-3 py-1 rounded-full ${isDark ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
+              <Text className="text-blue-600 font-medium">{stats.completionRate}%</Text>
+            </View>
+          </View>
+          
+          {/* Progress bars container */}
+          <View className="space-y-3" style={{ backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }}>
+            {/* Completed Tasks */}
+            <View>
+              <View className="flex-row justify-between mb-1.5">
+                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Completed</Text>
+                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {stats.completed}/{stats.total}
+                </Text>
+              </View>
+              <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
+                <View 
+                  className="h-full bg-green-500 rounded-full"
+                  style={{ width: `${(stats.completed / stats.total) * 100}%` }}
+                />
+              </View>
+            </View>
+
+            {/* In Progress Tasks */}
+            <View>
+              <View className="flex-row justify-between mb-1.5">
+                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>In Progress</Text>
+                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {stats.inProgress}/{stats.total}
+                </Text>
+              </View>
+              <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
+                <View 
+                  className="h-full bg-blue-500 rounded-full"
+                  style={{ width: `${(stats.inProgress / stats.total) * 100}%` }}
+                />
+              </View>
+            </View>
+
+            {/* Pending Tasks */}
+            <View>
+              <View className="flex-row justify-between mb-1.5">
+                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Pending</Text>
+                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {stats.pending}/{stats.total}
+                </Text>
+              </View>
+              <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
+                <View 
+                  className="h-full bg-yellow-500 rounded-full"
+                  style={{ width: `${(stats.pending / stats.total) * 100}%` }}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <View className="flex-1">
       <KeyboardAvoidingView 
@@ -439,6 +563,9 @@ export default function EmployeeDashboard() {
               />
             </View>
           </View>
+
+          {/* Task Progress Bar */}
+          <TaskProgressBar />
         </ScrollView>
 
         {/* Bottom Navigation */}
