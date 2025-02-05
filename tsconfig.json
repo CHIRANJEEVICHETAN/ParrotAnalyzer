@@ -7,7 +7,9 @@
         "app/*"
       ]
     },
-    "baseUrl": "."
+    "baseUrl": ".",
+    "jsx": "react-native",
+    "esModuleInterop": true
   },
   "include": [
     "**/*.ts",
