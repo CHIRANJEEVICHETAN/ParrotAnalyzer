@@ -1233,7 +1233,23 @@ router.get('/pending-requests', authMiddleware, managementMiddleware, async (req
         lt.name as leave_type_name,
         u.name as user_name,
         u.employee_number,
-        u.department
+        u.department,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object(
+                'id', ld.id,
+                'file_name', ld.file_name,
+                'file_type', ld.file_type,
+                'file_data', ld.file_data,
+                'upload_method', ld.upload_method
+              )
+            )
+            FROM leave_documents ld
+            WHERE ld.request_id = lr.id
+          ),
+          '[]'
+        ) as documents
       FROM leave_requests lr
       JOIN leave_types lt ON lr.leave_type_id = lt.id
       JOIN users u ON lr.user_id = u.id

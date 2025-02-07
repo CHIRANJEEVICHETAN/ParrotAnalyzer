@@ -421,7 +421,7 @@ export default function LeaveApprovals() {
                 />
               </View>
 
-              <View className="flex-row space-x-4 mt-4">
+              <View className="flex-row space-x-4 gap-3 mt-4">
                 <TouchableOpacity
                   onPress={() => {
                     setShowActionModal(false);
