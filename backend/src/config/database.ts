@@ -296,6 +296,86 @@ export const initDB = async () => {
       END $$;
     `);
 
+    // Add leave management tables
+    await pool.query(`
+      -- Enhanced leave_requests table
+      CREATE TABLE IF NOT EXISTS leave_requests (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        leave_type_id INTEGER REFERENCES leave_types(id),
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        days_requested INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'escalated', 'cancelled')),
+        rejection_reason TEXT,
+        contact_number VARCHAR(20) NOT NULL,
+        requires_documentation BOOLEAN DEFAULT false,
+        documentation_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Leave escalations table
+      CREATE TABLE IF NOT EXISTS leave_escalations (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER REFERENCES leave_requests(id) ON DELETE CASCADE,
+        escalated_by INTEGER REFERENCES users(id),
+        escalated_to INTEGER REFERENCES users(id),
+        reason TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'resolved')),
+        resolution_notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP
+      );
+
+      -- Enhanced leave_balances table
+      CREATE TABLE IF NOT EXISTS leave_balances (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        leave_type_id INTEGER REFERENCES leave_types(id),
+        year INTEGER NOT NULL,
+        total_days INTEGER NOT NULL,
+        used_days INTEGER DEFAULT 0,
+        pending_days INTEGER DEFAULT 0,
+        carry_forward_days INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, leave_type_id, year)
+      );
+
+      -- Leave balance audit table for tracking changes
+      CREATE TABLE IF NOT EXISTS leave_balance_audit (
+        id SERIAL PRIMARY KEY,
+        balance_id INTEGER REFERENCES leave_balances(id) ON DELETE CASCADE,
+        request_id INTEGER REFERENCES leave_requests(id) ON DELETE SET NULL,
+        previous_balance INTEGER NOT NULL,
+        new_balance INTEGER NOT NULL,
+        change_type VARCHAR(20) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by INTEGER REFERENCES users(id)
+      );
+    `);
+
+    // Add leave_documents table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS leave_documents (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER REFERENCES leave_requests(id) ON DELETE CASCADE,
+        file_name VARCHAR(255) NOT NULL,
+        file_type VARCHAR(100) NOT NULL,
+        file_data TEXT NOT NULL,  -- Store base64 encoded data
+        upload_method VARCHAR(20) CHECK (upload_method IN ('camera', 'file')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Update leave_requests table
+      ALTER TABLE leave_requests 
+      DROP COLUMN IF EXISTS documentation_url,
+      ADD COLUMN IF NOT EXISTS has_documentation BOOLEAN DEFAULT false;
+    `);
+
     // Add these lines after other table creation
     await initEmployeeShiftsTable();
     await seedUsers();
