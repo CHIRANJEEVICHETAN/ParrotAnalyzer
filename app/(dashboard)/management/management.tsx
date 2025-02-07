@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, StatusBar, ViewStyle, TextStyle, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from '../../context/ThemeContext';
 import BottomNav from '../../components/BottomNav';
@@ -32,6 +32,24 @@ interface QuickAction {
     route: string;
     color: string;
 }
+
+// Add new quick actions array
+const newQuickActions = [
+    {
+        title: 'Shift Tracker',
+        icon: 'time-outline',
+        description: 'Track attendance and manage shifts',
+        route: '#',
+        color: '#F59E0B'
+    },
+    {
+        title: 'Leave Request',
+        icon: 'document-text-outline',
+        description: 'Submit and track your leave requests',
+        route: '/(dashboard)/management/leave-management/components/LeaveRequests',
+        color: '#10B981'
+    }
+];
 
 export default function ManagementDashboard() {
     const { theme } = ThemeContext.useTheme();
@@ -157,6 +175,18 @@ export default function ManagementDashboard() {
         }
     ];
 
+    const handleNewQuickAction = (action: typeof newQuickActions[0]) => {
+        if (action.title === 'Shift Tracker') {
+            Alert.alert(
+                'Under Development',
+                'This feature will be available soon!',
+                [{ text: 'OK' }]
+            );
+            return;
+        }
+        router.push(action.route as any);
+    };
+
     return (
         <View className="flex-1" style={styles.container as ViewStyle}>
             <StatusBar
@@ -271,6 +301,47 @@ export default function ManagementDashboard() {
                             ))}
                         </View>
                     )}
+                </View>
+
+                {/* New Quick Actions Section - Above Group Analytics */}
+                <View className="px-6 py-4">
+                    <Text className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+                        Quick Actions
+                    </Text>
+                    <View className="flex-row flex-wrap -mx-2">
+                        {newQuickActions.map((action, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                className="w-1/2 px-2 mb-4"
+                                onPress={() => handleNewQuickAction(action)}
+                            >
+                                <View className={`p-4 rounded-xl ${
+                                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                                }`} style={styles.actionCard}>
+                                    <View 
+                                        className="w-12 h-12 rounded-full items-center justify-center mb-3"
+                                        style={{ backgroundColor: `${action.color}15` }}
+                                    >
+                                        <Ionicons 
+                                            name={action.icon as keyof typeof Ionicons.glyphMap} 
+                                            size={24} 
+                                            color={action.color}
+                                        />
+                                    </View>
+                                    <Text className={`text-base font-semibold mb-1 ${
+                                        theme === 'dark' ? 'text-white' : 'text-gray-800'
+                                    }`}>
+                                        {action.title}
+                                    </Text>
+                                    <Text className={`text-sm ${
+                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                    }`} numberOfLines={2}>
+                                        {action.description}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
                 </View>
 
                 {/* Enhanced Group Analytics Section */}
@@ -744,5 +815,12 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    actionCard: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
     },
 }); 

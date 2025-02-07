@@ -15,6 +15,8 @@ import axios from 'axios';
 import Modal from 'react-native-modal';
 import { format } from 'date-fns';
 import Toast from 'react-native-toast-message';
+import * as FileSystem from 'expo-file-system';
+import * as IntentLauncher from 'expo-intent-launcher';
 
 interface Document {
   id: number;
@@ -138,9 +140,29 @@ export default function LeaveApprovals() {
     }
   };
 
-  const handleViewDocument = (document: Document) => {
-    setSelectedDocument(document);
-    setShowDocumentModal(true);
+  const handleViewDocument = async (document: Document) => {
+    try {
+      const fileUri = `${FileSystem.cacheDirectory}${document.file_name}`;
+      const base64Content = document.file_data;
+      
+      await FileSystem.writeAsStringAsync(fileUri, base64Content, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const contentUri = await FileSystem.getContentUriAsync(fileUri);
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: contentUri,
+        flags: 1,
+        type: document.file_type,
+      });
+    } catch (error) {
+      console.error('Error opening document:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to open document. Please try again.',
+      });
+    }
   };
 
   const renderDocuments = (request: LeaveRequest) => {
@@ -163,7 +185,7 @@ export default function LeaveApprovals() {
               className="mr-2 mb-2 p-2 bg-gray-100 rounded-lg flex-row items-center"
             >
               <Ionicons
-                name={doc.upload_method === 'camera' ? 'camera' : 'document'}
+                name={getDocumentIcon(doc.file_type)}
                 size={20}
                 color="#6B7280"
               />
@@ -175,6 +197,18 @@ export default function LeaveApprovals() {
         </View>
       </View>
     );
+  };
+
+  // Helper function to determine icon based on file type
+  const getDocumentIcon = (fileType: string) => {
+    if (fileType.startsWith('image/')) {
+      return 'image';
+    } else if (fileType.includes('pdf')) {
+      return 'document-text';
+    } else if (fileType.includes('word') || fileType.includes('doc')) {
+      return 'document';
+    }
+    return 'document-outline';
   };
 
   if (loading) {
@@ -473,7 +507,7 @@ export default function LeaveApprovals() {
       </Modal>
 
       {/* Document Preview Modal */}
-      <Modal
+      {/* <Modal
         isVisible={showDocumentModal}
         onBackdropPress={() => {
           setShowDocumentModal(false);
@@ -520,7 +554,7 @@ export default function LeaveApprovals() {
             </View>
           )}
         </View>
-      </Modal>
+      </Modal> */}
     </View>
   );
 } 

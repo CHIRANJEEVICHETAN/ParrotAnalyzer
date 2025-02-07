@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Platform, StatusBar, StatusBar as RNStatusBar, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
-import LeaveRequests from './components/LeaveRequests';
 import LeaveApprovals from './components/LeaveApprovals';
 import LeaveBalanceTracker from './components/LeaveBalanceTracker';
 import LeaveAnalytics from './components/LeaveAnalytics';
@@ -12,7 +11,7 @@ import LeaveBalances from './components/LeaveBalances';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
-type TabType = 'types' | 'policies' | 'balances' | 'balances-tracker' | 'analytics' | 'requests' | 'approvals';
+type TabType = 'types' | 'policies' | 'balances' | 'balances-tracker' | 'analytics' | 'approvals';
 
 interface TabItem {
   id: TabType;
@@ -65,13 +64,6 @@ export default function LeaveManagement() {
       color: '#F59E0B'
     },
     {
-      id: 'requests',
-      label: 'Requests',
-      icon: 'calendar-outline',
-      activeIcon: 'calendar',
-      color: '#EC4899'
-    },
-    {
       id: 'approvals',
       label: 'Approvals',
       icon: 'checkmark-circle-outline',
@@ -92,8 +84,6 @@ export default function LeaveManagement() {
         return <LeaveBalanceTracker />;
       case 'analytics':
         return <LeaveAnalytics />;
-      case 'requests':
-        return <LeaveRequests />;
       case 'approvals':
         return <LeaveApprovals />;
       default:
