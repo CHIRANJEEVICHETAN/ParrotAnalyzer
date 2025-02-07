@@ -250,6 +250,7 @@ export default function LeaveRequests() {
       end_date: new Date(),
       reason: '',
       contact_number: '',
+      documentation_url: '',
     });
     setDocuments([]);
     setSelectedLeaveType(null);
@@ -522,7 +523,7 @@ export default function LeaveRequests() {
                   Documentation Required
                 </Text>
                 
-                <View className="flex-row space-x-2 mb-4">
+                <View className="flex-row space-x-4 gap-4 mb-4">
                   <TouchableOpacity
                     onPress={() => handleDocumentUpload('camera')}
                     className="flex-1 bg-blue-500 py-2 rounded-lg flex-row justify-center items-center"
@@ -567,7 +568,7 @@ export default function LeaveRequests() {
           </ScrollView>
 
           {/* Action Buttons */}
-          <View className="flex-row space-x-4 mt-6">
+          <View className="flex-row space-x-4 gap-4 mt-6">
             <TouchableOpacity
               onPress={() => {
                 setShowAddModal(false);
