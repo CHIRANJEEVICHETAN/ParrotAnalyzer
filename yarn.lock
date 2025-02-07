@@ -4416,6 +4416,13 @@ expo-document-picker@~13.0.2:
   resolved "https://registry.yarnpkg.com/expo-document-picker/-/expo-document-picker-13.0.2.tgz#75168c214ba03588a85e612300b82aa484b765ec"
   integrity sha512-Ssnmgx6OTsFEBOx5ktVyJmD5q+7pnGvPRrBHppiJYwX65cREVZuuJ8xAPhoqPHYn65+4WjaxS1lP2rDkSsMo8w==
 
+expo-file-system@~18.0.10:
+  version "18.0.10"
+  resolved "https://registry.yarnpkg.com/expo-file-system/-/expo-file-system-18.0.10.tgz#b4b99d0e76f960b46ef1f39bcd0355c05fabf7bc"
+  integrity sha512-+GnxkI+J9tOzUQMx+uIOLBEBsO2meyoYHxd87m9oT9M//BpepYqI1AvYBH8YM4dgr9HaeaeLr7z5XFVqfL8tWg==
+  dependencies:
+    web-streams-polyfill "^3.3.2"
+
 expo-file-system@~18.0.7:
   version "18.0.7"
   resolved "https://registry.yarnpkg.com/expo-file-system/-/expo-file-system-18.0.7.tgz#218792dc0aeb7e0976a7f8f412a5d7de09b39610"
