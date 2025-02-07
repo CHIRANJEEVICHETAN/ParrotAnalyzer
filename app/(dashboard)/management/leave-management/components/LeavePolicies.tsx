@@ -330,7 +330,7 @@ export default function LeavePolicies() {
                   {field.label}
                 </Text>
                 <TextInput
-                  value={formData[field.key as keyof typeof formData]}
+                  value={formData[field.key as keyof typeof formData].toString()}
                   onChangeText={(text) => 
                     setFormData(prev => ({ ...prev, [field.key]: text }))
                   }
