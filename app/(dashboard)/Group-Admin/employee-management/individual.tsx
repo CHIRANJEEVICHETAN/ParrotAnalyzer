@@ -230,7 +230,7 @@ export default function CreateEmployee() {
               ) : (
                 <TextInput
                   value={typeof formData[field.key as keyof EmployeeFormData] === 'string' 
-                    ? formData[field.key as keyof EmployeeFormData] as string
+                    ? (formData[field.key as keyof EmployeeFormData] as string)
                     : ''}
                   onChangeText={(text) => {
                     setFormData(prev => ({ ...prev, [field.key]: text }));
