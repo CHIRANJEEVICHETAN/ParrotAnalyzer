@@ -229,7 +229,9 @@ export default function CreateEmployee() {
                 </View>
               ) : (
                 <TextInput
-                  value={formData[field.key as keyof EmployeeFormData]}
+                  value={typeof formData[field.key as keyof EmployeeFormData] === 'string' 
+                    ? (formData[field.key as keyof EmployeeFormData] as string) 
+                    : ''}
                   onChangeText={(text) => {
                     setFormData(prev => ({ ...prev, [field.key]: text }));
                     if (validationErrors[field.key]) {
