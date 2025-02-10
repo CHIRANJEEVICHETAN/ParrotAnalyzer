@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   TextInput,
@@ -11,10 +11,11 @@ import {
   Alert,
   Text,
   ScrollView,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import ThemeContext from '../../../../context/ThemeContext';
 import AuthContext from '../../../../context/AuthContext';
 import ChatMessage from './components/ChatMessage';
@@ -22,12 +23,13 @@ import axios from 'axios';
 import Markdown from 'react-native-markdown-display';
 
 const suggestedQueries = [
-  "How do I track my work hours?",
-  "How to submit travel expenses?",
-  "What is geofencing and how does it work?",
-  "How to view my shift analytics?",
-  "How to upload receipts for expenses?",
-  "How to check my travel distance?"
+  "How do I track my work hours or how to i track my attendance?",
+  "How do I submit an expense report?",
+  "How do I request leave?",
+  "How do I update my profile information?",
+  "How do I reset my password?",
+  "How do I contact support?",
+  "How do I submit a travel expense?"
 ];
 
 interface ChatMessage {
@@ -55,9 +57,58 @@ export default function LiveChat() {
   const [chatId, setChatId] = useState(Date.now().toString());
   const [streamingMessage, setStreamingMessage] = useState<string>('');
 
+  const CLEANUP_INTERVAL = 1000 * 60 * 5; // 5 minutes
+  const INITIAL_CLEANUP_DELAY = 1000 * 30; // 30 seconds
+
+  const cleanupOldMessages = useCallback(async () => {
+    try {
+      // Remove messages older than 30 minutes from the UI
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+      setMessages(prevMessages => 
+        prevMessages.filter(msg => 
+          new Date(msg.created_at) > thirtyMinutesAgo
+        )
+      );
+
+      // Only attempt server cleanup if we have messages to clean
+      if (messages.length > 0) {
+        await axios.delete(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/chat/cleanup-old-messages`,
+          {
+            headers: { 
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+      }
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        // Silently handle 404 errors - no need to log these
+        return;
+      }
+      console.error('Error cleaning up old messages:', error);
+    }
+  }, [token, messages.length]);
+
   useEffect(() => {
-    loadChatHistory();
-  }, []);
+    // Delay the initial cleanup
+    const initialCleanupTimeout = setTimeout(() => {
+      cleanupOldMessages();
+      
+      // Set up interval for periodic cleanup after initial cleanup
+      const intervalId = setInterval(cleanupOldMessages, CLEANUP_INTERVAL);
+      
+      // Cleanup both timeout and interval on unmount
+      return () => {
+        clearInterval(intervalId);
+        clearTimeout(initialCleanupTimeout);
+      };
+    }, INITIAL_CLEANUP_DELAY);
+
+    // Cleanup timeout if component unmounts before initial cleanup
+    return () => clearTimeout(initialCleanupTimeout);
+  }, [cleanupOldMessages]);
 
   const loadChatHistory = async () => {
     try {
@@ -108,7 +159,7 @@ export default function LiveChat() {
 
     const newMessageId = Date.now().toString();
     
-    // Add user message immediately
+    // Add user message
     const userMessageObj: StreamingMessage = {
       id: `msg-${newMessageId}`,
       message: userMessage,
@@ -116,47 +167,49 @@ export default function LiveChat() {
       created_at: new Date().toISOString()
     };
     
-    // Add placeholder for AI response
-    const aiPlaceholder: StreamingMessage = {
-      id: `response-${newMessageId}`,
+    // Add typing indicator
+    const typingIndicator: StreamingMessage = {
+      id: `typing-${newMessageId}`,
       message: '',
       isUser: false,
       created_at: new Date().toISOString(),
       isStreaming: true
     };
     
-    setMessages(prev => [...prev, userMessageObj, aiPlaceholder]);
+    setMessages(prev => [...prev, userMessageObj, typingIndicator]);
 
     try {
-      const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/chat/send-message`,
-        { message: userMessage },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // Add a minimum delay to show typing indicator
+      const response = await Promise.all([
+        axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/chat/send-message`,
+          { message: userMessage },
+          { headers: { Authorization: `Bearer ${token}` } }
+        ),
+        // Minimum typing delay of 1.5 seconds
+        new Promise(resolve => setTimeout(resolve, 1500))
+      ]);
 
-      // Update AI response
+      // Replace typing indicator with actual response
       setMessages(prev => prev.map(msg => 
-        msg.id === `response-${newMessageId}`
+        msg.id === `typing-${newMessageId}`
           ? {
-              ...msg,
-              message: response.data.message,
-              isStreaming: false,
-              created_at: response.data.timestamp || msg.created_at
+              id: `response-${newMessageId}`,
+              message: response[0].data.message,
+              isUser: false,
+              created_at: response[0].data.timestamp || new Date().toISOString()
             }
           : msg
       ));
 
-      flatListRef.current?.scrollToEnd();
     } catch (error: any) {
       console.error('Error sending message:', error.response?.data || error);
       Alert.alert(
         'Error',
         error.response?.data?.details || 'Failed to send message. Please try again.'
       );
-      // Remove both messages if AI response fails
-      setMessages(prev => prev.filter(msg => 
-        msg.id !== `msg-${newMessageId}` && msg.id !== `response-${newMessageId}`
-      ));
+      // Remove typing indicator on error
+      setMessages(prev => prev.filter(msg => msg.id !== `typing-${newMessageId}`));
     } finally {
       setIsLoading(false);
     }
@@ -173,7 +226,7 @@ export default function LiveChat() {
     setShowSuggestions(true);
   };
 
-  const renderMessage = ({ item }: { item: StreamingMessage }) => (
+  const renderMessage = React.useCallback(({ item }: { item: StreamingMessage }) => (
     <ChatMessage
       message={item.message}
       isUser={item.isUser}
@@ -181,156 +234,191 @@ export default function LiveChat() {
       isDark={isDark}
       isStreaming={item.isStreaming}
     />
-  );
+  ), [isDark]);
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1"
-    >
-      <LinearGradient
-        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: false,
+        }}
+      />
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
-        {/* Enhanced Header */}
-        <View className={`px-4 py-3 border-b ${
-          isDark ? 'border-gray-800' : 'border-gray-200'
-        }`}>
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center space-x-3">
-              <TouchableOpacity
-                onPress={() => router.back()}
+        <LinearGradient
+          colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+          className="flex-1"
+        >
+          {/* Header */}
+          <View className={`px-4 py-3 border-b ${
+            isDark ? 'border-gray-800' : 'border-gray-200'
+          }`}>
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center space-x-3 gap-4">
+                <Pressable
+                  onPress={() => router.back()}
+                  className={`p-2 rounded-full ${
+                    isDark ? 'bg-gray-800' : 'bg-gray-100'
+                  }`}
+                >
+                  <Ionicons 
+                    name="arrow-back" 
+                    size={24} 
+                    color={isDark ? '#FFFFFF' : '#000000'} 
+                  />
+                </Pressable>
+                <View>
+                  <Text className={`text-lg font-bold ${
+                    isDark ? 'text-white' : 'text-gray-900'
+                  }`}>
+                    AI Support Assistant
+                  </Text>
+                  <Text className={`text-sm ${
+                    isDark ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
+                    {isLoading ? 'Typing...' : 'Online'}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={startNewChat}
                 className={`p-2 rounded-full ${
                   isDark ? 'bg-gray-800' : 'bg-gray-100'
                 }`}
               >
                 <Ionicons 
-                  name="arrow-back" 
+                  name="create-outline" 
                   size={24} 
-                  color={isDark ? '#FFFFFF' : '#000000'} 
+                  color={isDark ? '#60A5FA' : '#3B82F6'} 
                 />
-              </TouchableOpacity>
-              <View>
-                <Text className={`text-lg font-bold ${
-                  isDark ? 'text-white' : 'text-gray-900'
-                }`}>
-                  AI Support Assistant
-                </Text>
-                <Text className={`text-sm ${
-                  isDark ? 'text-gray-400' : 'text-gray-500'
-                }`}>
-                  {isLoading ? 'Typing...' : 'Online'}
-                </Text>
-              </View>
+              </Pressable>
             </View>
-            <TouchableOpacity
-              onPress={startNewChat}
-              className={`p-2 rounded-full ${
-                isDark ? 'bg-gray-800' : 'bg-gray-100'
-              }`}
-            >
-              <Ionicons 
-                name="create-outline" 
-                size={24} 
-                color={isDark ? '#60A5FA' : '#3B82F6'} 
-              />
-            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Chat Messages */}
-        <View className="flex-1">
-          {messages.length === 0 && showSuggestions ? (
-            <ScrollView 
-              className="p-4"
-              showsVerticalScrollIndicator={false}
-            >
-              <Text className={`text-lg font-semibold mb-4 ${
-                isDark ? 'text-gray-300' : 'text-gray-700'
-              }`}>
-                Suggested Questions
-              </Text>
-              <View className="flex-row flex-wrap gap-2">
-                {suggestedQueries.map((query, index) => (
-                  <TouchableOpacity
-                    key={`${chatId}-query-${index}`}
-                    onPress={() => handleSuggestedQuery(query)}
-                    className={`rounded-full px-4 py-2 mb-2 ${
-                      isDark ? 'bg-gray-800' : 'bg-blue-50'
-                    }`}
-                  >
-                    <Text className={isDark ? 'text-blue-400' : 'text-blue-600'}>
-                      {query}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <View className="items-center mt-6 p-4">
-                <View className={`rounded-full p-4 ${
-                  isDark ? 'bg-gray-800' : 'bg-blue-50'
+          {/* Chat Area */}
+          <View className="flex-1">
+            {messages.length === 0 && showSuggestions ? (
+              <ScrollView 
+                className="p-4"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text className={`text-lg font-semibold mb-4 ${
+                  isDark ? 'text-gray-300' : 'text-gray-700'
                 }`}>
-                  <Ionicons 
-                    name="chatbubble-ellipses" 
-                    size={32} 
-                    color={isDark ? '#60A5FA' : '#3B82F6'} 
-                  />
-                </View>
-                <Text className={`text-center mt-4 ${
-                  isDark ? 'text-gray-400' : 'text-gray-600'
-                }`}>
-                  Ask me anything about Parrot Analyzer!
+                  Suggested Questions
                 </Text>
-              </View>
-            </ScrollView>
-          ) : (
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              keyExtractor={item => item.id}
-              renderItem={renderMessage}
-              className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
-              contentContainerStyle={{ paddingVertical: 16 }}
-            />
-          )}
-        </View>
-
-        {/* Input Area */}
-        <View 
-          className={`p-4 ${isDark ? 'bg-gray-800' : 'bg-white'} border-t ${
-            isDark ? 'border-gray-700' : 'border-gray-200'
-          }`}
-        >
-          <View className="flex-row items-center space-x-2">
-            <TextInput
-              value={message}
-              onChangeText={setMessage}
-              placeholder="Type your message..."
-              placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-              className={`flex-1 px-4 py-2 rounded-full ${
-                isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
-              }`}
-              style={styles.input}
-              multiline
-              maxLength={500}
-            />
-            <TouchableOpacity
-              onPress={sendMessage}
-              disabled={isLoading || !message.trim()}
-              className={`p-3 rounded-full ${
-                message.trim() ? 'bg-blue-500' : 'bg-gray-400'
-              } ${styles.sendButton}`}
-              style={styles.elevation}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Ionicons name="send" size={24} color="white" />
-              )}
-            </TouchableOpacity>
+                <View className="flex-row flex-wrap gap-2">
+                  {suggestedQueries.map((query, index) => (
+                    <TouchableOpacity
+                      key={`${chatId}-query-${index}`}
+                      onPress={() => handleSuggestedQuery(query)}
+                      className={`rounded-full px-4 py-2 mb-2 ${
+                        isDark ? 'bg-gray-800' : 'bg-blue-50'
+                      }`}
+                    >
+                      <Text className={isDark ? 'text-blue-400' : 'text-blue-600'}>
+                        {query}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View className="items-center mt-6 p-4">
+                  <View className={`rounded-full p-4 ${
+                    isDark ? 'bg-gray-800' : 'bg-blue-50'
+                  }`}>
+                    <Ionicons 
+                      name="chatbubble-ellipses" 
+                      size={32} 
+                      color={isDark ? '#60A5FA' : '#3B82F6'} 
+                    />
+                  </View>
+                  <Text className={`text-center mt-4 ${
+                    isDark ? 'text-gray-400' : 'text-gray-600'
+                  }`}>
+                    Ask me anything about Parrot Analyzer!
+                  </Text>
+                </View>
+              </ScrollView>
+            ) : (
+              <FlatList
+                ref={flatListRef}
+                data={[...messages].reverse()}
+                keyExtractor={item => item.id}
+                renderItem={renderMessage}
+                className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
+                contentContainerStyle={{ 
+                  paddingVertical: 16,
+                  flexGrow: 1,
+                }}
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={5}
+                windowSize={5}
+                initialNumToRender={10}
+                updateCellsBatchingPeriod={50}
+                onEndReachedThreshold={0.5}
+                inverted
+              />
+            )}
           </View>
-        </View>
-      </LinearGradient>
-    </KeyboardAvoidingView>
+
+          {/* Input Area */}
+          <View 
+            className={`p-4 ${isDark ? 'bg-gray-800/90' : 'bg-white/90'} border-t ${
+              isDark ? 'border-gray-700' : 'border-gray-200'
+            }`}
+            style={{
+              shadowColor: isDark ? '#000' : '#666',
+              shadowOffset: { width: 0, height: -3 },
+              shadowOpacity: 0.1,
+              shadowRadius: 4,
+              elevation: 5
+            }}
+          >
+            <View className="flex-row items-end space-x-2 gap-2">
+              <View className={`flex-1 rounded-2xl ${
+                isDark ? 'bg-gray-700' : 'bg-gray-100'
+              }`}>
+                <TextInput
+                  value={message}
+                  onChangeText={setMessage}
+                  placeholder="Type your message..."
+                  placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                  className={`px-4 py-3 min-h-[44px] max-h-[120px] ${
+                    isDark ? 'text-white' : 'text-gray-900'
+                  }`}
+                  style={styles.input}
+                  multiline
+                  maxLength={500}
+                />
+              </View>
+              <TouchableOpacity
+                onPress={sendMessage}
+                disabled={isLoading || !message.trim()}
+                className={`p-2.5 rounded-full ${
+                  message.trim() 
+                    ? isDark ? 'bg-blue-600' : 'bg-blue-500'
+                    : isDark ? 'bg-gray-700' : 'bg-gray-300'
+                }`}
+                style={styles.sendButton}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <Ionicons 
+                    name="send" 
+                    size={22} 
+                    color="white" 
+                    style={{ marginLeft: 2 }} 
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </LinearGradient>
+      </KeyboardAvoidingView>
+    </>
   );
 }
 

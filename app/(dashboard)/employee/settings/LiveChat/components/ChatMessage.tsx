@@ -1,8 +1,6 @@
-import React from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { format } from 'date-fns';
+import React, { memo } from 'react';
+import { View, Text, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Markdown from 'react-native-markdown-display';
 
 interface ChatMessageProps {
   message: string;
@@ -12,159 +10,178 @@ interface ChatMessageProps {
   isStreaming?: boolean;
 }
 
-export default function ChatMessage({ message, isUser, timestamp, isDark, isStreaming }: ChatMessageProps) {
-  const markdownStyles = {
-    body: {
-      color: isDark ? '#FFFFFF' : '#1F2937',
-    },
-    heading1: {
-      color: isDark ? '#FFFFFF' : '#1F2937',
-      fontSize: 20,
-      marginBottom: 8,
-    },
-    heading2: {
-      color: isDark ? '#FFFFFF' : '#1F2937',
-      fontSize: 18,
-      marginBottom: 8,
-    },
-    paragraph: {
-      color: isDark ? '#FFFFFF' : '#1F2937',
-      fontSize: 16,
-      lineHeight: 24,
-    },
-    link: {
-      color: isDark ? '#60A5FA' : '#3B82F6',
-    },
-    list_item: {
-      color: isDark ? '#FFFFFF' : '#1F2937',
-    },
-    code_inline: {
-      backgroundColor: isDark ? '#374151' : '#F3F4F6',
-      color: isDark ? '#60A5FA' : '#3B82F6',
-      padding: 4,
-      borderRadius: 4,
-    },
-    code_block: {
-      backgroundColor: isDark ? '#374151' : '#F3F4F6',
-      padding: 8,
-      borderRadius: 8,
-      marginVertical: 8,
-    },
+const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: ChatMessageProps) => {
+  const { width } = useWindowDimensions();
+  const timeString = timestamp.toLocaleTimeString([], { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+
+  const formatMessage = (text: string) => {
+    const lines = text.split('\n');
+    return lines.map((line, index) => {
+      // Handle numbered steps (e.g., "1. Step")
+      if (/^\*\*\d+\./i.test(line)) {
+        return (
+          <Text 
+            key={index} 
+            style={{ 
+              marginBottom: 12,
+              marginTop: 4,
+              fontFamily: 'System',
+              fontSize: 16,
+              fontWeight: '700',
+              color: isUser ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1F2937',
+            }}
+          >
+            {line.replace(/\*\*/g, '')}
+          </Text>
+        );
+      }
+      // Handle bullet points - convert to clean text with bullet
+      else if (line.trim().startsWith('-')) {
+        const cleanText = line.trim().substring(1).trim(); // Remove the dash and trim spaces
+        return (
+          <Text 
+            key={index} 
+            style={{ 
+              marginLeft: 16, 
+              marginBottom: 8,
+              fontSize: 15,
+              lineHeight: 22,
+              color: isUser ? '#FFFFFF' : isDark ? '#E5E7EB' : '#4B5563',
+            }}
+          >
+            <Text style={{ marginRight: 8 }}>•</Text> {cleanText}
+          </Text>
+        );
+      }
+      // Handle emphasized text (remove ** but keep bold style)
+      else if (line.includes('**')) {
+        const cleanText = line.replace(/\*\*/g, '');
+        return (
+          <Text 
+            key={index} 
+            style={{ 
+              marginBottom: 8,
+              fontSize: 15,
+              lineHeight: 22,
+              fontWeight: '600',
+              color: isUser ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1F2937',
+            }}
+          >
+            {cleanText}
+          </Text>
+        );
+      }
+      // Regular text
+      return line ? (
+        <Text 
+          key={index} 
+          style={{ 
+            marginBottom: 8,
+            fontSize: 15,
+            lineHeight: 22,
+            color: isUser ? '#FFFFFF' : isDark ? '#E5E7EB' : '#4B5563',
+          }}
+        >
+          {line}
+        </Text>
+      ) : null;
+    });
   };
 
   return (
-    <View style={[
-      styles.container,
-      isUser ? styles.userContainer : styles.botContainer
-    ]}>
-      <View style={[
-        styles.messageContainer,
-        isUser ? styles.userMessage : styles.botMessage,
-        isDark ? styles.darkMessage : styles.lightMessage
-      ]}>
+    <View className={`px-4 py-2 ${isUser ? 'items-end' : 'items-start'}`}>
+      <View className={`flex-row items-end gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
         {!isUser && (
-          <View style={styles.avatar}>
-            <Ionicons name="logo-github" size={24} color={isDark ? '#60A5FA' : '#3B82F6'} />
+          <View className={`rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'} p-2.5`}>
+            <Ionicons 
+              name="chatbubble-ellipses" 
+              size={20} 
+              color={isDark ? '#60A5FA' : '#3B82F6'} 
+            />
           </View>
         )}
-        <View style={styles.textContainer}>
+        <View 
+          className={`rounded-2xl px-4 py-3 ${
+            isUser 
+              ? 'bg-blue-500'
+              : isDark ? 'bg-gray-800' : 'bg-white'
+          } shadow-sm`}
+          style={{ 
+            maxWidth: Math.min(width * 0.75, 400),
+            minWidth: 50,
+            borderWidth: !isDark && !isUser ? 1 : 0,
+            borderColor: '#E5E7EB',
+            position: 'relative',
+          }}
+        >
           {isStreaming ? (
-            <View style={styles.typingIndicator}>
-              <ActivityIndicator size="small" color={isDark ? '#60A5FA' : '#3B82F6'} />
-              <Text style={[
-                styles.typingText,
-                isDark ? styles.darkText : styles.lightText
-              ]}>
-                Typing...
-              </Text>
+            <View className="flex-row items-center gap-2 py-2">
+              <View className="flex-row gap-1.5 px-2">
+                <TypingDot delay={0} isDark={isDark} />
+                <TypingDot delay={300} isDark={isDark} />
+                <TypingDot delay={600} isDark={isDark} />
+              </View>
             </View>
-          ) : isUser ? (
-            <Text style={[
-              styles.messageText,
-              isDark ? styles.darkText : styles.lightText
-            ]}>
-              {message}
-            </Text>
           ) : (
-            <Markdown style={markdownStyles} mergeStyle={true}>
-              {message}
-            </Markdown>
+            <>
+              <View style={{ paddingVertical: 2, paddingRight: 48 }}>
+                {formatMessage(message)}
+              </View>
+              <Text 
+                style={{ 
+                  position: 'absolute',
+                  bottom: 8,
+                  right: 12,
+                  fontSize: 11,
+                  color: isUser 
+                    ? 'rgba(255, 255, 255, 0.7)'
+                    : isDark ? '#9CA3AF' : '#6B7280',
+                }}
+              >
+                {timeString}
+              </Text>
+            </>
           )}
-          <Text style={[
-            styles.timestamp,
-            isDark ? styles.darkTimestamp : styles.lightTimestamp
-          ]}>
-            {format(timestamp, 'HH:mm')}
-          </Text>
         </View>
       </View>
     </View>
   );
-}
+});
 
-const styles = StyleSheet.create({
-  container: {
-    marginVertical: 4,
-    paddingHorizontal: 16,
-  },
-  userContainer: {
-    alignItems: 'flex-end',
-  },
-  botContainer: {
-    alignItems: 'flex-start',
-  },
-  messageContainer: {
-    flexDirection: 'row',
-    maxWidth: '80%',
-    borderRadius: 16,
-    padding: 12,
-  },
-  userMessage: {
-    backgroundColor: '#3B82F6',
-  },
-  botMessage: {
-    backgroundColor: '#F3F4F6',
-  },
-  darkMessage: {
-    backgroundColor: '#374151',
-  },
-  lightMessage: {
-    backgroundColor: '#F3F4F6',
-  },
-  avatar: {
-    marginRight: 8,
-    alignSelf: 'flex-start',
-  },
-  textContainer: {
-    flex: 1,
-  },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  darkText: {
-    color: '#FFFFFF',
-  },
-  lightText: {
-    color: '#1F2937',
-  },
-  timestamp: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  darkTimestamp: {
-    color: '#9CA3AF',
-  },
-  lightTimestamp: {
-    color: '#6B7280',
-  },
-  typingIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 8,
-  },
-  typingText: {
-    marginLeft: 8,
-    fontSize: 14,
-  },
-}); 
+// Enhanced typing indicator dot with smoother animation
+const TypingDot = ({ delay, isDark }: { delay: number; isDark: boolean }) => {
+  const [opacity, setOpacity] = React.useState(0.3);
+
+  React.useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    const animate = () => {
+      timeoutId = setTimeout(() => {
+        setOpacity(prev => prev === 0.3 ? 1 : 0.3);
+        animate();
+      }, 500);
+    };
+
+    setTimeout(() => animate(), delay);
+    return () => clearTimeout(timeoutId);
+  }, [delay]);
+
+  return (
+    <View
+      style={{
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: isDark ? '#60A5FA' : '#3B82F6',
+        opacity,
+        transform: [{ scale: opacity === 1 ? 1.2 : 1 }],
+      }}
+    />
+  );
+};
+
+ChatMessage.displayName = 'ChatMessage';
+
+export default ChatMessage; 
