@@ -52,17 +52,59 @@ export default function LeaveAnalytics() {
   const fetchAnalytics = async () => {
     try {
       setLoading(true);
+      setError(null);
+
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/analytics`,
         {
           headers: { Authorization: `Bearer ${token}` },
-          params: dateRange,
+          params: dateRange
         }
       );
-      setAnalytics(response.data);
-    } catch (error) {
+
+      if (response.data) {
+        // Ensure all required properties exist
+        const analyticsData = {
+          statistics: {
+            total_requests: response.data.statistics?.total_requests || 0,
+            approved_requests: response.data.statistics?.approved_requests || 0,
+            pending_requests: response.data.statistics?.pending_requests || 0,
+            rejected_requests: response.data.statistics?.rejected_requests || 0
+          },
+          typeDistribution: response.data.typeDistribution || [],
+          trend: response.data.trend || []
+        };
+        setAnalytics(analyticsData);
+      } else {
+        setAnalytics({
+          statistics: {
+            total_requests: 0,
+            approved_requests: 0,
+            pending_requests: 0,
+            rejected_requests: 0
+          },
+          typeDistribution: [],
+          trend: []
+        });
+      }
+    } catch (error: any) {
       console.error('Error fetching analytics:', error);
-      setError('Failed to fetch analytics');
+      const errorMessage = error.response?.data?.details || 
+                          error.response?.data?.error || 
+                          'Failed to fetch analytics data';
+      setError(errorMessage);
+      
+      // Set empty analytics state on error
+      setAnalytics({
+        statistics: {
+          total_requests: 0,
+          approved_requests: 0,
+          pending_requests: 0,
+          rejected_requests: 0
+        },
+        typeDistribution: [],
+        trend: []
+      });
     } finally {
       setLoading(false);
     }
@@ -86,6 +128,35 @@ export default function LeaveAnalytics() {
     );
   }
 
+  if (error) {
+    return (
+      <View className="flex-1 justify-center items-center p-4">
+        <Ionicons
+          name="alert-circle-outline"
+          size={48}
+          color={isDark ? '#EF4444' : '#DC2626'}
+        />
+        <Text className={`text-lg text-center mt-4 mb-2 ${
+          isDark ? 'text-white' : 'text-gray-900'
+        }`}>
+          Unable to Load Analytics
+        </Text>
+        <Text className={`text-sm text-center mb-6 ${
+          isDark ? 'text-gray-400' : 'text-gray-600'
+        }`}>
+          {error}
+        </Text>
+        <TouchableOpacity
+          onPress={fetchAnalytics}
+          className="bg-blue-500 px-6 py-3 rounded-lg flex-row items-center"
+        >
+          <Ionicons name="refresh" size={20} color="white" style={{ marginRight: 8 }} />
+          <Text className="text-white font-medium">Try Again</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const chartConfig = {
     backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
     backgroundGradientFrom: isDark ? '#1F2937' : '#FFFFFF',
@@ -97,10 +168,16 @@ export default function LeaveAnalytics() {
       borderRadius: 16,
     },
     propsForDots: {
-      r: '6',
+      r: '4',
       strokeWidth: '2',
       stroke: '#3B82F6',
     },
+    propsForLabels: {
+      fontSize: 10,
+    },
+    barPercentage: 0.5,
+    useShadowColorFromDataset: false,
+    strokeWidth: 2,
   };
 
   return (
@@ -169,20 +246,16 @@ export default function LeaveAnalytics() {
       </View>
 
       {/* Leave Type Distribution */}
-      <View className={`p-4 rounded-lg mb-6 ${
-        isDark ? 'bg-gray-800' : 'bg-white'
-      }`}>
-        <Text className={`text-lg font-semibold mb-4 ${
-          isDark ? 'text-white' : 'text-gray-900'
-        }`}>
+      <View className={`p-4 rounded-lg mb-6 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+        <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
           Leave Type Distribution
         </Text>
-        {analytics.typeDistribution.length > 0 ? (
+        {analytics.typeDistribution && analytics.typeDistribution.length > 0 ? (
           <BarChart
             data={{
-              labels: analytics.typeDistribution.map(d => d.leave_type.substring(0, 10)),
+              labels: analytics.typeDistribution.map(d => d.leave_type.substring(0, 10) + '...'),
               datasets: [{
-                data: analytics.typeDistribution.map(d => d.request_count)
+                data: analytics.typeDistribution.map(d => Number(d.request_count))
               }]
             }}
             width={screenWidth - 32}
@@ -190,16 +263,13 @@ export default function LeaveAnalytics() {
             yAxisLabel=""
             yAxisSuffix=""
             chartConfig={{
-              backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-              backgroundGradientFrom: isDark ? '#1F2937' : '#FFFFFF',
-              backgroundGradientTo: isDark ? '#1F2937' : '#FFFFFF',
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`,
-              labelColor: (opacity = 1) => isDark ? `rgba(156, 163, 175, ${opacity})` : `rgba(107, 114, 128, ${opacity})`,
+              ...chartConfig,
               barPercentage: 0.7,
-              style: {
-                borderRadius: 16,
-              },
+              formatYLabel: (yLabel) => Math.round(parseFloat(yLabel)).toString(),
+              propsForLabels: {
+                ...chartConfig.propsForLabels,
+                rotation: -45
+              }
             }}
             style={{
               marginVertical: 8,
@@ -207,76 +277,81 @@ export default function LeaveAnalytics() {
             }}
             fromZero
             showValuesOnTopOfBars
+            withInnerLines={false}
+            segments={4}
           />
         ) : (
           <View className="h-[220px] flex items-center justify-center">
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              No leave type data available
+            <Ionicons
+              name="bar-chart-outline"
+              size={48}
+              color={isDark ? '#4B5563' : '#9CA3AF'}
+            />
+            <Text className={`text-sm mt-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              No leave type data available for the selected period
             </Text>
           </View>
         )}
       </View>
 
       {/* Monthly Trend */}
-      <View className={`p-4 rounded-lg mb-6 ${
-        isDark ? 'bg-gray-800' : 'bg-white'
-      }`}>
-        <Text className={`text-lg font-semibold mb-4 ${
-          isDark ? 'text-white' : 'text-gray-900'
-        }`}>
+      <View className={`p-4 rounded-lg mb-6 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+        <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
           Leave Request Trend
         </Text>
-        {analytics.trend.length > 0 ? (
+        {analytics.trend && analytics.trend.length > 0 ? (
           <LineChart
             data={{
               labels: analytics.trend.map(t => format(new Date(t.date), 'dd/MM')),
               datasets: [{
-                data: analytics.trend.map(t => t.request_count)
+                data: analytics.trend.map(t => Number(t.request_count) || 0),
+                color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`,
+                strokeWidth: 2
               }]
             }}
             width={screenWidth - 32}
             height={220}
             chartConfig={{
-              backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-              backgroundGradientFrom: isDark ? '#1F2937' : '#FFFFFF',
-              backgroundGradientTo: isDark ? '#1F2937' : '#FFFFFF',
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`,
-              labelColor: (opacity = 1) => isDark ? `rgba(156, 163, 175, ${opacity})` : `rgba(107, 114, 128, ${opacity})`,
-              style: {
-                borderRadius: 16,
-              },
+              ...chartConfig,
+              formatYLabel: (yLabel) => Math.round(parseFloat(yLabel)).toString(),
               propsForDots: {
-                r: '6',
-                strokeWidth: '2',
-                stroke: '#3B82F6',
-              },
+                r: "4",
+                strokeWidth: "2",
+                stroke: "#3B82F6"
+              }
             }}
             style={{
               marginVertical: 8,
               borderRadius: 16
             }}
             bezier
+            withInnerLines={false}
+            withVerticalLines={false}
+            withHorizontalLines={true}
+            withVerticalLabels={true}
+            withHorizontalLabels={true}
+            segments={4}
           />
         ) : (
           <View className="h-[220px] flex items-center justify-center">
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              No trend data available
+            <Ionicons
+              name="trending-up-outline"
+              size={48}
+              color={isDark ? '#4B5563' : '#9CA3AF'}
+            />
+            <Text className={`text-sm mt-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              No trend data available for the selected period
             </Text>
           </View>
         )}
       </View>
 
       {/* Status Distribution */}
-      <View className={`p-4 rounded-lg mb-6 ${
-        isDark ? 'bg-gray-800' : 'bg-white'
-      }`}>
-        <Text className={`text-lg font-semibold mb-4 ${
-          isDark ? 'text-white' : 'text-gray-900'
-        }`}>
+      <View className={`p-4 rounded-lg mb-6 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+        <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
           Request Status Distribution
         </Text>
-        {analytics.statistics.total_requests > 0 ? (
+        {analytics.statistics && analytics.statistics.total_requests > 0 ? (
           <PieChart
             data={[
               {
@@ -297,20 +372,10 @@ export default function LeaveAnalytics() {
                 color: '#EF4444',
                 legendFontColor: isDark ? '#9CA3AF' : '#4B5563',
               },
-            ]}
+            ].filter(item => item.population > 0)}
             width={screenWidth - 32}
             height={220}
-            chartConfig={{
-              backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-              backgroundGradientFrom: isDark ? '#1F2937' : '#FFFFFF',
-              backgroundGradientTo: isDark ? '#1F2937' : '#FFFFFF',
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`,
-              labelColor: (opacity = 1) => isDark ? `rgba(156, 163, 175, ${opacity})` : `rgba(107, 114, 128, ${opacity})`,
-              style: {
-                borderRadius: 16,
-              },
-            }}
+            chartConfig={chartConfig}
             accessor="population"
             backgroundColor="transparent"
             paddingLeft="15"
@@ -318,7 +383,12 @@ export default function LeaveAnalytics() {
           />
         ) : (
           <View className="h-[220px] flex items-center justify-center">
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            <Ionicons
+              name="pie-chart-outline"
+              size={48}
+              color={isDark ? '#4B5563' : '#9CA3AF'}
+            />
+            <Text className={`text-sm mt-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
               No status distribution data available
             </Text>
           </View>

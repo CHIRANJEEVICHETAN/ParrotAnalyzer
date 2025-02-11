@@ -109,18 +109,18 @@ export default function GroupAdminDashboard() {
     // Add new section for Leave Management
     const leaveManagementActions = [
         {
-            title: 'Leave Requests',
+            title: 'Leave Management',
             icon: 'calendar-outline',
             color: '#EC4899', // Pink color for distinction
             route: '/(dashboard)/Group-Admin/leave-management',
             description: 'Manage employee leave requests'
         },
         {
-            title: 'Leave Balance',
+            title: 'Leave Insights',
             icon: 'time-outline',
             color: '#6366F1', // Indigo color
-            route: '/(dashboard)/Group-Admin/leave-management/balance',
-            description: 'Configure leave balance settings'
+            route: '/(dashboard)/Group-Admin/leave-insights',
+            description: 'View leave balance and request for leaves'
         }
     ];
 
