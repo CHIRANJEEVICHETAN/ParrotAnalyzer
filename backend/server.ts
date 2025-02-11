@@ -20,6 +20,7 @@ import pdfReportRoutes from './src/routes/pdf-reports';
 import superAdminRoutes from './src/routes/super';
 import chatRoutes from './src/routes/chat';
 import leaveManagementRoutes from './src/routes/leave-management';
+import groupAdminLeaveRouter from './src/routes/group-admin-leave';
 
 dotenv.config();
 
@@ -55,6 +56,7 @@ app.use('/pdf-reports', pdfReportRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/leave-management', leaveManagementRoutes);
+app.use('/api/group-admin-leave', groupAdminLeaveRouter);
 
 // Test route at root level
 app.get('/api/test', (req, res) => {
@@ -110,6 +112,7 @@ initDB()
       console.log('- /pdf-reports/*');
       console.log('- /api/chat/*');
       console.log('- /api/leave-management/*');
+      console.log('- /api/group-admin-leave/*');
     });
   })
   .catch(error => {

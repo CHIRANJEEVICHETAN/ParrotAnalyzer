@@ -400,7 +400,7 @@ export default function LeavePolicies() {
           </ScrollView>
 
           {/* Action Buttons */}
-          <View className="flex-row space-x-4 mt-6">
+          <View className="flex-row space-x-4 mt-6 gap-4">
             <TouchableOpacity
               onPress={() => {
                 setShowAddModal(false);

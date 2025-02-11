@@ -3,8 +3,8 @@ import { View, Text, TouchableOpacity, ScrollView, Platform, StatusBar, StatusBa
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import LeaveApprovals from './components/LeaveApprovals';
-import LeaveBalanceTracker from './components/LeaveBalanceTracker';
-import LeaveAnalytics from './components/LeaveAnalytics';
+// import LeaveBalanceTracker from '../leave-insights/components/LeaveBalanceTracker';
+// import LeaveAnalytics from './components/LeaveAnalytics';
 import LeavePolicies from './components/LeavePolicies';
 import LeaveTypes from './components/LeaveTypes';
 import LeaveBalances from './components/LeaveBalances';
@@ -49,20 +49,20 @@ export default function LeaveManagement() {
       activeIcon: 'wallet',
       color: '#F59E0B'
     },
-    {
-      id: 'analytics',
-      label: 'Analytics',
-      icon: 'bar-chart-outline',
-      activeIcon: 'bar-chart',
-      color: '#8B5CF6'
-    },
-    {
-      id: 'balances-tracker',
-      label: 'Balances Tracker',
-      icon: 'hourglass-outline',
-      activeIcon: 'hourglass',
-      color: '#F59E0B'
-    },
+    // {
+    //   id: 'analytics',
+    //   label: 'Analytics',
+    //   icon: 'bar-chart-outline',
+    //   activeIcon: 'bar-chart',
+    //   color: '#8B5CF6'
+    // },
+    // {
+    //   id: 'balances-tracker',
+    //   label: 'Balances Tracker',
+    //   icon: 'hourglass-outline',
+    //   activeIcon: 'hourglass',
+    //   color: '#F59E0B'
+    // },
     {
       id: 'approvals',
       label: 'Approvals',
@@ -80,10 +80,10 @@ export default function LeaveManagement() {
         return <LeavePolicies />;
       case 'balances':
         return <LeaveBalances />;
-      case 'balances-tracker':
-        return <LeaveBalanceTracker />;
-      case 'analytics':
-        return <LeaveAnalytics />;
+      // case 'balances-tracker':
+      //   return <LeaveBalanceTracker />;
+      // case 'analytics':
+        // return <LeaveAnalytics />;
       case 'approvals':
         return <LeaveApprovals />;
       default:
