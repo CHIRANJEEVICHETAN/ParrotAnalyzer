@@ -11,6 +11,8 @@ import {
   StatusBar,
   RefreshControl,
   Modal as RNModal,
+  Platform,
+  StatusBar as RNStatusBar,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +22,13 @@ import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import LeaveRequests from './components/LeaveRequests';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
+import LeaveTypes from './components/LeaveTypes';
+import LeavePolicies from './components/LeavePolicies';
+import LeaveBalances from './components/LeaveBalances';
+import LeaveApprovals from './components/LeaveApprovals';
 
 interface LeaveRequest {
   id: number;
@@ -43,7 +52,23 @@ interface Filters {
   };
 }
 
-export default function LeaveManagement() {
+interface LeaveStats {
+  pending_requests: number;
+  approved_requests: number;
+  rejected_requests: number;
+}
+
+type TabType = 'types' | 'policies' | 'balances' | 'approvals';
+
+interface TabItem {
+  id: TabType;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+  color: string;
+}
+
+export default function GroupAdminLeaveManagement() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
   const router = useRouter();
@@ -67,9 +92,48 @@ export default function LeaveManagement() {
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerType, setDatePickerType] = useState<'start' | 'end'>('start');
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [stats, setStats] = useState<LeaveStats>({
+    pending_requests: 0,
+    approved_requests: 0,
+    rejected_requests: 0
+  });
+  const [activeTab, setActiveTab] = useState<TabType>('types');
+
+  const tabs: TabItem[] = [
+    {
+      id: 'types',
+      label: 'Types',
+      icon: 'layers-outline',
+      activeIcon: 'layers',
+      color: '#3B82F6'
+    },
+    {
+      id: 'policies',
+      label: 'Policies',
+      icon: 'shield-outline',
+      activeIcon: 'shield',
+      color: '#10B981'
+    },
+    {
+      id: 'balances',
+      label: 'Balances',
+      icon: 'wallet-outline',
+      activeIcon: 'wallet',
+      color: '#F59E0B'
+    },
+    {
+      id: 'approvals',
+      label: 'Approvals',
+      icon: 'checkmark-circle-outline',
+      activeIcon: 'checkmark-circle',
+      color: '#6366F1'
+    }
+  ];
 
   useEffect(() => {
     fetchLeaveRequests();
+    fetchStats();
   }, []);
 
   const fetchLeaveRequests = async () => {
@@ -115,13 +179,8 @@ export default function LeaveManagement() {
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    try {
-      await fetchLeaveRequests();
-    } catch (error) {
-      console.error('Error refreshing:', error);
-    } finally {
-      setRefreshing(false);
-    }
+    await fetchStats(false);
+    setRefreshing(false);
   }, []);
 
   const filteredRequests = React.useMemo(() => {
@@ -288,152 +347,150 @@ export default function LeaveManagement() {
     </RNModal>
   );
 
+  const fetchStats = async (useCache = true) => {
+    const cacheKey = 'group_admin_leave_stats';
+    const cacheExpiry = 5 * 60 * 1000; // 5 minutes
+
+    try {
+      if (useCache) {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < cacheExpiry) {
+            setStats(data);
+            setStatsLoading(false);
+            return;
+          }
+        }
+      }
+
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-statistics`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      setStats(response.data);
+      await AsyncStorage.setItem(cacheKey, JSON.stringify({
+        data: response.data,
+        timestamp: Date.now()
+      }));
+    } catch (error) {
+      console.error('Error fetching leave stats:', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'types':
+        return <LeaveTypes />;
+      case 'policies':
+        return <LeavePolicies />;
+      case 'balances':
+        return <LeaveBalances />;
+      case 'approvals':
+        return <LeaveApprovals />;
+      default:
+        return null;
+    }
+  };
+
   return (
-    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F3F4F6' }}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F9FAFB' }}>
       <StatusBar
         backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
         barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent
       />
 
-      {/* Header */}
-      <View 
-        className={`${isDark ? 'bg-gray-800' : 'bg-white'}`}
-        style={styles.header}
+      {/* Header with proper status bar spacing */}
+      <LinearGradient
+        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        style={[
+          styles.header,
+          { paddingTop: Platform.OS === 'ios' ? RNStatusBar.currentHeight || 44 : RNStatusBar.currentHeight || 0 }
+        ]}
       >
-        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+        <View className="flex-row items-center justify-between px-6 py-4">
           <TouchableOpacity
             onPress={() => router.back()}
-            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
-            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+            className={`p-2 rounded-full ${isDark ? 'bg-gray-800/80' : 'bg-gray-100'}`}
+            style={styles.backButton}
           >
-            <Ionicons 
-              name="arrow-back" 
-              size={24} 
-              color={isDark ? '#FFFFFF' : '#111827'} 
-            />
+            <Ionicons name="arrow-back" size={24} color={isDark ? '#E5E7EB' : '#374151'} />
           </TouchableOpacity>
-          <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
-            <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Leave Requests
-            </Text>
-          </View>
+          <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Leave Management
+          </Text>
           <View style={{ width: 40 }} />
         </View>
-      </View>
 
-      <ScrollView 
-        className="flex-1" 
-        contentContainerStyle={{ paddingBottom: 20 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[isDark ? '#60A5FA' : '#3B82F6']}
-            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
-            title="Pull to refresh"
-            titleColor={isDark ? '#60A5FA' : '#3B82F6'}
-          />
-        }
-      >
-        {renderFilters()}
-        {loading ? (
-          <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#3B82F6'} />
-        ) : filteredRequests.length === 0 ? (
-          <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              No leave requests found
-            </Text>
-          </View>
-        ) : (
-          filteredRequests.map((request, index) => (
-            <View 
-              key={request.id} 
-              className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} ${
-                index === filteredRequests.length - 1 ? 'mb-4' : ''
+        {/* Enhanced Tabs */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          className="px-4 pb-4"
+          contentContainerStyle={{ paddingRight: 20 }}
+        >
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              onPress={() => setActiveTab(tab.id)}
+              className={`flex-row items-center px-4 py-3 mr-3 rounded-xl ${
+                activeTab === tab.id
+                  ? isDark
+                    ? 'bg-gray-800'
+                    : 'bg-white'
+                  : isDark
+                  ? 'bg-gray-800/50'
+                  : 'bg-gray-100'
               }`}
-              style={styles.card}
+              style={[
+                styles.tabButton,
+                activeTab === tab.id && {
+                  shadowColor: tab.color,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 3.84,
+                  elevation: 5
+                }
+              ]}
             >
-              <View className="flex-row justify-between items-start mb-2">
-                <View>
-                  <Text className={`font-semibold text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    {request.user_name}
-                  </Text>
-                  <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {request.employee_number} • {request.department}
-                  </Text>
-                </View>
-                <View className={`px-3 py-1 rounded-full ${
-                  request.status === 'pending' ? 'bg-yellow-100' :
-                  request.status === 'approved' ? 'bg-green-100' : 'bg-red-100'
-                }`}>
-                  <Text className={
-                    request.status === 'pending' ? 'text-yellow-800' :
-                    request.status === 'approved' ? 'text-green-800' : 'text-red-800'
-                  }>
-                    {request.status.toUpperCase()}
-                  </Text>
-                </View>
-              </View>
+              <Ionicons
+                name={activeTab === tab.id ? tab.activeIcon : tab.icon}
+                size={20}
+                color={activeTab === tab.id ? tab.color : isDark ? '#9CA3AF' : '#6B7280'}
+                style={{ marginRight: 8 }}
+              />
+              <Text
+                className={`font-medium ${
+                  activeTab === tab.id
+                    ? isDark
+                      ? 'text-white'
+                      : 'text-gray-900'
+                    : isDark
+                    ? 'text-gray-400'
+                    : 'text-gray-600'
+                }`}
+                style={activeTab === tab.id ? { color: tab.color } : {}}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </LinearGradient>
 
-              <View className="mb-4">
-                <Text className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                  {request.leave_type} Leave
-                </Text>
-                <Text className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {new Date(request.start_date).toLocaleDateString()} - {new Date(request.end_date).toLocaleDateString()}
-                </Text>
-                <Text className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {request.reason}
-                </Text>
-              </View>
-
-              {request.status === 'pending' && (
-                <View className="flex-row space-x-2 gap-3">
-                  <TouchableOpacity
-                    onPress={() => handleAction(request.id, 'approve')}
-                    disabled={actionLoading === request.id}
-                    className={`flex-1 bg-green-500 p-2 rounded-lg ${
-                      actionLoading === request.id ? 'opacity-70' : ''
-                    }`}
-                  >
-                    {actionLoading === request.id ? (
-                      <View className="flex-row items-center justify-center">
-                        <ActivityIndicator color="white" size="small" style={{ marginRight: 8 }} />
-                        <Text className="text-white text-center font-medium">
-                          Approving...
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text className="text-white text-center font-medium">Approve</Text>
-                    )}
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    onPress={() => {
-                      setSelectedRequest(request.id);
-                      setShowRejectModal(true);
-                    }}
-                    disabled={actionLoading === request.id}
-                    className={`flex-1 bg-red-500 p-2 rounded-lg ${
-                      actionLoading === request.id ? 'opacity-70' : ''
-                    }`}
-                  >
-                    {actionLoading === request.id ? (
-                      <View className="flex-row items-center justify-center">
-                        <ActivityIndicator color="white" size="small" style={{ marginRight: 8 }} />
-                        <Text className="text-white text-center font-medium">
-                          Rejecting...
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text className="text-white text-center font-medium">Reject</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          ))
-        )}
+      {/* Content */}
+      <ScrollView 
+        className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.contentContainer}
+      >
+        {renderContent()}
       </ScrollView>
 
       {/* Add Reject Modal */}
@@ -528,12 +585,24 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
   },
-  card: {
+  backButton: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
     elevation: 2,
+  },
+  tabButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18,
+    shadowRadius: 1.0,
+    elevation: 1,
+  },
+  contentContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 20,
   },
   filterModal: {
     shadowColor: '#000',

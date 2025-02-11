@@ -302,6 +302,7 @@ export const initDB = async () => {
       CREATE TABLE IF NOT EXISTS leave_requests (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        group_admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
         leave_type_id INTEGER REFERENCES leave_types(id),
         start_date DATE NOT NULL,
         end_date DATE NOT NULL,
@@ -311,10 +312,40 @@ export const initDB = async () => {
         rejection_reason TEXT,
         contact_number VARCHAR(20) NOT NULL,
         requires_documentation BOOLEAN DEFAULT false,
-        documentation_url TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      -- Add group_admin_id if it doesn't exist
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'leave_requests' 
+          AND column_name = 'group_admin_id'
+        ) THEN
+          ALTER TABLE leave_requests 
+          ADD COLUMN group_admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+          
+          -- Update existing leave requests with group_admin_id from the user's group_admin
+          UPDATE leave_requests lr
+          SET group_admin_id = u.group_admin_id
+          FROM users u
+          WHERE lr.user_id = u.id
+          AND lr.group_admin_id IS NULL;
+        END IF;
+      END $$;
+
+      -- Add indexes for better query performance
+      CREATE INDEX IF NOT EXISTS idx_leave_requests_group_admin 
+      ON leave_requests(group_admin_id);
+      
+      CREATE INDEX IF NOT EXISTS idx_leave_requests_status 
+      ON leave_requests(status);
+      
+      CREATE INDEX IF NOT EXISTS idx_leave_requests_dates 
+      ON leave_requests(start_date, end_date);
 
       -- Leave escalations table
       CREATE TABLE IF NOT EXISTS leave_escalations (
@@ -374,6 +405,49 @@ export const initDB = async () => {
       ALTER TABLE leave_requests 
       DROP COLUMN IF EXISTS documentation_url,
       ADD COLUMN IF NOT EXISTS has_documentation BOOLEAN DEFAULT false;
+    `);
+
+    // Add group admin leave audit table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_admin_leave_audit (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER REFERENCES leave_requests(id) ON DELETE CASCADE,
+        group_admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        action VARCHAR(20) NOT NULL CHECK (action IN ('approve', 'reject', 'escalate')),
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        previous_status VARCHAR(20) NOT NULL,
+        new_status VARCHAR(20) NOT NULL
+      );
+
+      -- Create a function for the trigger
+      CREATE OR REPLACE FUNCTION check_group_admin_role()
+      RETURNS TRIGGER AS $$
+      BEGIN
+          IF NOT EXISTS (
+              SELECT 1 FROM users 
+              WHERE id = NEW.group_admin_id 
+              AND role = 'group-admin'
+          ) THEN
+              RAISE EXCEPTION 'User % is not a group admin', NEW.group_admin_id;
+          END IF;
+          RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      -- Create the trigger
+      DROP TRIGGER IF EXISTS ensure_group_admin_role ON group_admin_leave_audit;
+      CREATE TRIGGER ensure_group_admin_role
+          BEFORE INSERT OR UPDATE ON group_admin_leave_audit
+          FOR EACH ROW
+          EXECUTE FUNCTION check_group_admin_role();
+
+      -- Create indexes for better performance
+      CREATE INDEX IF NOT EXISTS idx_group_admin_leave_audit_request 
+      ON group_admin_leave_audit(request_id);
+      
+      CREATE INDEX IF NOT EXISTS idx_group_admin_leave_audit_admin 
+      ON group_admin_leave_audit(group_admin_id);
     `);
 
     // Add these lines after other table creation
