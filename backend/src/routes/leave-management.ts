@@ -505,6 +505,14 @@ router.post('/leave-policies', authMiddleware, managementMiddleware, async (req:
       rules
     } = req.body;
 
+    // Validate gender_specific value
+    if (gender_specific && !['male', 'female'].includes(gender_specific)) {
+      return res.status(400).json({ 
+        error: 'Invalid Value',
+        details: 'Gender specific value must be either "male", "female", or null'
+      });
+    }
+
     // Start a transaction
     const client = await pool.connect();
     try {
@@ -626,7 +634,56 @@ router.put('/leave-policies/:id', authMiddleware, managementMiddleware, async (r
 // Get leave analytics
 router.get('/analytics', authMiddleware, managementMiddleware, async (req: CustomRequest, res: Response) => {
   try {
-    const { start_date, end_date } = req.query;
+    // Default to last 30 days if no dates provided
+    const defaultStartDate = new Date();
+    defaultStartDate.setMonth(defaultStartDate.getMonth() - 1);
+    
+    let startDate = req.query.start_date ? new Date(req.query.start_date as string) : defaultStartDate;
+    let endDate = req.query.end_date ? new Date(req.query.end_date as string) : new Date();
+
+    // Validate dates
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return res.status(400).json({ 
+        error: 'Invalid date format',
+        details: 'Please provide dates in YYYY-MM-DD format'
+      });
+    }
+
+    // Ensure we have the user ID
+    if (!req.user?.id) {
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        details: 'User ID not found'
+      });
+    }
+
+    // Get all users under management's company
+    const usersQuery = `
+      SELECT array_agg(id) as user_ids
+      FROM users
+      WHERE company_id = (
+        SELECT company_id 
+        FROM users 
+        WHERE id = $1
+      )
+      AND role IN ('employee', 'group-admin');
+    `;
+
+    const usersResult = await pool.query(usersQuery, [req.user.id]);
+    const userIds = usersResult.rows[0]?.user_ids || [];
+
+    if (userIds.length === 0) {
+      return res.json({
+        statistics: {
+          total_requests: 0,
+          approved_requests: 0,
+          pending_requests: 0,
+          rejected_requests: 0
+        },
+        typeDistribution: [],
+        trend: []
+      });
+    }
 
     // Get overall statistics
     const statsResult = await pool.query(
@@ -635,9 +692,10 @@ router.get('/analytics', authMiddleware, managementMiddleware, async (req: Custo
          COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_requests,
          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_requests,
          COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_requests
-       FROM leave_requests
-       WHERE created_at BETWEEN $1 AND $2`,
-      [start_date, end_date]
+       FROM leave_requests lr
+       WHERE lr.user_id = ANY($1)
+       AND lr.created_at BETWEEN $2 AND $3`,
+      [userIds, startDate.toISOString(), endDate.toISOString()]
     );
 
     // Get leave type distribution
@@ -647,31 +705,59 @@ router.get('/analytics', authMiddleware, managementMiddleware, async (req: Custo
          COUNT(*) as request_count
        FROM leave_requests lr
        JOIN leave_types lt ON lr.leave_type_id = lt.id
-       WHERE lr.created_at BETWEEN $1 AND $2
-       GROUP BY lt.name`,
-      [start_date, end_date]
+       WHERE lr.user_id = ANY($1)
+       AND lr.created_at BETWEEN $2 AND $3
+       GROUP BY lt.name, lt.id
+       ORDER BY request_count DESC`,
+      [userIds, startDate.toISOString(), endDate.toISOString()]
     );
 
-    // Get daily trend
+    // Get daily trend with proper date handling
     const trend = await pool.query(
-      `SELECT 
-         DATE(created_at) as date,
-         COUNT(*) as request_count
-       FROM leave_requests
-       WHERE created_at BETWEEN $1 AND $2
-       GROUP BY DATE(created_at)
-       ORDER BY date`,
-      [start_date, end_date]
+      `WITH RECURSIVE dates AS (
+         SELECT date_trunc('day', $1::timestamp)::date as date
+         UNION ALL
+         SELECT (date + interval '1 day')::date
+         FROM dates
+         WHERE date < date_trunc('day', $2::timestamp)::date
+       ),
+       daily_counts AS (
+         SELECT 
+           date_trunc('day', created_at)::date as date,
+           COUNT(*) as request_count
+         FROM leave_requests
+         WHERE user_id = ANY($3)
+         AND created_at BETWEEN $1 AND $2
+         GROUP BY date_trunc('day', created_at)::date
+       )
+       SELECT 
+         to_char(d.date, 'YYYY-MM-DD') as date,
+         COALESCE(dc.request_count, 0) as request_count
+       FROM dates d
+       LEFT JOIN daily_counts dc ON d.date = dc.date
+       ORDER BY d.date`,
+      [startDate.toISOString(), endDate.toISOString(), userIds]
     );
 
-    res.json({
-      statistics: statsResult.rows[0],
-      typeDistribution: typeDistribution.rows,
-      trend: trend.rows
-    });
+    const response = {
+      statistics: {
+        total_requests: parseInt(statsResult.rows[0]?.total_requests || '0'),
+        approved_requests: parseInt(statsResult.rows[0]?.approved_requests || '0'),
+        pending_requests: parseInt(statsResult.rows[0]?.pending_requests || '0'),
+        rejected_requests: parseInt(statsResult.rows[0]?.rejected_requests || '0')
+      },
+      typeDistribution: typeDistribution.rows || [],
+      trend: trend.rows || []
+    };
+
+    console.log('Analytics Response:', JSON.stringify(response, null, 2)); // Debug log
+    res.json(response);
   } catch (error) {
-    console.error('Error fetching leave analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch leave analytics' });
+    console.error('Error in analytics:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch analytics',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
@@ -987,8 +1073,19 @@ router.post('/leave-requests', authMiddleware, async (req: CustomRequest, res: R
         'SELECT gender FROM users WHERE id = $1',
         [req.user.id]
       );
+      
+      if (!userResult.rows[0]?.gender) {
+        return res.status(400).json({
+          error: 'Missing Information',
+          details: 'User gender information is required for this type of leave'
+        });
+      }
+      
       if (userResult.rows[0].gender !== leaveType.gender_specific) {
-        throw new Error(`This leave type is only available for ${leaveType.gender_specific} employees`);
+        return res.status(400).json({ 
+          error: 'Not Eligible',
+          details: `This leave type is only available for ${leaveType.gender_specific} employees`
+        });
       }
     }
 
@@ -1263,6 +1360,44 @@ router.get('/pending-requests', authMiddleware, managementMiddleware, async (req
   } catch (error) {
     console.error('Error fetching pending leave requests:', error);
     res.status(500).json({ error: 'Failed to fetch pending leave requests' });
+  }
+});
+
+// Add this new endpoint after other routes
+router.get('/stats', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    // Get pending and approved requests count
+    const requestsResult = await client.query(`
+      SELECT 
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_requests,
+        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_requests
+      FROM leave_requests
+      WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
+    `);
+
+    // Get active leave types count
+    const leaveTypesResult = await client.query(`
+      SELECT COUNT(*) as active_leave_types
+      FROM leave_types
+      WHERE is_active = true
+    `);
+
+    const stats = {
+      pending_requests: parseInt(requestsResult.rows[0]?.pending_requests || '0'),
+      approved_requests: parseInt(requestsResult.rows[0]?.approved_requests || '0'),
+      active_leave_types: parseInt(leaveTypesResult.rows[0]?.active_leave_types || '0')
+    };
+
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching leave stats:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch leave stats',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    client.release();
   }
 });
 

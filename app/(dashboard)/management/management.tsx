@@ -33,6 +33,12 @@ interface QuickAction {
     color: string;
 }
 
+interface LeaveStats {
+    pending_requests: number;
+    approved_requests: number;
+    active_leave_types: number;
+}
+
 // Add new quick actions array
 const newQuickActions = [
     {
@@ -43,10 +49,10 @@ const newQuickActions = [
         color: '#F59E0B'
     },
     {
-        title: 'Leave Request',
+        title: 'Leave Insights',
         icon: 'document-text-outline',
-        description: 'Submit and track your leave requests',
-        route: '/(dashboard)/management/leave-management/components/LeaveRequests',
+        description: 'Manage Leave & Balances',
+        route: '/(dashboard)/management/leave-insights',
         color: '#10B981'
     }
 ];
@@ -69,6 +75,12 @@ export default function ManagementDashboard() {
             expenseOverview: { value: 0, trend: '0%' }
         }
     });
+    const [leaveStats, setLeaveStats] = useState<LeaveStats>({
+        pending_requests: 0,
+        approved_requests: 0,
+        active_leave_types: 0,
+    });
+    const [statsLoading, setStatsLoading] = useState(true);
 
     const CACHE_KEY = 'management_dashboard_data';
     const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -137,9 +149,53 @@ export default function ManagementDashboard() {
         }
     };
 
+    const fetchLeaveStats = async (useCache = true) => {
+        const cacheKey = 'leaveStats';
+        const cacheExpiry = 5 * 60 * 1000; // 5 minutes
+
+        try {
+            // Check cache first
+            if (useCache) {
+                const cached = await AsyncStorage.getItem(cacheKey);
+                if (cached) {
+                    const { data, timestamp } = JSON.parse(cached);
+                    if (Date.now() - timestamp < cacheExpiry) {
+                        setLeaveStats(data);
+                        setStatsLoading(false);
+                        return;
+                    }
+                }
+            }
+
+            setStatsLoading(true);
+            const response = await axios.get(
+                `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/stats`,
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+
+            if (response.data) {
+                setLeaveStats(response.data);
+                // Update cache
+                await AsyncStorage.setItem(cacheKey, JSON.stringify({
+                    data: response.data,
+                    timestamp: Date.now()
+                }));
+            }
+        } catch (error) {
+            console.error('Error fetching leave stats:', error);
+        } finally {
+            setStatsLoading(false);
+        }
+    };
+
     const onRefresh = async () => {
         setRefreshing(true);
-        await fetchDashboardData(false); // Force fetch fresh data
+        await Promise.all([
+            fetchDashboardData(false),
+            fetchLeaveStats(false)
+        ]);
         setRefreshing(false);
     };
 
@@ -147,6 +203,10 @@ export default function ManagementDashboard() {
     useEffect(() => {
         fetchDashboardData();
     }, [token]);
+
+    useEffect(() => {
+        fetchLeaveStats();
+    }, []);
 
     useEffect(() => {
         if (Platform.OS === 'ios') {
@@ -315,9 +375,15 @@ export default function ManagementDashboard() {
                                 className="w-1/2 px-2 mb-4"
                                 onPress={() => handleNewQuickAction(action)}
                             >
-                                <View className={`p-4 rounded-xl ${
-                                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                                }`} style={styles.actionCard}>
+                                <View 
+                                    className={`p-4 rounded-xl ${
+                                        theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                                    }`} 
+                                    style={[
+                                        styles.actionCard,
+                                        { height: 160 }
+                                    ]}
+                                >
                                     <View 
                                         className="w-12 h-12 rounded-full items-center justify-center mb-3"
                                         style={{ backgroundColor: `${action.color}15` }}
@@ -328,12 +394,12 @@ export default function ManagementDashboard() {
                                             color={action.color}
                                         />
                                     </View>
-                                    <Text className={`text-base font-semibold mb-1 ${
+                                    <Text className={`text-xl font-semibold mb-1 ${
                                         theme === 'dark' ? 'text-white' : 'text-gray-800'
                                     }`}>
                                         {action.title}
                                     </Text>
-                                    <Text className={`text-sm ${
+                                    <Text className={`text-base ${
                                         theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
                                     }`} numberOfLines={2}>
                                         {action.description}
@@ -403,7 +469,7 @@ export default function ManagementDashboard() {
                                     <View className="flex-row justify-between items-center mb-3">
                                         <View className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-800' : 'bg-blue-50'}`}>
                                             <Ionicons 
-                                                name={item.icon as any} 
+                                                name={item.icon as keyof typeof Ionicons.glyphMap} 
                                                 size={24} 
                                                 color="#3B82F6"
                                             />
@@ -468,31 +534,35 @@ export default function ManagementDashboard() {
                         </View>
 
                         <View className="flex-row justify-between mt-6 pt-6 border-t border-gray-700">
-                            {[
-                                { label: 'Pending', value: '12', color: '#F59E0B', icon: 'time-outline' },
-                                { label: 'Approved', value: '8', color: '#10B981', icon: 'checkmark-circle-outline' },
-                                { label: 'Active', value: '45', color: '#3B82F6', icon: 'people-outline' }
-                            ].map((stat, index) => (
-                                <View key={stat.label} className="items-center flex-1">
-                                    <View 
-                                        className="w-10 h-10 rounded-full mb-2 items-center justify-center"
-                                        style={{ backgroundColor: `${stat.color}15` }}
-                                    >
-                                        <Ionicons name={stat.icon as keyof typeof Ionicons.glyphMap} size={20} color={stat.color} />
+                            {statsLoading ? (
+                                <ActivityIndicator size="small" color="#3B82F6" />
+                            ) : (
+                                [
+                                    { label: 'Pending', value: leaveStats.pending_requests.toString(), color: '#F59E0B', icon: 'time-outline' },
+                                    { label: 'Approved', value: leaveStats.approved_requests.toString(), color: '#10B981', icon: 'checkmark-circle-outline' },
+                                    { label: 'Active', value: leaveStats.active_leave_types.toString(), color: '#3B82F6', icon: 'people-outline' }
+                                ].map((stat, index) => (
+                                    <View key={stat.label} className="items-center flex-1">
+                                        <View 
+                                            className="w-10 h-10 rounded-full mb-2 items-center justify-center"
+                                            style={{ backgroundColor: `${stat.color}15` }}
+                                        >
+                                            <Ionicons name={stat.icon as keyof typeof Ionicons.glyphMap} size={20} color={stat.color} />
+                                        </View>
+                                        <Text 
+                                            className="text-lg font-bold mb-1"
+                                            style={{ color: stat.color }}
+                                        >
+                                            {stat.value}
+                                        </Text>
+                                        <Text className={`text-xs ${
+                                            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
+                                            {stat.label}
+                                        </Text>
                                     </View>
-                                    <Text 
-                                        className="text-lg font-bold mb-1"
-                                        style={{ color: stat.color }}
-                                    >
-                                        {stat.value}
-                                    </Text>
-                                    <Text className={`text-xs ${
-                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                                    }`}>
-                                        {stat.label}
-                                    </Text>
-                                </View>
-                            ))}
+                                ))
+                            )}
                         </View>
                     </TouchableOpacity>
                 </View>
