@@ -1,7 +1,8 @@
 import express, { Response } from 'express';
 import { pool } from '../config/database';
-import { authMiddleware, adminMiddleware } from '../middleware/auth';
+import { authMiddleware } from '../middleware/auth';
 import { CustomRequest } from '../types';
+import { calculateLeaveBalances } from './leave-management';
 
 const router = express.Router();
 
@@ -9,275 +10,253 @@ router.use((req, res, next) => {
   console.log('Leave route accessed:', {
     method: req.method,
     path: req.path,
-    body: req.body,
     headers: req.headers
   });
   next();
 });
 
-// Leave routes for employees
-router.get('/leave/balance', authMiddleware, async (req: CustomRequest, res: Response) => {
-  try {
-    console.log('Fetching leave balance for user:', req.user?.id);
-    
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const userId = req.user.id;
-    
-    // First get the user's group admin id
-    const userResult = await pool.query(
-      'SELECT group_admin_id FROM users WHERE id = $1',
-      [userId]
-    );
-
-    console.log('User query result:', userResult.rows);
-
-    if (!userResult.rows[0]?.group_admin_id) {
-      console.log('No group admin found for user:', userId);
-      return res.status(404).json({ error: 'No group admin found for user' });
-    }
-
-    const groupAdminId = userResult.rows[0].group_admin_id;
-    console.log('Found group admin id:', groupAdminId);
-
-    // Then get the leave balance for that group
-    const balance = await pool.query(
-      'SELECT casual_leave, sick_leave, annual_leave FROM leave_balances WHERE group_admin_id = $1',
-      [groupAdminId]
-    );
-
-    console.log('Leave balance query result:', balance.rows);
-
-    // If no balance is set, return defaults
-    if (balance.rows.length === 0) {
-      console.log('No balance found, creating default balance');
-      // Insert default values
-      const defaultBalance = await pool.query(
-        `INSERT INTO leave_balances 
-         (group_admin_id, casual_leave, sick_leave, annual_leave)
-         VALUES ($1, 10, 7, 14)
-         RETURNING casual_leave, sick_leave, annual_leave`,
-        [groupAdminId]
-      );
-      console.log('Created default balance:', defaultBalance.rows[0]);
-      return res.json(defaultBalance.rows[0]);
-    }
-
-    res.json(balance.rows[0]);
-  } catch (error) {
-    console.error('Error fetching leave balance:', error);
-    res.status(500).json({ error: 'Failed to fetch leave balance' });
-  }
-});
-
-router.post('/leave/request', authMiddleware, async (req: CustomRequest, res: Response) => {
+// Get all leave requests for an employee
+router.get('/requests', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
     if (!req.user?.id) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const userId = req.user.id;
-    const { leaveType, startDate, endDate, reason, contactNumber } = req.body;
+    const result = await client.query(`
+      SELECT 
+        lr.id,
+        lr.start_date,
+        lr.end_date,
+        lr.days_requested,
+        lr.reason,
+        lr.status,
+        lr.contact_number,
+        lr.created_at,
+        lt.name as leave_type,
+        lt.requires_documentation,
+        lt.is_paid,
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'id', ld.id,
+            'file_name', ld.file_name,
+            'file_type', ld.file_type
+          ))
+          FROM leave_documents ld
+          WHERE ld.request_id = lr.id
+          ), '[]'
+        ) as documents
+      FROM leave_requests lr
+      JOIN leave_types lt ON lr.leave_type_id = lt.id
+      WHERE lr.user_id = $1
+      ORDER BY lr.created_at DESC
+    `, [req.user.id]);
 
-    // Get user's group admin id
-    const userResult = await pool.query(
-      'SELECT group_admin_id FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (!userResult.rows[0]?.group_admin_id) {
-      return res.status(400).json({ error: 'No group admin found for user' });
-    }
-
-    const groupAdminId = userResult.rows[0].group_admin_id;
-    
-    await pool.query(
-      `INSERT INTO leave_requests 
-       (user_id, group_admin_id, leave_type, start_date, end_date, reason, contact_number) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [userId, groupAdminId, leaveType, startDate, endDate, reason, contactNumber]
-    );
-    
-    res.json({ message: 'Leave request submitted successfully' });
-  } catch (error) {
-    console.error('Error submitting leave request:', error);
-    res.status(500).json({ error: 'Failed to submit leave request' });
-  }
-});
-
-// Leave management routes for group admin
-router.get('/admin/leave-requests', authMiddleware, adminMiddleware, async (req: CustomRequest, res: Response) => {
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const adminId = req.user.id;
-    const requests = await pool.query(
-      `SELECT 
-        lr.*,
-        u.name as user_name,
-        u.employee_number,
-        u.department 
-       FROM leave_requests lr 
-       JOIN users u ON lr.user_id = u.id 
-       WHERE lr.group_admin_id = $1 
-       ORDER BY lr.created_at DESC`,
-      [adminId]
-    );
-    res.json(requests.rows);
+    res.json(result.rows);
   } catch (error) {
     console.error('Error fetching leave requests:', error);
     res.status(500).json({ error: 'Failed to fetch leave requests' });
+  } finally {
+    client.release();
   }
 });
 
-router.post('/admin/leave-requests/:id/:action', authMiddleware, adminMiddleware, async (req: CustomRequest, res: Response) => {
-  const { action } = req.params;
-  
+// Get employee's leave balance
+router.get('/balance', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
     if (!req.user?.id) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const { id } = req.params;
-    const { rejectionReason } = req.body;
-    const adminId = req.user.id;
-    
-    // First verify this leave request belongs to this admin
-    const verifyRequest = await pool.query(
-      'SELECT id FROM leave_requests WHERE id = $1 AND group_admin_id = $2',
-      [id, adminId]
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+
+    // First ensure balances exist for this year
+    await calculateLeaveBalances(Number(req.user.id), year);
+
+    const result = await client.query(`
+      SELECT 
+        lb.id,
+        lt.name,
+        lt.is_paid,
+        lb.total_days,
+        lb.used_days,
+        lb.pending_days,
+        (lb.total_days - lb.used_days - lb.pending_days) as available_days
+      FROM leave_balances lb
+      JOIN leave_types lt ON lb.leave_type_id = lt.id
+      WHERE lb.user_id = $1 AND lb.year = $2 AND lt.is_active = true
+      ORDER BY lt.name
+    `, [req.user.id, year]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching leave balance:', error);
+    res.status(500).json({ error: 'Failed to fetch leave balance' });
+  } finally {
+    client.release();
+  }
+});
+
+// Get leave types with policies
+router.get('/types', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(`
+      SELECT 
+        lt.id,
+        lt.name,
+        lt.description,
+        lt.requires_documentation,
+        lt.max_days,
+        lt.is_paid,
+        lp.default_days,
+        lp.carry_forward_days,
+        lp.min_service_days,
+        lp.notice_period_days,
+        lp.max_consecutive_days
+      FROM leave_types lt
+      LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+      WHERE lt.is_active = true
+      ORDER BY lt.name
+    `);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching leave types:', error);
+    res.status(500).json({ error: 'Failed to fetch leave types' });
+  } finally {
+    client.release();
+  }
+});
+
+// Submit leave request
+router.post('/request', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { 
+      leave_type_id, 
+      start_date, 
+      end_date, 
+      reason,
+      contact_number,
+      documents 
+    } = req.body;
+
+    await client.query('BEGIN');
+
+    // Get leave type details
+    const leaveTypeResult = await client.query(
+      'SELECT * FROM leave_types WHERE id = $1',
+      [leave_type_id]
     );
 
-    if (verifyRequest.rows.length === 0) {
+    if (!leaveTypeResult.rows.length) {
+      throw new Error('Invalid leave type');
+    }
+
+    const leaveType = leaveTypeResult.rows[0];
+    
+    // Calculate days requested
+    const days_requested = Math.ceil(
+      (new Date(end_date).getTime() - new Date(start_date).getTime()) / 
+      (1000 * 60 * 60 * 24)
+    ) + 1;
+
+    // Insert leave request
+    const requestResult = await client.query(`
+      INSERT INTO leave_requests (
+        user_id,
+        leave_type_id,
+        start_date,
+        end_date,
+        days_requested,
+        reason,
+        contact_number,
+        status,
+        requires_documentation
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
+      RETURNING id
+    `, [
+      req.user?.id,
+      leave_type_id,
+      start_date,
+      end_date,
+      days_requested,
+      reason,
+      contact_number,
+      leaveType.requires_documentation
+    ]);
+
+    // Handle document uploads if any
+    if (documents && documents.length > 0) {
+      for (const doc of documents) {
+        await client.query(`
+          INSERT INTO leave_documents (
+            request_id,
+            file_name,
+            file_type,
+            file_data,
+            upload_method
+          ) VALUES ($1, $2, $3, $4, $5)
+        `, [
+          requestResult.rows[0].id,
+          doc.file_name,
+          doc.file_type,
+          doc.file_data,
+          'direct'
+        ]);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Leave request submitted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error submitting leave request:', error);
+    res.status(500).json({ error: 'Failed to submit leave request' });
+  } finally {
+    client.release();
+  }
+});
+
+// Cancel leave request
+router.post('/cancel/:id', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+
+    // Verify ownership and status
+    const verifyResult = await client.query(
+      'SELECT status FROM leave_requests WHERE id = $1 AND user_id = $2',
+      [id, req.user?.id]
+    );
+
+    if (!verifyResult.rows.length) {
       return res.status(404).json({ error: 'Leave request not found' });
     }
-    
-    await pool.query(
-      'UPDATE leave_requests SET status = $1, rejection_reason = $2 WHERE id = $3',
-      [action === 'approve' ? 'approved' : 'rejected', rejectionReason, id]
+
+    if (verifyResult.rows[0].status !== 'pending') {
+      return res.status(400).json({ error: 'Can only cancel pending requests' });
+    }
+
+    await client.query(
+      'UPDATE leave_requests SET status = $1 WHERE id = $2',
+      ['cancelled', id]
     );
-    
-    // Create notification for the user
-    const request = await pool.query('SELECT user_id FROM leave_requests WHERE id = $1', [id]);
-    await pool.query(
-      'INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)',
-      [
-        request.rows[0].user_id,
-        `Leave Request ${action === 'approve' ? 'Approved' : 'Rejected'}`,
-        action === 'approve' 
-          ? 'Your leave request has been approved'
-          : `Your leave request has been rejected. Reason: ${rejectionReason}`,
-        'leave'
-      ]
-    );
-    
-    res.json({ message: `Leave request ${action}ed successfully` });
+
+    res.json({ message: 'Leave request cancelled successfully' });
   } catch (error) {
-    console.error('Error updating leave request:', error);
-    res.status(500).json({ error: `Failed to ${action} leave request` });
+    console.error('Error cancelling leave request:', error);
+    res.status(500).json({ error: 'Failed to cancel leave request' });
+  } finally {
+    client.release();
   }
 });
 
-// Update the admin leave balance route
-router.get('/admin/leave-balance', authMiddleware, async (req: CustomRequest, res: Response) => {
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const adminId = req.user.id;
-    
-    const balance = await pool.query(
-      'SELECT casual_leave, sick_leave, annual_leave FROM leave_balances WHERE group_admin_id = $1',
-      [adminId]
-    );
-
-    if (balance.rows.length === 0) {
-      // Insert default values if none exist
-      const defaultBalance = await pool.query(
-        `INSERT INTO leave_balances 
-         (group_admin_id, casual_leave, sick_leave, annual_leave)
-         VALUES ($1, 10, 7, 14)
-         RETURNING casual_leave, sick_leave, annual_leave`,
-        [adminId]
-      );
-      return res.json(defaultBalance.rows[0]);
-    }
-
-    res.json(balance.rows[0]);
-  } catch (error) {
-    console.error('Error fetching admin leave balance:', error);
-    res.status(500).json({ error: 'Failed to fetch leave balance' });
-  }
-});
-
-// Update the admin leave balance update route
-router.put('/admin/leave-balance', authMiddleware, adminMiddleware, async (req: CustomRequest, res: Response) => {
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const adminId = req.user.id;
-    const { casual, sick, annual } = req.body;
-
-    // Validate input
-    if (!casual || !sick || !annual || 
-        isNaN(casual) || isNaN(sick) || isNaN(annual)) {
-      return res.status(400).json({ 
-        error: 'Invalid input. All values must be numbers.' 
-      });
-    }
-
-    console.log('Updating leave balance:', {
-      adminId,
-      casual,
-      sick,
-      annual
-    });
-
-    // First try to update existing record
-    let result = await pool.query(
-      `UPDATE leave_balances 
-       SET 
-         casual_leave = $2,
-         sick_leave = $3,
-         annual_leave = $4,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE group_admin_id = $1
-       RETURNING casual_leave, sick_leave, annual_leave`,
-      [adminId, casual, sick, annual]
-    );
-
-    // If no record was updated, insert a new one
-    if (result.rows.length === 0) {
-      result = await pool.query(
-        `INSERT INTO leave_balances 
-         (group_admin_id, casual_leave, sick_leave, annual_leave)
-         VALUES ($1, $2, $3, $4)
-         RETURNING casual_leave, sick_leave, annual_leave`,
-        [adminId, casual, sick, annual]
-      );
-    }
-
-    console.log('Update result:', result.rows[0]);
-
-    if (!result.rows.length) {
-      throw new Error('No rows returned after update/insert');
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Detailed error updating leave balance:', error);
-    res.status(500).json({ 
-      error: 'Failed to update leave balance',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
+// Add this near the top of the routes
+router.get('/test', authMiddleware, (req: CustomRequest, res: Response) => {
+  res.json({ message: 'Leave routes are working' });
 });
 
 export default router; 

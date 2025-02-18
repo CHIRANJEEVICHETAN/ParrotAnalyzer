@@ -49,7 +49,7 @@ app.use('/api/employee', employeeRoutes);
 app.use('/api/group-admins', groupAdminsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/notifications', notificationsRouter);
-app.use('/api', leaveRoutes);
+app.use('/api/leave', leaveRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/management', managementRoutes);
 app.use('/pdf-reports', pdfReportRoutes);
