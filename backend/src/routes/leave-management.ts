@@ -762,7 +762,7 @@ router.get('/analytics', authMiddleware, managementMiddleware, async (req: Custo
 });
 
 // Calculate and initialize leave balances for a user
-const calculateLeaveBalances = async (userId: number, year: number) => {
+export const calculateLeaveBalances = async (userId: number, year: number) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
