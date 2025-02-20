@@ -10,7 +10,7 @@ router.get('/leave-requests', [authMiddleware, adminMiddleware], async (req: Cus
   const client = await pool.connect();
   try {
     const { id: groupAdminId } = req.user!;
-    
+
     const result = await client.query(`
       SELECT 
         lr.*,
@@ -56,9 +56,9 @@ router.get('/leave-requests', [authMiddleware, adminMiddleware], async (req: Cus
         upload_method: row.upload_method
       }] : [];
 
-      const { 
+      const {
         document_id, file_name, file_type, file_data, upload_method,
-        ...requestData 
+        ...requestData
       } = row;
 
       return [...acc, { ...requestData, documents }];
@@ -67,7 +67,7 @@ router.get('/leave-requests', [authMiddleware, adminMiddleware], async (req: Cus
     res.json(requests);
   } catch (error) {
     console.error('Error fetching leave requests:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch leave requests',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -81,7 +81,7 @@ router.get('/leave-statistics', [authMiddleware, adminMiddleware], async (req: C
   const client = await pool.connect();
   try {
     const { id: groupAdminId } = req.user!;
-    
+
     const result = await client.query(`
       SELECT 
         COUNT(*) FILTER (WHERE lr.status = 'pending') as pending_requests,
@@ -96,7 +96,7 @@ router.get('/leave-statistics', [authMiddleware, adminMiddleware], async (req: C
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error fetching leave statistics:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch leave statistics',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -145,7 +145,13 @@ router.post('/leave-requests/:requestId/:action', [authMiddleware, adminMiddlewa
         rejection_reason = $2,
         updated_at = NOW()
       WHERE id = $3
-    `, [action, rejection_reason || null, requestId]);
+    `, [
+      action === 'approve' ? 'approved' : 
+      action === 'reject' ? 'rejected' : 
+      action === 'escalate' ? 'escalated' : action, 
+      rejection_reason || null, 
+      requestId
+    ]);
 
     // If approved, update leave balance
     if (action === 'approve') {
@@ -159,15 +165,55 @@ router.post('/leave-requests/:requestId/:action', [authMiddleware, adminMiddlewa
       `, [request.days_requested, request.user_id, request.leave_type_id]);
     }
 
+    // If escalated, create escalation record
+    if (action === 'escalate') {
+      const { escalation_reason, escalated_to } = req.body;
+      if (!escalation_reason) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Escalation reason is required' });
+      }
+
+      // If escalated_to is not provided, find a management user
+      let targetManagerId = escalated_to;
+      if (!targetManagerId) {
+        const managementResult = await client.query(`
+          SELECT id 
+          FROM users 
+          WHERE role = 'management' 
+          AND company_id = (
+            SELECT company_id 
+            FROM users 
+            WHERE id = $1
+          )
+          LIMIT 1
+        `, [request.user_id]);
+
+        if (!managementResult.rows.length) {
+          await client.query('ROLLBACK');
+          return res.status(500).json({ error: 'No management user found to escalate to' });
+        }
+
+        targetManagerId = managementResult.rows[0].id;
+      }
+
+      await client.query(`
+        INSERT INTO leave_escalations (
+          request_id,
+          escalated_by,
+          escalated_to,
+          reason,
+          status,
+          created_at
+        ) VALUES ($1, $2, $3, $4, 'pending', NOW())
+      `, [requestId, groupAdminId, targetManagerId, escalation_reason]);
+    }
+
     await client.query('COMMIT');
-    res.json({ message: `Leave request ${action}ed successfully` });
+    res.json({ message: 'Leave request processed successfully' });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error processing leave request:', error);
-    res.status(500).json({ 
-      error: 'Failed to process leave request',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
+    res.status(500).json({ error: 'Failed to process leave request' });
   } finally {
     client.release();
   }
@@ -191,14 +237,15 @@ router.post('/leave-requests/:requestId/escalate', [authMiddleware, adminMiddlew
       FROM leave_requests lr
       JOIN users u ON lr.user_id = u.id
       WHERE lr.id = $1 AND u.group_admin_id = $2
+      AND lr.status = 'pending'
     `, [requestId, groupAdminId]);
 
     if (!verifyResult.rows.length) {
-      return res.status(404).json({ error: 'Leave request not found or unauthorized' });
+      return res.status(404).json({ error: 'Leave request not found, unauthorized, or not in pending status' });
     }
 
     const request = verifyResult.rows[0];
-    
+
     // Find a management user to escalate to
     const managementResult = await client.query(`
       SELECT id 
@@ -217,28 +264,27 @@ router.post('/leave-requests/:requestId/escalate', [authMiddleware, adminMiddlew
     // Begin transaction
     await client.query('BEGIN');
 
-    // Update request status
+    // Update request status to 'escalated'
     await client.query(`
       UPDATE leave_requests 
       SET 
         status = 'escalated',
-        rejection_reason = $1,
         updated_at = NOW(),
-        management_user_id = $2
-      WHERE id = $3
-    `, [reason, managementUserId, requestId]);
+        group_admin_id = $2
+      WHERE id = $1
+    `, [requestId, groupAdminId]);
 
-    // If approved, update leave balance
-    if (request.status === 'approved') {
-      await client.query(`
-        UPDATE leave_balances
-        SET 
-          used_days = used_days + $1,
-          pending_days = pending_days - $1,
-          updated_at = NOW()
-        WHERE user_id = $2 AND leave_type_id = $3 AND year = EXTRACT(YEAR FROM NOW())
-      `, [request.days_requested, request.user_id, request.leave_type_id]);
-    }
+    // Create escalation record
+    await client.query(`
+      INSERT INTO leave_escalations (
+        request_id,
+        escalated_by,
+        escalated_to,
+        reason,
+        status,
+        created_at
+      ) VALUES ($1, $2, $3, $4, 'pending', NOW())
+    `, [requestId, groupAdminId, managementUserId, reason]);
 
     await client.query('COMMIT');
     res.json({ message: 'Leave request escalated successfully' });
@@ -259,7 +305,7 @@ router.get('/my-requests', [authMiddleware, adminMiddleware], async (req: Custom
   const client = await pool.connect();
   try {
     const { id: userId } = req.user!;
-    
+
     const result = await client.query(`
       SELECT 
         lr.*,
@@ -301,9 +347,9 @@ router.get('/my-requests', [authMiddleware, adminMiddleware], async (req: Custom
         upload_method: row.upload_method
       }] : [];
 
-      const { 
+      const {
         document_id, file_name, file_type, file_data, upload_method,
-        ...requestData 
+        ...requestData
       } = row;
 
       return [...acc, { ...requestData, documents }];
@@ -312,7 +358,7 @@ router.get('/my-requests', [authMiddleware, adminMiddleware], async (req: Custom
     res.json(requests);
   } catch (error) {
     console.error('Error fetching leave requests:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch leave requests',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -327,7 +373,7 @@ router.get('/my-balances', [authMiddleware, adminMiddleware], async (req: Custom
   try {
     const { id: userId } = req.user!;
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
-    
+
     const result = await client.query(`
       SELECT 
         lb.*,
@@ -342,7 +388,7 @@ router.get('/my-balances', [authMiddleware, adminMiddleware], async (req: Custom
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching leave balances:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch leave balances',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -371,7 +417,7 @@ router.get('/leave-types', [authMiddleware, adminMiddleware], async (req: Custom
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching leave types:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch leave types',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -498,7 +544,7 @@ router.post('/request', [authMiddleware, adminMiddleware], async (req: CustomReq
       }
 
       if (userGender !== leaveType.gender_specific) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: 'Not Eligible',
           details: `This leave type is only available for ${leaveType.gender_specific} employees`
         });
@@ -592,7 +638,7 @@ router.post('/request', [authMiddleware, adminMiddleware], async (req: CustomReq
     }
 
     // Update leave balance
-    await client.query(`
+    await client.query(`      
       UPDATE leave_balances
       SET 
         pending_days = pending_days + $1,
@@ -609,7 +655,7 @@ router.post('/request', [authMiddleware, adminMiddleware], async (req: CustomReq
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error submitting leave request:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to submit leave request',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -634,5 +680,170 @@ function calculateWorkingDays(startDate: Date, endDate: Date): number {
   }
   return days;
 }
+
+// Get document data
+router.get('/document/:id', [authMiddleware, adminMiddleware], async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { id: groupAdminId } = req.user!;
+
+    // Verify the document belongs to a leave request from an employee under this group admin
+    const result = await client.query(`
+      SELECT ld.file_data, ld.file_type
+      FROM leave_documents ld
+      JOIN leave_requests lr ON ld.request_id = lr.id
+      JOIN users u ON lr.user_id = u.id
+      WHERE ld.id = $1 AND u.group_admin_id = $2
+    `, [id, groupAdminId]);
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Document not found or unauthorized' });
+    }
+
+    const { file_data, file_type } = result.rows[0];
+
+    // Send base64 data directly
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(file_data);
+  } catch (error) {
+    console.error('Error fetching document:', error);
+    res.status(500).json({
+      error: 'Failed to fetch document',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Get pending requests
+router.get('/pending-requests', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const result = await client.query(`
+      SELECT 
+        lr.id,
+        lr.user_id,
+        u.name as user_name,
+        u.employee_number,
+        d.name as department,
+        lr.leave_type_id,
+        lt.name as leave_type_name,
+        lr.start_date,
+        lr.end_date,
+        lr.days_requested,
+        lr.reason,
+        lr.status,
+        lr.contact_number,
+        lr.requires_documentation,
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'id', ld.id,
+            'file_name', ld.file_name,
+            'file_type', ld.file_type
+          ))
+          FROM leave_documents ld
+          WHERE ld.request_id = lr.id
+          ), '[]'
+        ) as documents,
+        CASE 
+          WHEN le.id IS NOT NULL THEN json_build_object(
+            'escalation_id', le.id,
+            'escalated_by', le.escalated_by,
+            'escalated_by_name', eu.name,
+            'reason', le.reason,
+            'escalated_at', le.created_at,
+            'status', le.status,
+            'resolution_notes', le.resolution_notes
+          )
+          ELSE NULL
+        END as escalation_details
+      FROM leave_requests lr
+      JOIN users u ON lr.user_id = u.id
+      JOIN departments d ON u.department_id = d.id
+      JOIN leave_types lt ON lr.leave_type_id = lt.id
+      LEFT JOIN leave_escalations le ON lr.id = le.request_id
+      LEFT JOIN users eu ON le.escalated_by = eu.id
+      WHERE (
+        lr.user_id = $1 -- Management's own requests
+        OR (
+          u.role = 'group_admin' 
+          AND u.company_id = (SELECT company_id FROM users WHERE id = $1)
+        ) -- Direct requests from group admins
+        OR (
+          lr.status = 'escalated'
+          AND le.escalated_to = $1
+          AND le.status = 'pending'
+        ) -- Escalated requests assigned to this manager
+      )
+      ORDER BY lr.created_at DESC
+    `, [req.user.id]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching requests:', error);
+    res.status(500).json({ error: 'Failed to fetch requests' });
+  } finally {
+    client.release();
+  }
+});
+
+// Post request
+router.post('/leave-requests/:id/:action', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { id, action } = req.params;
+    const { rejection_reason, resolution_notes } = req.body;
+
+    await client.query('BEGIN');
+
+    const requestResult = await client.query(
+      'SELECT lr.*, le.id as escalation_id, le.status as escalation_status FROM leave_requests lr LEFT JOIN leave_escalations le ON lr.id = le.request_id WHERE lr.id = $1',
+      [id]
+    );
+
+    if (!requestResult.rows.length) {
+      throw new Error('Leave request not found');
+    }
+
+    const request = requestResult.rows[0];
+    const isEscalated = request.status === 'escalated';
+    const now = new Date();
+
+    if (isEscalated) {
+      if (!resolution_notes) {
+        throw new Error('Resolution notes are required for escalated requests');
+      }
+
+      await client.query(
+        'UPDATE leave_escalations SET status = $1, resolution_notes = $2, resolved_at = $3 WHERE request_id = $4',
+        ['resolved', resolution_notes, now, id]
+      );
+    }
+
+    if (action === 'approve' || action === 'reject') {
+      await client.query(
+        'UPDATE leave_requests SET status = $1, rejection_reason = $2, updated_at = $3 WHERE id = $4',
+        [action === 'approve' ? 'approved' : 'rejected', action === 'reject' ? rejection_reason : null, now, id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Leave request processed successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error processing request:', error);
+    res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  } finally {
+    client.release();
+  }
+});
 
 export default router;

@@ -291,6 +291,19 @@ export default function LeaveRequests() {
         return;
       }
 
+      // Validate start date is not in the past
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (formData.start_date < today) {
+        setErrorModal({
+          visible: true,
+          title: 'Invalid Start Date',
+          message: 'Start date cannot be in the past',
+          type: 'error'
+        });
+        return;
+      }
+
       // Validate reason
       if (!formData.reason.trim()) {
         setErrorModal({
@@ -333,13 +346,17 @@ export default function LeaveRequests() {
     } catch (error: any) {
       console.error('Error submitting request:', error);
       
-      // Handle specific error messages
       const errorMessage = error.response?.data?.error || error.message;
+      const errorDetails = error.response?.data?.details;
       let userFriendlyMessage = 'Failed to submit request. Please try again.';
       let errorType: 'error' | 'warning' = 'error';
       let errorTitle = 'Request Failed';
 
-      if (errorMessage.includes('Insufficient leave balance')) {
+      if (errorMessage.includes('Notice period requirement not met') && errorDetails) {
+        errorTitle = 'Notice Period Required';
+        userFriendlyMessage = `This leave type requires ${errorDetails.required_days} days notice. The earliest possible start date is ${format(new Date(errorDetails.earliest_possible_date), 'MMM dd, yyyy')}.`;
+        errorType = 'warning';
+      } else if (errorMessage.includes('Insufficient leave balance')) {
         errorTitle = 'Insufficient Leave Balance';
         userFriendlyMessage = `You don't have enough leave balance for this request. Please check your available balance before requesting leaves.`;
         errorType = 'warning';
@@ -350,10 +367,6 @@ export default function LeaveRequests() {
       } else if (errorMessage.includes('overlapping')) {
         errorTitle = 'Overlapping Request';
         userFriendlyMessage = 'This leave request overlaps with an existing request.';
-        errorType = 'warning';
-      } else if (errorMessage.includes('notice period')) {
-        errorTitle = 'Notice Period Required';
-        userFriendlyMessage = 'Please submit your request within the required notice period.';
         errorType = 'warning';
       } else if (errorMessage.includes('minimum service')) {
         errorTitle = 'Service Period Not Met';

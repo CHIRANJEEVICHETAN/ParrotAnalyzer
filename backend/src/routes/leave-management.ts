@@ -1037,34 +1037,75 @@ router.post('/leave-requests', authMiddleware, async (req: CustomRequest, res: R
       documents
     } = req.body;
 
-    await client.query('BEGIN');
+    // Validate required fields
+    if (!leave_type_id || !start_date || !end_date || !reason || !contact_number) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
 
-    // Get leave type details and validate
-    const leaveTypeResult = await client.query(
-      `SELECT lt.*, lp.* 
-       FROM leave_types lt
-       JOIN leave_policies lp ON lt.id = lp.leave_type_id
-       WHERE lt.id = $1 AND lt.is_active = true`,
-      [leave_type_id]
-    );
+    // Get leave type details and notice period policy
+    const leaveTypeResult = await client.query(`
+      SELECT lt.*, lp.notice_period_days
+      FROM leave_types lt
+      JOIN leave_policies lp ON lt.id = lp.leave_type_id
+      WHERE lt.id = $1
+    `, [leave_type_id]);
 
-    if (leaveTypeResult.rows.length === 0) {
-      throw new Error('Invalid or inactive leave type');
+    if (!leaveTypeResult.rows.length) {
+      return res.status(400).json({ error: 'Invalid leave type' });
     }
 
     const leaveType = leaveTypeResult.rows[0];
+    
+    // Validate dates
     const startDate = new Date(start_date);
     const endDate = new Date(end_date);
-    const requestedDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    // Validate against policy
-    if (requestedDays > leaveType.max_consecutive_days) {
-      throw new Error(`Cannot request more than ${leaveType.max_consecutive_days} consecutive days`);
+    if (startDate < today) {
+      return res.status(400).json({ error: 'Start date cannot be in the past' });
     }
 
-    // Check if documentation is required but not provided
-    if (leaveType.requires_documentation && (!documents || documents.length === 0)) {
-      throw new Error('Documentation is required for this leave type');
+    if (endDate < startDate) {
+      return res.status(400).json({ error: 'End date must be after start date' });
+    }
+
+    // Check notice period
+    const noticeDays = Math.ceil((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (noticeDays < leaveType.notice_period_days) {
+      const earliestPossibleDate = new Date();
+      earliestPossibleDate.setDate(earliestPossibleDate.getDate() + leaveType.notice_period_days);
+      return res.status(400).json({
+        error: 'Notice period requirement not met',
+        details: {
+          required_days: leaveType.notice_period_days,
+          earliest_possible_date: earliestPossibleDate.toISOString().split('T')[0],
+          message: `This leave type requires ${leaveType.notice_period_days} days notice. The earliest date you can apply for is ${earliestPossibleDate.toISOString().split('T')[0]}.`
+        }
+      });
+    }
+
+    // Calculate days requested
+    const days_requested = Math.ceil(
+      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+    ) + 1;
+
+    // Get user's current leave balance
+    const balanceResult = await client.query(
+      `SELECT * FROM leave_balances 
+       WHERE user_id = $1 AND leave_type_id = $2 AND year = $3`,
+      [req.user.id, leave_type_id, new Date().getFullYear()]
+    );
+
+    if (balanceResult.rows.length === 0) {
+      throw new Error('No leave balance found');
+    }
+
+    const balance = balanceResult.rows[0];
+    const availableDays = balance.total_days - balance.used_days - balance.pending_days;
+
+    if (days_requested > availableDays) {
+      throw new Error('Insufficient leave balance');
     }
 
     // Check gender-specific leave types
@@ -1089,24 +1130,6 @@ router.post('/leave-requests', authMiddleware, async (req: CustomRequest, res: R
       }
     }
 
-    // Get user's current leave balance
-    const balanceResult = await client.query(
-      `SELECT * FROM leave_balances 
-       WHERE user_id = $1 AND leave_type_id = $2 AND year = $3`,
-      [req.user.id, leave_type_id, new Date().getFullYear()]
-    );
-
-    if (balanceResult.rows.length === 0) {
-      throw new Error('No leave balance found');
-    }
-
-    const balance = balanceResult.rows[0];
-    const availableDays = balance.total_days - balance.used_days - balance.pending_days;
-
-    if (requestedDays > availableDays) {
-      throw new Error('Insufficient leave balance');
-    }
-
     // Create leave request
     const requestResult = await client.query(
       `INSERT INTO leave_requests (
@@ -1118,7 +1141,7 @@ router.post('/leave-requests', authMiddleware, async (req: CustomRequest, res: R
       [
         req.user.id, leave_type_id, start_date, end_date, reason,
         contact_number, leaveType.requires_documentation, documents && documents.length > 0,
-        'pending', requestedDays
+        'pending', days_requested
       ]
     );
 
@@ -1137,7 +1160,7 @@ router.post('/leave-requests', authMiddleware, async (req: CustomRequest, res: R
     }
 
     // Update leave balance
-    await updateLeaveBalance(Number(req.user.id), leave_type_id, requestedDays, 'pending', new Date().getFullYear());
+    await updateLeaveBalance(Number(req.user.id), leave_type_id, days_requested, 'pending', new Date().getFullYear());
 
     await client.query('COMMIT');
     res.status(201).json({
@@ -1158,86 +1181,73 @@ router.post('/leave-requests/:id/:action', authMiddleware, async (req: CustomReq
   const client = await pool.connect();
   try {
     const { id, action } = req.params;
-    const { rejection_reason, escalate_to } = req.body;
-
-    if (!['approve', 'reject', 'escalate'].includes(action)) {
-      return res.status(400).json({ error: 'Invalid action' });
-    }
+    const { rejection_reason, resolution_notes } = req.body;
 
     await client.query('BEGIN');
 
-    // Get leave request details
-    const requestResult = await client.query(
-      `SELECT lr.*, lt.name as leave_type_name, u.group_admin_id
-       FROM leave_requests lr
-       JOIN leave_types lt ON lr.leave_type_id = lt.id
-       JOIN users u ON lr.user_id = u.id
-       WHERE lr.id = $1`,
-      [parseInt(id)]  // Convert id to number
-    );
+    const requestResult = await client.query(`
+      SELECT 
+        lr.*, 
+        le.id as escalation_id, 
+        le.status as escalation_status 
+      FROM leave_requests lr 
+      LEFT JOIN leave_escalations le ON lr.id = le.request_id 
+      WHERE lr.id = $1
+    `, [id]);
 
-    if (requestResult.rows.length === 0) {
+    if (!requestResult.rows.length) {
       throw new Error('Leave request not found');
     }
 
     const request = requestResult.rows[0];
+    const isEscalated = request.status === 'escalated';
+    const now = new Date();
 
-    // Verify authorization
-    if (req.user?.role === 'group-admin' && request.group_admin_id !== req.user.id) {
-      throw new Error('Not authorized to process this request');
-    }
-
-    if (action === 'escalate') {
-      if (!escalate_to) {
-        throw new Error('Escalation target is required');
+    if (isEscalated) {
+      if (!resolution_notes) {
+        throw new Error('Resolution notes are required for escalated requests');
       }
 
-      // Create escalation record
       await client.query(
-        `INSERT INTO leave_escalations (
-          request_id, escalated_by, escalated_to, reason, status
-        ) VALUES ($1, $2, $3, $4, 'pending')`,
-        [id, req.user?.id, escalate_to, req.body.escalation_reason || 'Needs higher approval']
+        'UPDATE leave_escalations SET status = $1, resolution_notes = $2, resolved_at = $3 WHERE request_id = $4',
+        ['resolved', resolution_notes, now, id]
       );
+    }
 
+    if (action === 'approve' || action === 'reject') {
       await client.query(
-        `UPDATE leave_requests 
-         SET status = 'escalated',
-         updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [id]
-      );
-    } else {
-      const newStatus = action === 'approve' ? 'approved' : 'rejected';
-
-      // Update leave request status
-      await client.query(
-        `UPDATE leave_requests 
-         SET status = $1,
-         rejection_reason = $2,
-         updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3`,
-        [newStatus, rejection_reason, id]
+        'UPDATE leave_requests SET status = $1, rejection_reason = $2, updated_at = $3 WHERE id = $4',
+        [action === 'approve' ? 'approved' : 'rejected', action === 'reject' ? rejection_reason : null, now, id]
       );
 
       // Update leave balance
-      await updateLeaveBalance(
-        Number(request.user_id),
-        Number(request.leave_type_id),
-        Number(request.days_requested),  // Convert to number
-        newStatus as 'pending' | 'approved' | 'rejected',
-        new Date(request.start_date).getFullYear()
-      );
+      if (action === 'approve') {
+        await client.query(`
+          UPDATE leave_balances
+          SET 
+            used_days = used_days + $1,
+            pending_days = pending_days - $1,
+            updated_at = NOW()
+          WHERE user_id = $2 AND leave_type_id = $3 AND year = EXTRACT(YEAR FROM NOW())
+        `, [request.days_requested, request.user_id, request.leave_type_id]);
+      } else if (action === 'reject') {
+        // When rejecting, just decrease pending_days
+        await client.query(`
+          UPDATE leave_balances
+          SET 
+            pending_days = pending_days - $1,
+            updated_at = NOW()
+          WHERE user_id = $2 AND leave_type_id = $3 AND year = EXTRACT(YEAR FROM NOW())
+        `, [request.days_requested, request.user_id, request.leave_type_id]);
+      }
     }
 
     await client.query('COMMIT');
-    res.json({ 
-      message: `Leave request ${action === 'escalate' ? 'escalated' : action + 'd'} successfully` 
-    });
-  } catch (error: any) {
+    res.json({ message: 'Leave request processed successfully' });
+  } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error processing leave request action:', error);
-    res.status(400).json({ error: error.message || 'Failed to process leave request action' });
+    console.error('Error processing request:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error occurred' });
   } finally {
     client.release();
   }
@@ -1308,58 +1318,87 @@ router.get('/leave-requests', authMiddleware, managementMiddleware, async (req: 
 });
 
 // Get pending leave requests for management
-router.get('/pending-requests', authMiddleware, managementMiddleware, async (req: CustomRequest, res: Response) => {
+router.get('/pending-requests', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
-    const managerId = req.user?.id;
-    
-    if (!managerId) {
-      return res.status(401).json({ error: 'User not authenticated' });
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Get all users under this manager
-    const usersUnderManager = await getUsersUnderManagement(Number(managerId));
-    const userIds = usersUnderManager.map(user => user.id);
-
-    if (userIds.length === 0) {
-      return res.json([]);
-    }
-
-    const result = await pool.query(
-      `SELECT 
-        lr.*,
-        lt.name as leave_type_name,
+    const result = await client.query(`
+      WITH management_company AS (
+        SELECT company_id FROM users WHERE id = $1
+      )
+      SELECT 
+        lr.id,
+        lr.user_id,
         u.name as user_name,
         u.employee_number,
         u.department,
+        lr.leave_type_id,
+        lt.name as leave_type_name,
+        lr.start_date,
+        lr.end_date,
+        lr.days_requested,
+        lr.reason,
+        lr.status,
+        lr.contact_number,
+        lr.requires_documentation,
         COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object(
-                'id', ld.id,
-                'file_name', ld.file_name,
-                'file_type', ld.file_type,
-                'file_data', ld.file_data,
-                'upload_method', ld.upload_method
-              )
-            )
-            FROM leave_documents ld
-            WHERE ld.request_id = lr.id
-          ),
-          '[]'
-        ) as documents
+          (SELECT json_agg(json_build_object(
+            'id', ld.id,
+            'file_name', ld.file_name,
+            'file_type', ld.file_type
+          ))
+          FROM leave_documents ld
+          WHERE ld.request_id = lr.id
+          ), '[]'
+        ) as documents,
+        CASE 
+          WHEN le.id IS NOT NULL THEN json_build_object(
+            'escalation_id', le.id,
+            'escalated_by', le.escalated_by,
+            'escalated_by_name', eu.name,
+            'reason', le.reason,
+            'escalated_at', le.created_at,
+            'status', le.status,
+            'resolution_notes', le.resolution_notes
+          )
+          ELSE NULL
+        END as escalation_details
       FROM leave_requests lr
-      JOIN leave_types lt ON lr.leave_type_id = lt.id
       JOIN users u ON lr.user_id = u.id
-      WHERE lr.user_id = ANY($1::int[])
-      AND lr.status = 'pending'
-      ORDER BY lr.created_at DESC`,
-      [userIds]
-    );
+      JOIN leave_types lt ON lr.leave_type_id = lt.id
+      LEFT JOIN leave_escalations le ON lr.id = le.request_id
+      LEFT JOIN users eu ON le.escalated_by = eu.id
+      WHERE (
+        (lr.user_id = $1 AND lr.status = 'pending') -- Management's own pending requests
+        OR (
+          u.role = 'group-admin' 
+          AND u.company_id = (SELECT company_id FROM management_company)
+          AND lr.status = 'pending'
+        ) -- Direct pending requests from group admins
+        OR (
+          lr.status = 'escalated'
+          AND le.escalated_to = $1
+          AND le.status = 'pending'
+        ) -- Escalated requests assigned to this manager
+      )
+      ORDER BY 
+        CASE 
+          WHEN lr.status = 'escalated' THEN 0
+          WHEN lr.user_id = $1 THEN 1
+          ELSE 2
+        END,
+        lr.created_at DESC
+    `, [req.user.id]);
 
     res.json(result.rows);
   } catch (error) {
-    console.error('Error fetching pending leave requests:', error);
-    res.status(500).json({ error: 'Failed to fetch pending leave requests' });
+    console.error('Error fetching requests:', error);
+    res.status(500).json({ error: 'Failed to fetch requests' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1396,6 +1435,48 @@ router.get('/stats', authMiddleware, async (req: CustomRequest, res: Response) =
       error: 'Failed to fetch leave stats',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
+  } finally {
+    client.release();
+  }
+});
+
+// Add document retrieval endpoint
+router.get('/document/:id', [authMiddleware, managementMiddleware], async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { id } = req.params;
+
+    // Check if the user has access to this document
+    const result = await client.query(`
+      SELECT ld.file_data, ld.file_type 
+      FROM leave_documents ld
+      JOIN leave_requests lr ON ld.request_id = lr.id
+      JOIN users u ON lr.user_id = u.id
+      WHERE ld.id = $1
+      AND (
+        lr.user_id = $2
+        OR (u.group_admin_id = $2 AND $3 = 'group-admin')
+        OR $3 = 'management'
+      )`,
+      [id, req.user.id, req.user.role]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found or unauthorized' });
+    }
+
+    const document = result.rows[0];
+    
+    // Send base64 data directly
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(document.file_data);
+  } catch (error) {
+    console.error('Error fetching document:', error);
+    res.status(500).json({ error: 'Failed to fetch document' });
   } finally {
     client.release();
   }

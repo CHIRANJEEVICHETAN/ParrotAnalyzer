@@ -204,7 +204,7 @@ router.post('/request', authMiddleware, async (req: CustomRequest, res: Response
           doc.file_name,
           doc.file_type,
           doc.file_data,
-          'direct'
+          doc.upload_method
         ]);
       }
     }

@@ -9,6 +9,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Dimensions,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
@@ -16,6 +17,7 @@ import ThemeContext from '../../../../context/ThemeContext';
 import AuthContext from '../../../../context/AuthContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { format, differenceInDays, isWeekend } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -36,33 +38,54 @@ interface LeaveBalance {
   days_used: number;
 }
 
+interface Document {
+  id?: number;
+  file_name: string;
+  file_type: string;
+  file_data: string;
+  upload_method: 'camera' | 'file';
+}
+
 interface RequestLeaveModalProps {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  leaveTypes: LeaveType[];
+  balances: LeaveBalance[];
 }
 
-export default function RequestLeaveModal({ visible, onClose, onSuccess }: RequestLeaveModalProps) {
+interface ErrorModalState {
+  visible: boolean;
+  title: string;
+  message: string;
+  type: 'error' | 'success' | 'warning';
+}
+
+export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTypes, balances }: RequestLeaveModalProps) {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
   const isDark = theme === 'dark';
+  const screenWidth = Dimensions.get('window').width;
 
-  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
-  const [balances, setBalances] = useState<LeaveBalance[]>([]);
   const [selectedType, setSelectedType] = useState<number | null>(null);
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
   const [reason, setReason] = useState('');
-  const [contactNumber, setContactNumber] = useState('+91');
-  const [documents, setDocuments] = useState<any[]>([]);
+  const [contactNumber, setContactNumber] = useState('');
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(false);
   const [showStartDate, setShowStartDate] = useState(false);
   const [showEndDate, setShowEndDate] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [errorModal, setErrorModal] = useState<ErrorModalState>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'error'
+  });
 
   useEffect(() => {
     if (visible) {
-      fetchData();
       resetForm();
       checkCameraPermission();
     }
@@ -75,90 +98,89 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess }: Reque
     }
   };
 
-  const fetchData = async () => {
-    try {
-      const year = new Date().getFullYear();
-      const [typesResponse, balanceResponse] = await Promise.all([
-        axios.get(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/leave/types`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        ),
-        axios.get(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/leave/balance?year=${year}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-      ]);
-      
-      if (typesResponse.data) {
-        setLeaveTypes(typesResponse.data);
-      }
-      if (balanceResponse.data) {
-        setBalances(balanceResponse.data);
-      }
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      Alert.alert('Error', 'Failed to load leave types and balances');
-    }
-  };
-
   const resetForm = () => {
     setSelectedType(null);
     setStartDate(new Date());
     setEndDate(new Date());
     setReason('');
-    setContactNumber('+91');
+    setContactNumber('');
     setDocuments([]);
     setErrors({});
   };
 
+  const showError = (title: string, message: string, type: ErrorModalState['type'] = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type
+    });
+  };
+
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     if (!selectedType) {
-      newErrors.leaveType = 'Please select a leave type';
+      showError('Warning', 'Please select a leave type', 'warning');
+      return false;
+    }
+
+    const selectedLeaveType = leaveTypes.find(type => type.id === selectedType);
+    if (!selectedLeaveType) return false;
+
+    // Notice Period Validation
+    const noticeDays = differenceInDays(startDate, today);
+    
+    if (noticeDays < selectedLeaveType.notice_period_days) {
+      const earliestPossibleDate = new Date();
+      earliestPossibleDate.setDate(earliestPossibleDate.getDate() + selectedLeaveType.notice_period_days);
+      
+      showError(
+        'Notice Period Required',
+        `This leave type requires ${selectedLeaveType.notice_period_days} days advance notice.\n\n` +
+        `• Required Notice: ${selectedLeaveType.notice_period_days} days\n` +
+        `• Earliest Possible Date: ${format(earliestPossibleDate, 'MMM dd, yyyy')}\n\n` +
+        `Please adjust your start date to comply with the notice period requirement.`,
+        'warning'
+      );
+      return false;
     }
 
     if (!reason.trim()) {
-      newErrors.reason = 'Please provide a reason for leave';
+      showError('Warning', 'Please provide a reason for leave', 'warning');
+      return false;
     }
 
-    // Validate contact number (Indian format)
-    const contactRegex = /^\+91[6-9]\d{9}$/;
-    if (!contactRegex.test(contactNumber)) {
-      newErrors.contactNumber = 'Please enter a valid Indian mobile number (+91XXXXXXXXXX)';
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (!phoneRegex.test(contactNumber)) {
+      showError('Warning', 'Please enter a valid 10-digit mobile number starting with 6-9', 'warning');
+      return false;
     }
 
-    // Get selected leave type
-    const selectedLeaveType = leaveTypes.find(type => type.id === selectedType);
-    if (selectedLeaveType) {
-      // Calculate working days
-      const totalDays = calculateWorkingDays(startDate, endDate);
-
-      // Check max consecutive days
-      if (totalDays > selectedLeaveType.max_consecutive_days) {
-        newErrors.dates = `Maximum ${selectedLeaveType.max_consecutive_days} consecutive days allowed`;
-      }
-
-      // Check notice period
-      const noticeGiven = differenceInDays(startDate, new Date());
-      if (noticeGiven < selectedLeaveType.notice_period_days) {
-        newErrors.dates = `Requires ${selectedLeaveType.notice_period_days} days notice period`;
-      }
-
-      // Check if documents are required
-      if (selectedLeaveType.requires_documentation && documents.length === 0) {
-        newErrors.documents = 'Supporting documents are required for this leave type';
-      }
-
-      // Check leave balance
-      const balance = balances.find(b => b.id === selectedType);
-      if (balance && totalDays > (balance.max_days - balance.days_used)) {
-        newErrors.dates = 'Insufficient leave balance';
-      }
+    if (startDate < today) {
+      showError('Warning', 'Start date cannot be in the past', 'warning');
+      return false;
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (endDate < startDate) {
+      showError('Warning', 'End date cannot be before start date', 'warning');
+      return false;
+    }
+
+    if (selectedLeaveType.requires_documentation && documents.length === 0) {
+      showError('Warning', 'Please upload required documentation', 'warning');
+      return false;
+    }
+
+    const workingDays = calculateWorkingDays(startDate, endDate);
+    if (workingDays > selectedLeaveType.max_consecutive_days) {
+      showError('Warning', `Maximum ${selectedLeaveType.max_consecutive_days} consecutive working days allowed`, 'warning');
+      return false;
+    }
+
+    return true;
   };
 
   const calculateWorkingDays = (start: Date, end: Date) => {
@@ -176,84 +198,75 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess }: Reque
     return days;
   };
 
-  const handleDocumentSelection = () => {
-    Alert.alert(
-      'Upload Document',
-      'Choose upload method',
-      [
-        {
-          text: 'Take Photo',
-          onPress: handleCameraUpload,
-        },
-        {
-          text: 'Choose File',
-          onPress: handleFileUpload,
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]
-    );
-  };
-
-  const handleCameraUpload = async () => {
+  const handleDocumentUpload = async (method: 'camera' | 'file') => {
     try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: true,
-      });
+      if (method === 'camera') {
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.7,
+          allowsEditing: true,
+          base64: true,
+        });
 
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        const fileSize = asset.fileSize || 0;
-        
-        if (fileSize > 5 * 1024 * 1024) {
-          Alert.alert('Error', 'File size should not exceed 5MB');
-          return;
+        if (!result.canceled && result.assets[0].base64) {
+          const imageAsset = result.assets[0];
+          const base64Data = imageAsset.base64;
+          
+          if (!base64Data) {
+            throw new Error('Failed to get image data');
+          }
+
+          const newDocument: Document = {
+            file_name: `photo_${Date.now()}.jpg`,
+            file_type: 'image/jpeg',
+            file_data: base64Data,
+            upload_method: 'camera'
+          };
+
+          if (newDocument.file_data.length > 5 * 1024 * 1024) {
+            Alert.alert('Error', 'File size should not exceed 5MB');
+            return;
+          }
+
+          setDocuments(prev => [...prev, newDocument]);
+          setErrors(prev => ({ ...prev, documents: '' }));
         }
+      } else {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['image/*', 'application/pdf'],
+          copyToCacheDirectory: true,
+        });
 
-        setDocuments(prev => [...prev, {
-          name: `photo_${Date.now()}.jpg`,
-          mimeType: 'image/jpeg',
-          uri: asset.uri,
-          size: fileSize,
-        }]);
-        setErrors(prev => ({ ...prev, documents: '' }));
+        if (!result.canceled) {
+          const docAsset = result.assets[0];
+          const base64Data = await FileSystem.readAsStringAsync(docAsset.uri, {
+            encoding: 'base64'
+          });
+          
+          const timestamp = Date.now();
+          const extension = docAsset.mimeType 
+            ? `.${docAsset.mimeType.split('/')[1]}`
+            : '';
+          const fileName = docAsset.name || `file_${timestamp}${extension}`;
+          
+          const newDocument: Document = {
+            file_name: fileName,
+            file_type: docAsset.mimeType || 'application/octet-stream',
+            file_data: base64Data,
+            upload_method: 'file'
+          };
+
+          if (base64Data.length > 5 * 1024 * 1024) {
+            Alert.alert('Error', 'File size should not exceed 5MB');
+            return;
+          }
+
+          setDocuments(prev => [...prev, newDocument]);
+          setErrors(prev => ({ ...prev, documents: '' }));
+        }
       }
     } catch (error) {
-      console.error('Error taking photo:', error);
-      Alert.alert('Error', 'Failed to take photo');
-    }
-  };
-
-  const handleFileUpload = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['image/*', 'application/pdf'],
-        copyToCacheDirectory: true,
-      });
-
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        const fileSize = asset.size || 0;
-        
-        if (fileSize > 5 * 1024 * 1024) {
-          Alert.alert('Error', 'File size should not exceed 5MB');
-          return;
-        }
-
-        setDocuments(prev => [...prev, {
-          name: asset.name,
-          mimeType: asset.mimeType,
-          uri: asset.uri,
-          size: fileSize,
-        }]);
-        setErrors(prev => ({ ...prev, documents: '' }));
-      }
-    } catch (error) {
-      console.error('Error picking document:', error);
+      console.error('Error uploading document:', error);
       Alert.alert('Error', 'Failed to upload document');
     }
   };
@@ -271,14 +284,15 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess }: Reque
     try {
       const formData = {
         leave_type_id: selectedType,
-        start_date: startDate.toISOString(),
-        end_date: endDate.toISOString(),
+        start_date: format(startDate, 'yyyy-MM-dd'),
+        end_date: format(endDate, 'yyyy-MM-dd'),
         reason,
         contact_number: contactNumber,
         documents: documents.map(doc => ({
-          file_name: doc.name,
-          file_type: doc.mimeType,
-          file_data: doc.uri,
+          file_name: doc.file_name,
+          file_type: doc.file_type,
+          file_data: doc.file_data,
+          upload_method: doc.upload_method
         })),
       };
 
@@ -288,239 +302,326 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess }: Reque
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      Alert.alert('Success', 'Leave request submitted successfully');
-      onSuccess?.();
-      onClose();
-    } catch (error) {
-      console.error('Error submitting leave request:', error);
-      Alert.alert('Error', 'Failed to submit leave request');
+      setErrorModal({
+        visible: true,
+        title: 'Success!',
+        message: 'Your leave request has been submitted successfully. You will be notified once it is reviewed.',
+        type: 'success'
+      });
+
+      // Wait for user to acknowledge success before closing
+      const timer = setTimeout(() => {
+        setErrorModal(prev => ({ ...prev, visible: false }));
+        onSuccess?.();
+        onClose();
+      }, 2000);
+
+      return () => clearTimeout(timer);
+
+    } catch (error: any) {
+      const errorDetails = error.response?.data?.details;
+      const errorMessage = errorDetails?.message || error.response?.data?.error || 'Failed to submit request';
+      
+      // Handle notice period error specifically
+      if (errorDetails?.required_days) {
+        showError(
+          'Notice Period Required',
+          `This leave type requires ${errorDetails.required_days} days advance notice.\n\n` +
+          `• Required Notice: ${errorDetails.required_days} days\n` +
+          `• Earliest Possible Date: ${format(new Date(errorDetails.earliest_possible_date), 'MMM dd, yyyy')}\n\n` +
+          `Please adjust your start date to comply with the notice period requirement.`,
+          'warning'
+        );
+      } else {
+        setErrorModal({
+          visible: true,
+          title: 'Request Failed',
+          message: errorMessage,
+          type: 'error'
+        });
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="fade"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View className="flex-1 justify-center items-center bg-black/50">
-        <View className={`w-11/12 max-h-[80vh] rounded-lg ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
-          <ScrollView className="p-4">
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Request Leave
-            </Text>
-              <TouchableOpacity 
-                onPress={onClose}
-                className={`p-2 rounded-full ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
-              >
-                <Ionicons name="close" size={24} color={isDark ? '#FFFFFF' : '#111827'} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Leave Type Picker */}
-            <View className="mb-4">
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Leave Type <Text className="text-red-500">*</Text>
-              </Text>
-              <View className={`border rounded-lg ${isDark ? 'border-gray-700' : 'border-gray-300'} ${errors.leaveType ? 'border-red-500' : ''}`}>
-                <Picker
-                  selectedValue={selectedType}
-                  onValueChange={(value) => {
-                    setSelectedType(value);
-                    setErrors(prev => ({ ...prev, leaveType: '' }));
-                  }}
-                  style={{ color: isDark ? '#FFFFFF' : '#111827' }}
-                >
-                  <Picker.Item label="Select Leave Type" value={null} />
-                  {leaveTypes.map(type => (
-                    <Picker.Item key={type.id} label={type.name} value={type.id} />
-                  ))}
-                </Picker>
-              </View>
-              {errors.leaveType && (
-                <Text className="text-red-500 text-sm mt-1">{errors.leaveType}</Text>
-              )}
-            </View>
-
-            {/* Date Selection */}
-            <View className="flex-row space-x-4 mb-4">
-              {/* Start Date */}
-              <View className="flex-1">
-                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Start Date <Text className="text-red-500">*</Text>
+    <>
+      <Modal
+        visible={visible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={onClose}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className={`w-11/12 max-h-[90%] rounded-xl ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
+            {/* Header */}
+            <View className="p-4 border-b border-gray-200">
+              <View className="flex-row justify-between items-center">
+                <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  New Leave Request
                 </Text>
-                <TouchableOpacity
-                  onPress={() => setShowStartDate(true)}
-                  className={`p-3 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-gray-100'} ${errors.dates ? 'border border-red-500' : ''}`}
-                >
-                  <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                    {format(startDate, 'MMM dd, yyyy')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* End Date */}
-              <View className="flex-1">
-                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                  End Date <Text className="text-red-500">*</Text>
-                </Text>
-                <TouchableOpacity
-                  onPress={() => setShowEndDate(true)}
-                  className={`p-3 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-gray-100'} ${errors.dates ? 'border border-red-500' : ''}`}
-                >
-                  <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                    {format(endDate, 'MMM dd, yyyy')}
-                  </Text>
+                <TouchableOpacity onPress={onClose}>
+                  <Ionicons name="close" size={24} color={isDark ? '#D1D5DB' : '#6B7280'} />
                 </TouchableOpacity>
               </View>
             </View>
-            {errors.dates && (
-              <Text className="text-red-500 text-sm mb-4">{errors.dates}</Text>
-            )}
 
-            {/* Date Pickers */}
-            {(showStartDate || showEndDate) && Platform.OS !== 'web' && (
-              <DateTimePicker
-                value={showStartDate ? startDate : endDate}
-                mode="date"
-                display="default"
-                minimumDate={new Date()}
-                onChange={(event, selectedDate) => {
-                  if (showStartDate) {
-                    setShowStartDate(Platform.OS === 'ios');
-                    if (selectedDate) {
-                      setStartDate(selectedDate);
-                      setErrors(prev => ({ ...prev, dates: '' }));
-                    }
-                  } else {
-                    setShowEndDate(Platform.OS === 'ios');
-                    if (selectedDate) {
-                      setEndDate(selectedDate);
-                      setErrors(prev => ({ ...prev, dates: '' }));
-                    }
-                  }
-                }}
-              />
-            )}
-
-            {/* Reason Input */}
-            <View className="mb-4">
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Reason <Text className="text-red-500">*</Text>
-              </Text>
-              <TextInput
-                value={reason}
-                onChangeText={(text) => {
-                  setReason(text);
-                  setErrors(prev => ({ ...prev, reason: '' }));
-                }}
-                multiline
-                numberOfLines={3}
-                className={`p-3 rounded-lg ${isDark ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-900'} ${
-                  errors.reason ? 'border border-red-500' : ''
-                }`}
-                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                placeholder="Enter reason for leave"
-              />
-              {errors.reason && (
-                <Text className="text-red-500 text-sm mt-1">{errors.reason}</Text>
-              )}
-            </View>
-
-            {/* Contact Number Input */}
-            <View className="mb-4">
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Contact Number <Text className="text-red-500">*</Text>
-              </Text>
-              <TextInput
-                value={contactNumber}
-                onChangeText={(text) => {
-                  setContactNumber(text);
-                  setErrors(prev => ({ ...prev, contactNumber: '' }));
-                }}
-                className={`p-3 rounded-lg ${isDark ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-900'} ${
-                  errors.contactNumber ? 'border border-red-500' : ''
-                }`}
-                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                placeholder="+91XXXXXXXXXX"
-                keyboardType="phone-pad"
-              />
-              {errors.contactNumber && (
-                <Text className="text-red-500 text-sm mt-1">{errors.contactNumber}</Text>
-              )}
-            </View>
-
-            {/* Document Upload */}
-            <View className="mb-4">
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Supporting Documents
-                {selectedType && leaveTypes.find(t => t.id === selectedType)?.requires_documentation && (
-                  <Text className="text-red-500"> *</Text>
-                )}
-              </Text>
-              
-              <TouchableOpacity
-                onPress={handleDocumentSelection}
-                className={`p-3 rounded-lg border-2 border-dashed ${
-                  isDark ? 'border-gray-700' : 'border-gray-300'
-                } ${errors.documents ? 'border-red-500' : ''}`}
-              >
-                <View className="items-center">
-                  <Ionicons 
-                    name="cloud-upload-outline" 
-                    size={24} 
-                    color={isDark ? '#9CA3AF' : '#6B7280'} 
-                  />
-                  <Text className={`mt-2 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Take Photo or Upload Document
-                  </Text>
-                  <Text className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Supported: Images, PDF (Max 5MB)
-                  </Text>
+            <ScrollView className="p-4">
+              {/* Leave Type */}
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Leave Type <Text className="text-red-500">*</Text>
+                </Text>
+                <View className={`border rounded-lg ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'} ${
+                  errors.leaveType ? 'border-red-500' : ''
+                }`}>
+                  <Picker
+                    selectedValue={selectedType}
+                    onValueChange={(value) => {
+                      setSelectedType(value);
+                      setErrors(prev => ({ ...prev, leaveType: '' }));
+                    }}
+                    style={{
+                      color: isDark ? '#FFFFFF' : '#111827',
+                    }}
+                  >
+                    <Picker.Item label="Select Leave Type" value={null} />
+                    {leaveTypes.map(type => (
+                      <Picker.Item key={type.id} label={type.name} value={type.id} />
+                    ))}
+                  </Picker>
                 </View>
-              </TouchableOpacity>
+              </View>
 
-              {documents.length > 0 && (
-                <View className="mt-2 space-y-2">
+              {/* Date Selection */}
+              <View className="flex-row space-x-4 gap-4 mb-4">
+                <View className="flex-1">
+                  <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Start Date <Text className="text-red-500">*</Text>
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setShowStartDate(true)}
+                    className={`p-3 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
+                  >
+                    <Text className={isDark ? 'text-white' : 'text-gray-900'}>
+                      {format(startDate, 'MMM dd, yyyy')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View className="flex-1">
+                  <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    End Date <Text className="text-red-500">*</Text>
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setShowEndDate(true)}
+                    className={`p-3 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
+                  >
+                    <Text className={isDark ? 'text-white' : 'text-gray-900'}>
+                      {format(endDate, 'MMM dd, yyyy')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Date Pickers */}
+              {(showStartDate || showEndDate) && (
+                <DateTimePicker
+                  value={showStartDate ? startDate : endDate}
+                  mode="date"
+                  display="default"
+                  minimumDate={new Date()}
+                  onChange={(event, selectedDate) => {
+                    if (showStartDate) {
+                      setShowStartDate(false);
+                      if (selectedDate) setStartDate(selectedDate);
+                    } else {
+                      setShowEndDate(false);
+                      if (selectedDate) setEndDate(selectedDate);
+                    }
+                  }}
+                />
+              )}
+
+              {/* Reason */}
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Reason <Text className="text-red-500">*</Text>
+                </Text>
+                <TextInput
+                  value={reason}
+                  onChangeText={(text) => {
+                    setReason(text);
+                    setErrors(prev => ({ ...prev, reason: '' }));
+                  }}
+                  multiline
+                  numberOfLines={3}
+                  className={`p-3 rounded-lg ${
+                    isDark ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-900'
+                  } ${errors.reason ? 'border border-red-500' : ''}`}
+                  placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                  placeholder="Enter reason for leave"
+                />
+              </View>
+
+              {/* Contact Number */}
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Contact Number <Text className="text-red-500">*</Text>
+                </Text>
+                <View className={`flex-row items-center rounded-lg ${
+                  isDark ? 'bg-gray-800' : 'bg-gray-100'
+                } ${errors.contactNumber ? 'border border-red-500' : ''}`}>
+                  <Text className={`px-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>+91</Text>
+                  <TextInput
+                    value={contactNumber}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/\D/g, '').slice(0, 10);
+                      setContactNumber(cleaned);
+                      setErrors(prev => ({ ...prev, contactNumber: '' }));
+                    }}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    className={`flex-1 p-3 ${isDark ? 'text-white' : 'text-gray-900'}`}
+                    placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                    placeholder="Enter mobile number"
+                  />
+                </View>
+              </View>
+
+              {/* Document Upload */}
+              {selectedType && leaveTypes.find(t => t.id === selectedType)?.requires_documentation && (
+                <View className="mb-4">
+                  <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Documents Required <Text className="text-red-500">*</Text>
+                  </Text>
+                  <View className="flex-row space-x-4 gap-4 mb-4">
+                    <TouchableOpacity
+                      onPress={() => handleDocumentUpload('camera')}
+                      className="flex-1 bg-blue-500 p-3 rounded-lg flex-row justify-center items-center"
+                    >
+                      <Ionicons name="camera" size={20} color="white" style={{ marginRight: 8 }} />
+                      <Text className="text-white font-medium">Camera</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => handleDocumentUpload('file')}
+                      className="flex-1 bg-green-500 p-3 rounded-lg flex-row justify-center items-center"
+                    >
+                      <Ionicons name="document" size={20} color="white" style={{ marginRight: 8 }} />
+                      <Text className="text-white font-medium">Upload</Text>
+                    </TouchableOpacity>
+                  </View>
+
                   {documents.map((doc, index) => (
-                    <View key={index} className="flex-row items-center justify-between">
-                      <Text className={isDark ? 'text-gray-300' : 'text-gray-600'}>
-                        <Ionicons name="document-outline" size={16} /> {doc.name}
-                      </Text>
-                      <TouchableOpacity onPress={() => removeDocument(index)}>
+                    <View
+                      key={index}
+                      className={`flex-row justify-between items-center p-3 rounded-lg mb-3 ${
+                        isDark ? 'bg-gray-800' : 'bg-gray-100'
+                      }`}
+                    >
+                      <View className="flex-row items-center flex-1 mr-2">
+                        <Ionicons
+                          name={doc.file_type.includes('image') ? 'image' : 'document-text'}
+                          size={20}
+                          color={isDark ? '#D1D5DB' : '#6B7280'}
+                        />
+                        <Text 
+                          className={`ml-2 ${isDark ? 'text-white' : 'text-gray-900'}`}
+                          numberOfLines={1}
+                          style={{ maxWidth: screenWidth * 0.6 }}
+                        >
+                          {doc.file_name}
+                        </Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => removeDocument(index)}
+                        className="p-2"
+                      >
                         <Ionicons name="close-circle" size={20} color="#EF4444" />
                       </TouchableOpacity>
                     </View>
                   ))}
                 </View>
               )}
-
-              {errors.documents && (
-                <Text className="text-red-500 text-sm mt-1">{errors.documents}</Text>
-              )}
+            </ScrollView>
+            
+            {/* Sticky Submit Button Container */}
+            <View className={`p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <TouchableOpacity
+                onPress={handleSubmit}
+                disabled={loading}
+                className={`bg-blue-500 p-4 rounded-lg ${loading ? 'opacity-70' : ''}`}
+              >
+                {loading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white text-center font-semibold">
+                    Submit Request
+                  </Text>
+                )}
+              </TouchableOpacity>
             </View>
-
-            {/* Submit Button */}
-            <TouchableOpacity
-              onPress={handleSubmit}
-              disabled={loading}
-              className={`bg-blue-500 p-4 rounded-lg mt-4 ${loading ? 'opacity-70' : ''}`}
-            >
-              {loading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text className="text-white text-center font-semibold">
-                  Submit Request
-                </Text>
-              )}
-            </TouchableOpacity>
-          </ScrollView>
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      {/* Error/Success Modal */}
+      <Modal
+        visible={errorModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setErrorModal(prev => ({ ...prev, visible: false }))}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className={`w-11/12 p-6 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <View className="items-center mb-4">
+              <Ionicons
+                name={
+                  errorModal.type === 'success'
+                    ? 'checkmark-circle'
+                    : errorModal.type === 'warning'
+                    ? 'warning'
+                    : 'alert-circle'
+                }
+                size={48}
+                color={
+                  errorModal.type === 'success'
+                    ? '#10B981'
+                    : errorModal.type === 'warning'
+                    ? '#F59E0B'
+                    : '#EF4444'
+                }
+              />
+            </View>
+            <Text className={`text-lg font-semibold text-center mb-2 ${
+              isDark ? 'text-white' : 'text-gray-900'
+            }`}>
+              {errorModal.title}
+            </Text>
+            <Text className={`text-center mb-6 ${
+              isDark ? 'text-gray-300' : 'text-gray-600'
+            }`}>
+              {errorModal.message}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setErrorModal(prev => ({ ...prev, visible: false }))}
+              className={`py-3 rounded-lg ${
+                errorModal.type === 'success'
+                  ? 'bg-green-500'
+                  : errorModal.type === 'warning'
+                  ? 'bg-yellow-500'
+                  : 'bg-red-500'
+              }`}
+            >
+              <Text className="text-white text-center font-medium">
+                OK
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 } 

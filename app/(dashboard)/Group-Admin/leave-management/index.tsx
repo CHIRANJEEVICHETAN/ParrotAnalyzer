@@ -140,7 +140,7 @@ export default function GroupAdminLeaveManagement() {
     try {
       setLoading(true);
       const response = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/admin/leave-requests`,
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -158,7 +158,7 @@ export default function GroupAdminLeaveManagement() {
     try {
       setActionLoading(id);
       await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/admin/leave-requests/${id}/${action}`,
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${id}/${action}`,
         { rejectionReason },
         {
           headers: { Authorization: `Bearer ${token}` }
