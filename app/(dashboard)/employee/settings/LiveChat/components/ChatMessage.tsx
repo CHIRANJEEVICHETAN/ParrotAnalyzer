@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
-import { View, Text, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, ActivityIndicator, useWindowDimensions, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Markdown from 'react-native-markdown-display';
 
 interface ChatMessageProps {
   message: string;
@@ -17,79 +18,52 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
     minute: '2-digit' 
   });
 
-  const formatMessage = (text: string) => {
-    const lines = text.split('\n');
-    return lines.map((line, index) => {
-      // Handle numbered steps (e.g., "1. Step")
-      if (/^\*\*\d+\./i.test(line)) {
-        return (
-          <Text 
-            key={index} 
-            style={{ 
-              marginBottom: 12,
-              marginTop: 4,
-              fontFamily: 'System',
-              fontSize: 16,
-              fontWeight: '700',
-              color: isUser ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1F2937',
-            }}
-          >
-            {line.replace(/\*\*/g, '')}
-          </Text>
-        );
-      }
-      // Handle bullet points - convert to clean text with bullet
-      else if (line.trim().startsWith('-')) {
-        const cleanText = line.trim().substring(1).trim(); // Remove the dash and trim spaces
-        return (
-          <Text 
-            key={index} 
-            style={{ 
-              marginLeft: 16, 
-              marginBottom: 8,
-              fontSize: 15,
-              lineHeight: 22,
-              color: isUser ? '#FFFFFF' : isDark ? '#E5E7EB' : '#4B5563',
-            }}
-          >
-            <Text style={{ marginRight: 8 }}>•</Text> {cleanText}
-          </Text>
-        );
-      }
-      // Handle emphasized text (remove ** but keep bold style)
-      else if (line.includes('**')) {
-        const cleanText = line.replace(/\*\*/g, '');
-        return (
-          <Text 
-            key={index} 
-            style={{ 
-              marginBottom: 8,
-              fontSize: 15,
-              lineHeight: 22,
-              fontWeight: '600',
-              color: isUser ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1F2937',
-            }}
-          >
-            {cleanText}
-          </Text>
-        );
-      }
-      // Regular text
-      return line ? (
-        <Text 
-          key={index} 
-          style={{ 
-            marginBottom: 8,
-            fontSize: 15,
-            lineHeight: 22,
-            color: isUser ? '#FFFFFF' : isDark ? '#E5E7EB' : '#4B5563',
-          }}
-        >
-          {line}
-        </Text>
-      ) : null;
-    });
-  };
+  const markdownStyles = StyleSheet.create({
+    body: {
+      color: isUser ? '#FFFFFF' : isDark ? '#E5E7EB' : '#4B5563',
+      fontSize: 15,
+      lineHeight: 22,
+      width: '100%',
+    },
+    strong: {
+      color: isUser ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1F2937',
+      fontSize: 16,
+      fontWeight: '700',
+      marginTop: 8,
+      marginBottom: 4,
+      width: '100%',
+    },
+    bullet_list: {
+      marginLeft: 8,
+      marginBottom: 8,
+      width: '100%',
+    },
+    bullet_list_item: {
+      marginBottom: 4,
+      flexDirection: 'row',
+      width: '100%',
+    },
+    bullet_list_icon: {
+      marginRight: 8,
+    },
+    paragraph: {
+      marginBottom: 8,
+      fontSize: 15,
+      lineHeight: 22,
+      width: '100%',
+      flexShrink: 1,
+    },
+    ordered_list: {
+      marginLeft: 8,
+      marginBottom: 8,
+      width: '100%',
+    },
+    ordered_list_item: {
+      marginBottom: 4,
+      flexDirection: 'row',
+      width: '100%',
+    },
+  });
 
   return (
     <View className={`px-4 py-2 ${isUser ? 'items-end' : 'items-start'}`}>
@@ -110,8 +84,10 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
               : isDark ? 'bg-gray-800' : 'bg-white'
           } shadow-sm`}
           style={{ 
-            maxWidth: Math.min(width * 0.75, 400),
+            maxWidth: Math.min(width * (isUser ? 0.65 : 0.70), isUser ? 350 : 400),
             minWidth: 50,
+            width: 'auto',
+            flex: 1,
             borderWidth: !isDark && !isUser ? 1 : 0,
             borderColor: '#E5E7EB',
             position: 'relative',
@@ -127,8 +103,16 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
             </View>
           ) : (
             <>
-              <View style={{ paddingVertical: 2, paddingRight: 48 }}>
-                {formatMessage(message)}
+              <View style={{ 
+                paddingVertical: 2, 
+                paddingRight: 48,
+                width: '100%',
+                flex: 1,
+              }}>
+                <Markdown 
+                  style={markdownStyles}
+                  mergeStyle={true}
+                >{message}</Markdown>
               </View>
               <Text 
                 style={{ 
