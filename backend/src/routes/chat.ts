@@ -6,154 +6,89 @@ import { pool } from '../config/database';
 
 const router = express.Router();
 
-const SYSTEM_PROMPT = `You are an expert assistant for the "Parrot Analyzer" project. 
+// Update the SYSTEM_PROMPT to be more concise
+const SYSTEM_PROMPT = `You are an assistant for the "Parrot Analyzer" app.
 
-When formatting responses:
-1. Use **bold** for important terms and section titles
-2. Use bullet points (-) for lists
-3. Use numbered lists (1.) for step-by-step instructions
-4. Add line breaks between sections (\n\n)
-5. Keep responses concise and well-structured
+Focus on:
+- Time tracking and attendance
+- Expense reports and claims
+- Leave management
+- Profile settings
+- Technical support
 
-For these specific questions, use exactly these responses:
-
-1. For logout questions:
-- How to access: Go to Settings
-- Select Logout option
-- Can log back in with credentials
-
-2. For Group Admin queries:
-- Check Profile Details section
-- Find Admin name and contact info
-- Contact them for queries/adjustments
-
-3. For expense approval status:
-- Check Expense History
-- View status (pending/approved/rejected)
-- Contact Admin if needed
-
-4. For shift recording issues:
-- Verify location permissions
-- Check internet connection
-- Try restarting the app
-- Contact support if persists
-
-Current context: You are providing live chat support to employees using the Parrot Analyzer app.`;
+Format responses:
+- Use **bold** for headers
+- Use - for bullet points
+- Keep responses brief`;
 
 // Custom responses for specific queries
 const CUSTOM_RESPONSES: { [key: string]: string } = {
   "How do I track my work hours or how to i track my attendance?": 
-    "**1. Start Your Shift**\n" +
-    "- Open the app and locate the prominent 'Start Shift' button\n" +
-    "- Allow location access when prompted\n\n" +
-    "**2. During Your Shift**\n" +
-    "- Your location is automatically tracked\n" +
-    "- Indoor movements are filtered using geofencing\n\n" +
-    "**3. End Your Shift**\n" +
-    "- Tap 'End Shift' when you're done\n" +
-    "- Review your shift summary\n\n" +
-    "**4. View Your History**\n" +
-    "- Access 'Shift History' for past records\n" +
-    "- Check detailed analytics of your work hours",
-
-  "How do I submit an expense report?":
-    "**1. Access Expenses**\n" +
-    "- Open the app and go to 'Expenses' section\n\n" +
-    "**2. Add Your Expense Details**\n" +
-    "- Enter the amount\n" +
-    "- Select expense category\n" +
-    "- Add description\n" +
-    "- Upload receipt (if required)\n\n" +
-    "**3. Submit for Approval**\n" +
-    "- Review all details\n" +
-    "- Tap 'Submit' button\n\n" +
-    "**4. Track Your Submission**\n" +
-    "- Monitor status in 'Expense History'\n" +
-    "- Check for any approval updates",
-
-  "How do I request leave?":
-    "**1. Navigate to Leave Section**\n" +
-    "- Open app and go to 'Leave Requests'\n\n" +
-    "**2. Fill Leave Details**\n" +
-    "- Select leave type\n" +
-    "- Choose start and end dates\n" +
-    "- Provide reason for leave\n\n" +
-    "**3. Submit Your Request**\n" +
-    "- Review all details\n" +
-    "- Tap 'Submit' for approval\n\n" +
-    "**4. Monitor Status**\n" +
-    "- Track in 'Leave History'\n" +
-    "- Check approval status",
-
-  "How do I update my profile information?":
-    "1. **Go to Profile**\n" +
-    "   - Open the app and tap on 'Profile' from the menu\n\n" +
-    "2. **Edit Information**\n" +
-    "   - Update personal details like phone number and email\n\n" +
-    "3. **Save Changes**\n" +
-    "   - Tap 'Save' to update your profile information",
-
-  "How do I reset my password?":
-    "1. **Go to Settings**\n" +
-    "   - Open the app and navigate to 'Settings'\n\n" +
-    "2. **Change Password**\n" +
-    "   - Select 'Change Password' and enter the current and new password\n\n" +
-    "3. **Confirm Update**\n" +
-    "   - Tap 'Save' to reset your password",
+    "**1. Start Shift**\n" +
+    "- Open app and tap 'Start Shift', allow location\n\n" +
+    "**2. End Shift**\n" +
+    "- Tap 'End Shift' and review summary\n\n" +
+    "**3. History**\n" +
+    "- View records in 'Shift History'",
 
   "How do I contact support?":
-    "1. **Go to Help & Support**\n" +
-    "   - Open the app and navigate to 'Help & Support'\n\n" +
-    "2. **Choose a Contact Method**\n" +
-    "   - Email: parrotanalyzer@gmail.com\n" +
-    "   - Phone: +916363451047\n\n" +
-    "3. **Submit a Ticket**\n" +
-    "   - Fill in your issue details and tap 'Submit' to get assistance",
+    "**1. Help & Support**\n" +
+    "- Email: parrotanalyzer@gmail.com\n" +
+    "- Phone: +916363451047",
+
+  "How do I submit an expense report?":
+    "**1. Create Expense**\n" +
+    "- Go to Expenses and fill details with receipt\n\n" +
+    "**2. Submit**\n" +
+    "- Review details and submit for approval",
+
+  "How do I request leave?":
+    "**1. Leave Request**\n" +
+    "- Go to Leave section and fill details\n\n" +
+    "**2. Submit & Track**\n" +
+    "- Submit request and check status in History",
+
+  "How do I update my profile information?":
+    "**1. Profile**\n" +
+    "- Go to Profile and update your details\n\n" +
+    "**2. Save**\n" +
+    "- Confirm changes to update profile",
+
+  "How do I reset my password?":
+    "**1. Password Reset**\n" +
+    "- Go to Settings > Change Password\n\n" +
+    "**2. Update**\n" +
+    "- Enter old and new password, save changes",
 
   "How do I submit a travel expense?":
-    "1. **Go to Travel Expenses**\n" +
-    "   - Open the app and navigate to 'Travel Expenses' section\n\n" +
-    "2. **Add Travel Details**\n" +
-    "   - Enter travel date, distance, and purpose\n" +
-    "   - Add any related expenses (fuel, toll, etc.)\n\n" +
-    "3. **Attach Documents**\n" +
-    "   - Upload receipts and supporting documents\n\n" +
-    "4. **Submit Report**\n" +
-    "   - Review details and tap 'Submit' for approval",
+    "**1. Travel Expense**\n" +
+    "- Enter trip details and add receipts\n\n" +
+    "**2. Submit**\n" +
+    "- Review and submit for approval",
 
   "How do I log out of the app?":
-    "1. **Go to Settings**\n" +
-    "   - Open the app and navigate to 'Settings.'\n\n" +
-    "2. **Tap Logout**\n" +
-    "   - Select 'Logout' to exit your account securely.\n\n" +
-    "3. **Re-login if Needed**\n" +
-    "   - Use your credentials to log in again anytime.",
+    "**1. Logout**\n" +
+    "- Go to Settings and tap Logout\n\n" +
+    "**2. Login**\n" +
+    "- Use credentials to login again",
 
   "How do I know my assigned Group Admin?":
-    "1. **Go to Profile**\n" +
-    "   - Open the app and navigate to 'Profile Details.'\n\n" +
-    "2. **Check Admin Details**\n" +
-    "   - Your assigned Group Admin's name and contact will be listed.\n\n" +
-    "3. **Contact Admin**\n" +
-    "   - Reach out for any queries or shift adjustments.",
+    "**1. Admin Info**\n" +
+    "- Check Profile Details for admin contact\n\n" +
+    "**2. Contact**\n" +
+    "- Use provided contact information",
 
   "How do I know if my expense report is approved?":
-    "1. **Go to Expenses**\n" +
-    "   - Open the app and navigate to 'Expense History.'\n\n" +
-    "2. **Check Status**\n" +
-    "   - View pending, approved, or rejected expenses.\n\n" +
-    "3. **Contact Admin**\n" +
-    "   - If needed, reach out to your Group Admin for updates.",
+    "**1. Status**\n" +
+    "- Check Expense History for approval status\n\n" +
+    "**2. Follow-up**\n" +
+    "- Contact admin for pending approvals",
 
   "Why is my shift not being recorded?":
-    "1. **Check Location Permissions**\n" +
-    "   - Ensure the app has location access enabled.\n\n" +
-    "2. **Ensure Internet Connectivity**\n" +
-    "   - A stable internet connection is required for tracking.\n\n" +
-    "3. **Restart the App**\n" +
-    "   - Close and reopen the app to refresh tracking.\n\n" +
-    "4. **Contact Support**\n" +
-    "   - If the issue persists, reach out via 'Help & Support.'"
+    "**1. Check**\n" +
+    "- Verify location access and internet connection\n\n" +
+    "**2. Resolve**\n" +
+    "- Restart app or contact support if issue persists"
 };
 
 // Add this after CUSTOM_RESPONSES definition
@@ -171,16 +106,15 @@ const SUGGESTED_QUESTIONS = [
   "Why is my shift not being recorded?"
 ];
 
-// Update the OFF_TOPIC_RESPONSE to use markdown
+// Update the OFF_TOPIC_RESPONSE to be more concise
 const OFF_TOPIC_RESPONSE = 
-  "I'm specifically designed to help with **Parrot Analyzer** app features.\n\n" +
   "I can help you with:\n" +
-  "- **Time Tracking**: Attendance and work hours\n" +
-  "- **Expenses**: Reports and travel claims\n" +
-  "- **Leave Management**: Requests and status\n" +
-  "- **Profile Settings**: Updates and passwords\n" +
-  "- **Technical Support**: App-related assistance\n\n" +
-  "How can I assist you with any of these topics?";
+  "- **Time Tracking**\n" +
+  "- **Expenses**\n" +
+  "- **Leave**\n" +
+  "- **Profile**\n" +
+  "- **Support**\n\n" +
+  "Please ask about these topics.";
 
 // Add this function at the top with other constants
 const CHAT_TIMEOUT_MINUTES = 30;
@@ -193,43 +127,90 @@ if (!process.env.GOOGLE_GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
-// Add these keywords to the appKeywords array
+// Update the appKeywords to include more variations and topics
 const appKeywords = [
-  'logout', 'sign out', 
-  'group admin', 'supervisor', 'manager',
-  'expense status', 'approved', 'rejected',
-  'shift recording', 'tracking issue', 'location'
+  // Time tracking related
+  'time', 'hours', 'attendance', 'shift', 'clock', 'work',
+  // Expense related
+  'expense', 'claim', 'report', 'travel', 'reimbursement', 'money',
+  // Leave related
+  'leave', 'vacation', 'holiday', 'off', 'absence', 'sick',
+  // Profile related
+  'profile', 'account', 'password', 'settings', 'details', 'information',
+  // Support related
+  'help', 'support', 'issue', 'problem', 'error', 'contact',
+  // Admin related
+  'admin', 'supervisor', 'manager', 'approval', 'approve',
+  // Common actions
+  'how', 'where', 'what', 'when', 'why', 'can', 'need', 'want'
 ];
 
-// Add this function to help match similar questions
+// Add this helper function to calculate string similarity
+const calculateSimilarity = (str1: string, str2: string): number => {
+  const words1 = str1.toLowerCase().split(/\s+/);
+  const words2 = str2.toLowerCase().split(/\s+/);
+  
+  // Count matching words
+  const matches = words1.filter(word => words2.includes(word));
+  
+  // Calculate similarity score
+  return matches.length / Math.max(words1.length, words2.length);
+};
+
+// Update findMatchingResponse to be more precise and avoid duplicates
 const findMatchingResponse = (userMessage: string): string | null => {
   const message = userMessage.toLowerCase();
+  
+  // First check if it's completely off-topic
+  const isAppRelated = appKeywords.some(keyword => 
+    message.includes(keyword.toLowerCase())
+  );
 
-  // Logout related queries
-  if (message.includes('logout') || message.includes('sign out')) {
-    return CUSTOM_RESPONSES["How do I log out of the app?"];
+  if (!isAppRelated) {
+    return OFF_TOPIC_RESPONSE;
   }
 
-  // Group Admin related queries
-  if (message.includes('group admin') || message.includes('supervisor') || 
-      message.includes('who is my admin')) {
+  // First try exact matches
+  for (const [question, response] of Object.entries(CUSTOM_RESPONSES)) {
+    const similarity = calculateSimilarity(message, question);
+    if (similarity >= 0.5) {
+      return response;
+    }
+  }
+
+  // Single matching block for each category to avoid duplicates
+  if (message.includes('expense') || message.includes('report')) {
+    if (message.includes('travel')) {
+      return CUSTOM_RESPONSES["How do I submit a travel expense?"];
+    }
+    if (message.includes('status') || message.includes('approved')) {
+      return CUSTOM_RESPONSES["How do I know if my expense report is approved?"];
+    }
+    if (message.includes('submit') || message.includes('file') || message.includes('new')) {
+      return CUSTOM_RESPONSES["How do I submit an expense report?"];
+    }
+  }
+
+  if (message.includes('admin') || message.includes('supervisor')) {
     return CUSTOM_RESPONSES["How do I know my assigned Group Admin?"];
   }
 
-  // Expense approval related queries
-  if ((message.includes('expense') || message.includes('report')) && 
-      (message.includes('status') || message.includes('approved'))) {
-    return CUSTOM_RESPONSES["How do I know if my expense report is approved?"];
+  if (message.includes('shift') || message.includes('attendance') || message.includes('time')) {
+    if (message.includes('not') || message.includes('issue')) {
+      return CUSTOM_RESPONSES["Why is my shift not being recorded?"];
+    }
+    return CUSTOM_RESPONSES["How do I track my work hours or how to i track my attendance?"];
   }
 
-  // Shift recording issues
-  if ((message.includes('shift') || message.includes('attendance')) && 
-      (message.includes('not working') || message.includes('issue') || 
-       message.includes('problem') || message.includes('recording'))) {
-    return CUSTOM_RESPONSES["Why is my shift not being recorded?"];
+  if (message.includes('leave') || message.includes('vacation')) {
+    return CUSTOM_RESPONSES["How do I request leave?"];
   }
 
-  return null;
+  if (message.includes('support') || message.includes('help') || message.includes('contact')) {
+    return CUSTOM_RESPONSES["How do I contact support?"];
+  }
+
+  return OFF_TOPIC_RESPONSE;
 };
 
 router.post('/send-message', verifyToken, async (req: CustomRequest, res: Response) => {
@@ -253,7 +234,7 @@ router.post('/send-message', verifyToken, async (req: CustomRequest, res: Respon
       return res.json({ message: response });
     }
 
-    // Then check for similar questions using the new function
+    // Check for similar questions or off-topic
     const matchingResponse = findMatchingResponse(message);
     if (matchingResponse) {
       await pool.query(
@@ -265,63 +246,15 @@ router.post('/send-message', verifyToken, async (req: CustomRequest, res: Respon
       return res.json({ message: matchingResponse });
     }
 
-    // Check if the message is app-related using keywords
-    const isAppRelated = appKeywords.some(keyword => 
-      message.toLowerCase().includes(keyword.toLowerCase())
+    // If no matching response found, return the OFF_TOPIC_RESPONSE
+    await pool.query(
+      `INSERT INTO chat_messages (user_id, message, response, created_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [userId, message, OFF_TOPIC_RESPONSE]
     );
+    return res.json({ message: OFF_TOPIC_RESPONSE });
 
-    if (!isAppRelated) {
-      await pool.query(
-        `INSERT INTO chat_messages (user_id, message, response, created_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         RETURNING *`,
-        [userId, message, OFF_TOPIC_RESPONSE]
-      );
-      return res.json({ message: OFF_TOPIC_RESPONSE });
-    }
-
-    // Only uses Gemini AI if no custom response is found
-    try {
-      const chat = model.startChat({
-        history: [
-          {
-            role: 'user',
-            parts: [{ text: SYSTEM_PROMPT }]
-          },
-          {
-            role: 'model',
-            parts: [{ text: 'I understand and will provide support based on these guidelines.' }]
-          }
-        ],
-        generationConfig: {
-          maxOutputTokens: 1000,
-          temperature: 0.7,
-        }
-      });
-
-      const result = await chat.sendMessage(message);
-      const response = await result.response;
-      const aiResponse = response.text();
-
-      // Store in database
-      const dbResponse = await pool.query(
-        `INSERT INTO chat_messages (user_id, message, response, created_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         RETURNING *`,
-        [userId, message, aiResponse]
-      );
-
-      res.json({ 
-        message: aiResponse,
-        timestamp: dbResponse.rows[0].created_at 
-      });
-    } catch (aiError: any) {
-      console.error('Gemini AI Error:', aiError);
-      return res.status(500).json({ 
-        error: 'AI Service Error', 
-        details: aiError.message 
-      });
-    }
   } catch (error: any) {
     console.error('Server Error:', error);
     res.status(500).json({ 
