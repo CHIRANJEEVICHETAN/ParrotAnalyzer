@@ -22,8 +22,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
-import * as MediaLibrary from 'expo-media-library';
 
 interface LeaveType {
   id: number;
@@ -776,7 +774,7 @@ export default function LeaveRequests() {
                     </View>
 
                     {documents.length > 0 && (
-                      <View className="space-y-2">
+                      <View className="space-y-2 gap-2">
                         {documents.map((doc, index) => (
                           <View
                             key={index}
@@ -812,7 +810,7 @@ export default function LeaveRequests() {
                 <TouchableOpacity
                   onPress={handleSubmit}
                   disabled={submitting}
-                  className={`py-3 rounded-lg mt-6 ${submitting ? 'bg-gray-400' : 'bg-blue-500'}`}
+                  className={`py-3 mb-10 rounded-lg mt-6 ${submitting ? 'bg-gray-400' : 'bg-blue-500'}`}
                 >
                   {submitting ? (
                     <ActivityIndicator color="white" />

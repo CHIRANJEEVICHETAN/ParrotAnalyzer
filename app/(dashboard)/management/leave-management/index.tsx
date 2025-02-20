@@ -56,13 +56,6 @@ export default function LeaveManagement() {
     //   activeIcon: 'bar-chart',
     //   color: '#8B5CF6'
     // },
-    // {
-    //   id: 'balances-tracker',
-    //   label: 'Balances Tracker',
-    //   icon: 'hourglass-outline',
-    //   activeIcon: 'hourglass',
-    //   color: '#F59E0B'
-    // },
     {
       id: 'approvals',
       label: 'Approvals',
@@ -80,8 +73,6 @@ export default function LeaveManagement() {
         return <LeavePolicies />;
       case 'balances':
         return <LeaveBalances />;
-      // case 'balances-tracker':
-      //   return <LeaveBalanceTracker />;
       // case 'analytics':
         // return <LeaveAnalytics />;
       case 'approvals':

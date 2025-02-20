@@ -90,7 +90,7 @@ export default function EmployeeDashboard() {
       title: 'Request Leave',
       icon: 'airplane-outline',
       color: '#8B5CF6',
-      action: () => router.push('/(dashboard)/employee/leave-insights/index'),
+      action: () => router.push('/(dashboard)/employee/leave-insights'),
     },
   ]);
 

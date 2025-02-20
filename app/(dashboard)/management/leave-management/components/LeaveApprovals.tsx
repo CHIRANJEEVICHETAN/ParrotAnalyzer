@@ -7,6 +7,9 @@ import {
   ScrollView,
   TextInput,
   Image,
+  Alert,
+  Platform,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../../context/ThemeContext';
@@ -17,6 +20,8 @@ import { format } from 'date-fns';
 import Toast from 'react-native-toast-message';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as Sharing from 'expo-sharing';
+import * as WebBrowser from 'expo-web-browser';
 
 interface Document {
   id: number;
@@ -24,6 +29,14 @@ interface Document {
   file_type: string;
   file_data: string;
   upload_method: 'camera' | 'file';
+}
+
+interface EscalationDetails {
+  escalation_id: number;
+  escalated_by: number;
+  escalated_by_name: string;
+  reason: string;
+  escalated_at: string;
 }
 
 interface LeaveRequest {
@@ -38,13 +51,22 @@ interface LeaveRequest {
   end_date: string;
   days_requested: number;
   reason: string;
-  status: 'pending' | 'approved' | 'rejected' | 'escalated';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'escalated';
   rejection_reason?: string;
   contact_number: string;
   requires_documentation: boolean;
   documentation_url?: string;
   created_at: string;
   documents: Document[];
+  escalation_details?: {
+    escalation_id: number;
+    escalated_by: number;
+    escalated_by_name: string;
+    reason: string;
+    escalated_at: string;
+    status: 'pending' | 'resolved';
+    resolution_notes?: string;
+  };
 }
 
 export default function LeaveApprovals() {
@@ -58,12 +80,25 @@ export default function LeaveApprovals() {
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [resolutionNotes, setResolutionNotes] = useState('');
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [documentLoading, setDocumentLoading] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchRequests();
+  }, []);
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await fetchRequests();
+    setRefreshing(false);
   }, []);
 
   const fetchRequests = async () => {
@@ -94,36 +129,57 @@ export default function LeaveApprovals() {
     }
   };
 
-  const handleAction = async (action: 'approve' | 'reject') => {
-    if (!selectedRequest || !user?.id) return;
+  const handleAction = async (requestId: number, action: 'approve' | 'reject') => {
+    if (!selectedRequest) return;
 
+    const isEscalated = selectedRequest.status === 'escalated';
+    if (isEscalated && !resolutionNotes.trim()) {
+      Alert.alert('Error', 'Resolution notes are required for escalated requests');
+      return;
+    }
+
+    if (action === 'reject' && !rejectionReason.trim()) {
+      Alert.alert('Error', 'Rejection reason is required');
+      return;
+    }
+
+    setActionLoading(requestId);
     try {
-      if (action === 'reject' && !rejectionReason.trim()) {
-        setError('Rejection reason is required');
-        return;
-      }
-
-      setActionLoading(true);
       const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/leave-requests/${selectedRequest.id}/${action}`,
+        `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/leave-requests/${requestId}/${action}`,
         {
-          rejection_reason: action === 'reject' ? rejectionReason.trim() : undefined
+          rejection_reason: action === 'reject' ? rejectionReason : undefined,
+          resolution_notes: isEscalated ? resolutionNotes : undefined
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      if (response.data) {
-        await fetchRequests();
+      if (response.status === 200) {
+        // Set success message before closing modals
+        const actionText = action === 'approve' ? 'approved' : 'rejected';
+        setSuccessMessage(`Leave request has been ${actionText} successfully`);
+        
+        // Close action-related modals
         setShowActionModal(false);
-        setSelectedRequest(null);
+        setShowRejectModal(false);
+        setShowApproveModal(false);
+        
+        // Reset form states
         setRejectionReason('');
-        setError(null);
+        setResolutionNotes('');
+        setSelectedRequest(null);
+        
+        // Show success modal
+        setShowSuccessModal(true);
+        
+        // Refresh the requests list
+        await fetchRequests();
       }
-    } catch (error: any) {
-      console.error('Error processing request:', error);
-      setError(error.response?.data?.error || 'Failed to process request. Please try again.');
+    } catch (error) {
+      console.error('Error processing leave request:', error);
+      Alert.alert('Error', 'Failed to process leave request. Please try again.');
     } finally {
-      setActionLoading(false);
+      setActionLoading(null);
     }
   };
 
@@ -142,26 +198,56 @@ export default function LeaveApprovals() {
 
   const handleViewDocument = async (document: Document) => {
     try {
-      const fileUri = `${FileSystem.cacheDirectory}${document.file_name}`;
-      const base64Content = document.file_data;
+      setDocumentLoading(document.id);
       
-      await FileSystem.writeAsStringAsync(fileUri, base64Content, {
-        encoding: FileSystem.EncodingType.Base64,
+      if (!document.file_data) {
+        // If no file data, try to fetch it first
+        const response = await axios.get(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/document/${document.id}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            responseType: 'text'
+          }
+        );
+        
+        if (!response.data) {
+          throw new Error('No document data received');
+        }
+        
+        document.file_data = response.data;
+      }
+
+      const fileUri = `${FileSystem.cacheDirectory}${document.file_name}`;
+      
+      await FileSystem.writeAsStringAsync(fileUri, document.file_data, {
+        encoding: FileSystem.EncodingType.Base64
       });
 
-      const contentUri = await FileSystem.getContentUriAsync(fileUri);
-      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-        data: contentUri,
-        flags: 1,
-        type: document.file_type,
-      });
+      if (Platform.OS === 'android') {
+        const contentUri = await FileSystem.getContentUriAsync(fileUri);
+        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+          data: contentUri,
+          flags: 1,
+          type: document.file_type,
+        });
+      } else {
+        // For iOS
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(fileUri);
+        } else {
+          await WebBrowser.openBrowserAsync(`file://${fileUri}`);
+        }
+      }
     } catch (error) {
       console.error('Error opening document:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Failed to open document. Please try again.',
-      });
+      Alert.alert(
+        'Error',
+        'Failed to open document. Please try again later.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setDocumentLoading(null);
     }
   };
 
@@ -182,13 +268,18 @@ export default function LeaveApprovals() {
             <TouchableOpacity
               key={doc.id}
               onPress={() => handleViewDocument(doc)}
+              disabled={documentLoading === doc.id}
               className="mr-2 mb-2 p-2 bg-gray-100 rounded-lg flex-row items-center"
             >
-              <Ionicons
-                name={getDocumentIcon(doc.file_type)}
-                size={20}
-                color="#6B7280"
-              />
+              {documentLoading === doc.id ? (
+                <ActivityIndicator size="small" color="#6B7280" style={{ marginRight: 8 }} />
+              ) : (
+                <Ionicons
+                  name={getDocumentIcon(doc.file_type)}
+                  size={20}
+                  color="#6B7280"
+                />
+              )}
               <Text className="ml-2 text-gray-700" numberOfLines={1}>
                 {doc.file_name}
               </Text>
@@ -248,7 +339,7 @@ export default function LeaveApprovals() {
           No Pending Approvals
         </Text>
         <Text className={`text-center mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-          You're all caught up! There are no leave requests waiting for your approval.
+          You have no escalated requests or direct leave requests from group admins to review.
         </Text>
         <TouchableOpacity
           onPress={fetchRequests}
@@ -271,7 +362,17 @@ export default function LeaveApprovals() {
       </View>
 
       {/* Requests List */}
-      <ScrollView className="flex-1">
+      <ScrollView 
+        className="flex-1"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[isDark ? '#60A5FA' : '#3B82F6']}
+            tintColor={isDark ? '#FFFFFF' : '#3B82F6'}
+          />
+        }
+      >
         {requests.map((request) => (
           <TouchableOpacity
             key={request.id}
@@ -295,6 +396,19 @@ export default function LeaveApprovals() {
                 }`}>
                   {request.employee_number} • {request.department}
                 </Text>
+                {request.escalation_details && (
+                  <View className="mt-2 p-2 rounded-lg bg-purple-100">
+                    <Text className="text-purple-800 font-medium">
+                      Escalated by {request.escalation_details.escalated_by_name}
+                    </Text>
+                    <Text className="text-purple-700 text-sm mt-1">
+                      Reason: {request.escalation_details.reason}
+                    </Text>
+                    <Text className="text-purple-600 text-xs mt-1">
+                      {format(new Date(request.escalation_details.escalated_at), 'MMM dd, yyyy HH:mm')}
+                    </Text>
+                  </View>
+                )}
               </View>
               <View className={`px-2 py-1 rounded ${getStatusColor(request.status)}`}>
                 <Text className="text-sm capitalize">
@@ -366,6 +480,7 @@ export default function LeaveApprovals() {
           setShowActionModal(false);
           setSelectedRequest(null);
           setRejectionReason('');
+          setResolutionNotes('');
         }}
         style={{ margin: 0 }}
       >
@@ -433,27 +548,48 @@ export default function LeaveApprovals() {
                 </Text>
               </View>
 
-              <View>
-                <Text className={`text-sm font-medium mb-2 ${
-                  isDark ? 'text-gray-300' : 'text-gray-700'
-                }`}>
-                  Rejection Reason (required if rejecting)
-                </Text>
-                <TextInput
-                  value={rejectionReason}
-                  onChangeText={setRejectionReason}
-                  multiline
-                  numberOfLines={3}
-                  className={`p-3 rounded-lg border ${
-                    isDark
-                      ? 'border-gray-700 bg-gray-700 text-white'
-                      : 'border-gray-200 bg-gray-50 text-gray-900'
-                  }`}
-                  placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
-                  placeholder="Enter reason for rejection..."
-                  textAlignVertical="top"
-                />
-              </View>
+              {selectedRequest.status === 'escalated' && (
+                <View>
+                  <Text className={`text-sm font-medium mb-2 ${
+                    isDark ? 'text-gray-300' : 'text-gray-700'
+                  }`}>
+                    Resolution Notes <Text className="text-red-500">*</Text>
+                  </Text>
+                  <TextInput
+                    value={resolutionNotes}
+                    onChangeText={setResolutionNotes}
+                    placeholder="Enter resolution notes for the escalation"
+                    placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
+                    className={`p-3 rounded-lg ${
+                      isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
+                    }`}
+                    multiline
+                    numberOfLines={3}
+                  />
+                </View>
+              )}
+
+              {/* Only show rejection reason input when rejecting */}
+              {showRejectModal && (
+                <View>
+                  <Text className={`text-sm font-medium mb-2 ${
+                    isDark ? 'text-gray-300' : 'text-gray-700'
+                  }`}>
+                    Rejection Reason <Text className="text-red-500">*</Text>
+                  </Text>
+                  <TextInput
+                    value={rejectionReason}
+                    onChangeText={setRejectionReason}
+                    placeholder="Enter reason for rejection"
+                    placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
+                    className={`p-3 rounded-lg ${
+                      isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
+                    }`}
+                    multiline
+                    numberOfLines={3}
+                  />
+                </View>
+              )}
 
               <View className="flex-row space-x-4 gap-3 mt-4">
                 <TouchableOpacity
@@ -461,6 +597,7 @@ export default function LeaveApprovals() {
                     setShowActionModal(false);
                     setSelectedRequest(null);
                     setRejectionReason('');
+                    setResolutionNotes('');
                   }}
                   className={`flex-1 py-3 rounded-lg ${
                     isDark ? 'bg-gray-700' : 'bg-gray-100'
@@ -474,25 +611,27 @@ export default function LeaveApprovals() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={() => handleAction('reject')}
-                  disabled={actionLoading}
+                  onPress={() => {
+                    setShowRejectModal(true);
+                    setShowActionModal(false);
+                  }}
+                  disabled={actionLoading === selectedRequest?.id}
                   className="flex-1 bg-red-500 py-3 rounded-lg"
                 >
-                  {actionLoading ? (
-                    <ActivityIndicator color="white" size="small" />
-                  ) : (
-                    <Text className="text-white text-center font-medium">
-                      Reject
-                    </Text>
-                  )}
+                  <Text className="text-white text-center font-medium">
+                    Reject
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={() => handleAction('approve')}
-                  disabled={actionLoading}
+                  onPress={() => handleAction(selectedRequest.id, 'approve')}
+                  disabled={
+                    actionLoading === selectedRequest?.id || 
+                    (selectedRequest.status === 'escalated' && !resolutionNotes.trim())
+                  }
                   className="flex-1 bg-green-500 py-3 rounded-lg"
                 >
-                  {actionLoading ? (
+                  {actionLoading === selectedRequest?.id ? (
                     <ActivityIndicator color="white" size="small" />
                   ) : (
                     <Text className="text-white text-center font-medium">
@@ -503,6 +642,161 @@ export default function LeaveApprovals() {
               </View>
             </View>
           )}
+        </View>
+      </Modal>
+
+      {/* Reject Modal */}
+      <Modal
+        isVisible={showRejectModal}
+        onBackdropPress={() => setShowRejectModal(false)}
+        onBackButtonPress={() => setShowRejectModal(false)}
+        style={{ margin: 0 }}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className={`w-11/12 p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Reject Leave Request
+            </Text>
+            
+            {selectedRequest?.status === 'escalated' && (
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Resolution Notes <Text className="text-red-500">*</Text>
+                </Text>
+                <TextInput
+                  value={resolutionNotes}
+                  onChangeText={setResolutionNotes}
+                  placeholder="Enter resolution notes for the escalation"
+                  placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
+                  className={`p-3 rounded-lg ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'}`}
+                  multiline
+                />
+              </View>
+            )}
+
+            <TextInput
+              value={rejectionReason}
+              onChangeText={setRejectionReason}
+              placeholder="Enter reason for rejection"
+              placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
+              className={`p-3 rounded-lg mb-4 ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'}`}
+              multiline
+            />
+            <View className="flex-row space-x-2 gap-2">
+              <TouchableOpacity
+                onPress={() => {
+                  setShowRejectModal(false);
+                  setRejectionReason('');
+                  setResolutionNotes('');
+                }}
+                className="flex-1 p-3 rounded-lg bg-gray-500"
+              >
+                <Text className="text-white text-center font-medium">Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => selectedRequest && handleAction(selectedRequest.id, 'reject')}
+                className={`flex-1 p-3 rounded-lg ${actionLoading === selectedRequest?.id ? 'bg-red-400' : 'bg-red-500'}`}
+                disabled={!rejectionReason.trim() || actionLoading === selectedRequest?.id || 
+                  (selectedRequest?.status === 'escalated' && !resolutionNotes.trim())}
+              >
+                {actionLoading === selectedRequest?.id ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white text-center font-medium">Reject</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Approve Modal for Escalated Requests */}
+      <Modal
+        isVisible={showApproveModal && selectedRequest?.status === 'escalated'}
+        onBackdropPress={() => setShowApproveModal(false)}
+        onBackButtonPress={() => setShowApproveModal(false)}
+        style={{ margin: 0 }}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className={`w-11/12 p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Approve Escalated Request
+            </Text>
+            
+            <View className="mb-4">
+              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Resolution Notes <Text className="text-red-500">*</Text>
+              </Text>
+              <TextInput
+                value={resolutionNotes}
+                onChangeText={setResolutionNotes}
+                placeholder="Enter resolution notes for the escalation"
+                placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
+                className={`p-3 rounded-lg ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'}`}
+                multiline
+              />
+            </View>
+
+            <View className="flex-row space-x-2 gap-2">
+              <TouchableOpacity
+                onPress={() => {
+                  setShowApproveModal(false);
+                  setResolutionNotes('');
+                }}
+                className="flex-1 p-3 rounded-lg bg-gray-500"
+              >
+                <Text className="text-white text-center font-medium">Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => selectedRequest && handleAction(selectedRequest.id, 'approve')}
+                className={`flex-1 p-3 rounded-lg ${actionLoading === selectedRequest?.id ? 'bg-green-400' : 'bg-green-500'}`}
+                disabled={!resolutionNotes.trim() || actionLoading === selectedRequest?.id}
+              >
+                {actionLoading === selectedRequest?.id ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white text-center font-medium">Approve</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Success Modal */}
+      <Modal
+        isVisible={showSuccessModal}
+        onBackdropPress={() => setShowSuccessModal(false)}
+        style={{ margin: 0 }}
+        animationIn="fadeIn"
+        animationOut="fadeOut"
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className={`w-11/12 p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <View className="items-center">
+              <View className="w-16 h-16 rounded-full bg-green-100 items-center justify-center mb-4">
+                <Ionicons name="checkmark-circle" size={40} color="#10B981" />
+              </View>
+              <Text className={`text-xl font-semibold text-center mb-2 ${
+                isDark ? 'text-white' : 'text-gray-900'
+              }`}>
+                Success!
+              </Text>
+              <Text className={`text-center mb-6 ${
+                isDark ? 'text-gray-300' : 'text-gray-600'
+              }`}>
+                {successMessage}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowSuccessModal(false)}
+              className="bg-green-500 py-3 rounded-lg"
+            >
+              <Text className="text-white text-center font-medium">
+                Done
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 

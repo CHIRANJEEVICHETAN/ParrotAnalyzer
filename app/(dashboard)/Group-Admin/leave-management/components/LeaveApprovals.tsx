@@ -7,11 +7,18 @@ import {
   RefreshControl,
   TouchableOpacity,
   TextInput,
-  Modal
+  Modal,
+  Platform,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../../context/ThemeContext';
 import axios from 'axios';
+import AuthContext from '../../../../context/AuthContext';
+import * as IntentLauncher from 'expo-intent-launcher';
+import * as WebBrowser from 'expo-web-browser';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 interface LeaveRequest {
   id: number;
@@ -43,6 +50,7 @@ interface FilterState {
 
 export default function LeaveApprovals() {
   const { theme } = ThemeContext.useTheme();
+  const { token } = AuthContext.useAuth();
   const isDark = theme === 'dark';
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<LeaveRequest[]>([]);
@@ -62,7 +70,12 @@ export default function LeaveApprovals() {
 
   const fetchRequests = async () => {
     try {
-      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests`);
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
       setRequests(response.data);
       setFilteredRequests(response.data);
     } catch (error) {
@@ -112,15 +125,26 @@ export default function LeaveApprovals() {
     try {
       let response;
       if (action === 'approve') {
-        response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/approve`);
+        response = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/approve`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
       } else if (action === 'reject') {
-        response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/reject`, {
-          rejection_reason: rejectionReason
-        });
+        response = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/reject`,
+          { rejection_reason: rejectionReason },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
       } else {
-        response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/escalate`, {
-          reason: escalationReason
-        });
+        response = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/escalate`,
+          { 
+            escalation_reason: escalationReason,
+            escalated_to: null // This will be automatically assigned to a management user in the backend
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
       }
 
       if (response.status === 200) {
@@ -132,9 +156,55 @@ export default function LeaveApprovals() {
       }
     } catch (error) {
       console.error('Error processing leave request:', error);
+      Alert.alert('Error', 'Failed to process leave request. Please try again.');
     } finally {
       setActionLoading(null);
       setSelectedRequest(null);
+    }
+  };
+
+  const handleViewDocument = async (doc: { file_name: string; file_type: string; id: number }) => {
+    try {
+      // First fetch the document data
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/document/${doc.id}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'text'
+        }
+      );
+
+      // Create a temporary file
+      const fileUri = `${FileSystem.cacheDirectory}${doc.file_name}`;
+      await FileSystem.writeAsStringAsync(
+        fileUri,
+        response.data,
+        { encoding: FileSystem.EncodingType.Base64 }
+      );
+
+      if (Platform.OS === 'android') {
+        const contentUri = await FileSystem.getContentUriAsync(fileUri);
+        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+          data: contentUri,
+          flags: 1,
+          type: doc.file_type,
+        });
+      } else {
+        // For iOS, first check if we can share
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(fileUri, {
+            UTI: doc.file_type === 'application/pdf' ? 'com.adobe.pdf' : 'public.item',
+            mimeType: doc.file_type,
+          });
+        } else {
+          // Fallback to opening in browser
+          await WebBrowser.openBrowserAsync(`file://${fileUri}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error viewing document:', error);
+      Alert.alert('Error', 'Failed to open document. Please try again.');
     }
   };
 
@@ -290,18 +360,33 @@ export default function LeaveApprovals() {
                       Documents
                     </Text>
                     {request.documents.map((doc) => (
-                      <View key={doc.id} className="flex-row items-center">
-                        <Ionicons name="document-outline" size={20} color={isDark ? '#9CA3AF' : '#6B7280'} />
-                        <Text className={`ml-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <TouchableOpacity
+                        key={doc.id}
+                        onPress={() => handleViewDocument(doc)}
+                        className={`flex-row items-center p-2 rounded-lg mb-2 ${
+                          isDark ? 'bg-gray-700' : 'bg-gray-100'
+                        }`}
+                      >
+                        <Ionicons 
+                          name={doc.file_type.includes('image') ? 'image' : 'document-text'} 
+                          size={20} 
+                          color={isDark ? '#9CA3AF' : '#6B7280'} 
+                        />
+                        <Text className={`ml-2 flex-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                           {doc.file_name}
                         </Text>
-                      </View>
+                        <Ionicons 
+                          name="eye-outline" 
+                          size={20} 
+                          color={isDark ? '#60A5FA' : '#3B82F6'} 
+                        />
+                      </TouchableOpacity>
                     ))}
                   </View>
                 )}
 
                 {request.status === 'pending' && (
-                  <View className="flex-row space-x-2">
+                  <View className="flex-row gap-2 space-x-2">
                     {renderActionButton(
                       'Approve',
                       () => handleAction(request.id, 'approve'),
@@ -357,7 +442,7 @@ export default function LeaveApprovals() {
               className={`p-3 rounded-lg mb-4 ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'}`}
               multiline
             />
-            <View className="flex-row space-x-2">
+            <View className="flex-row space-x-2 gap-2">
               <TouchableOpacity
                 onPress={() => setShowRejectModal(false)}
                 className="flex-1 p-3 rounded-lg bg-gray-500"
@@ -366,10 +451,14 @@ export default function LeaveApprovals() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => selectedRequest && handleAction(selectedRequest, 'reject')}
-                className="flex-1 p-3 rounded-lg bg-red-500"
-                disabled={!rejectionReason.trim()}
+                className={`flex-1 p-3 rounded-lg ${actionLoading === selectedRequest ? 'bg-red-400' : 'bg-red-500'}`}
+                disabled={!rejectionReason.trim() || actionLoading === selectedRequest}
               >
-                <Text className="text-white text-center font-medium">Reject</Text>
+                {actionLoading === selectedRequest ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white text-center font-medium">Reject</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -396,7 +485,7 @@ export default function LeaveApprovals() {
               className={`p-3 rounded-lg mb-4 ${isDark ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'}`}
               multiline
             />
-            <View className="flex-row space-x-2">
+            <View className="flex-row space-x-2 gap-2">
               <TouchableOpacity
                 onPress={() => setShowEscalateModal(false)}
                 className="flex-1 p-3 rounded-lg bg-gray-500"
@@ -405,10 +494,14 @@ export default function LeaveApprovals() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => selectedRequest && handleAction(selectedRequest, 'escalate')}
-                className="flex-1 p-3 rounded-lg bg-purple-500"
-                disabled={!escalationReason.trim()}
+                className={`flex-1 p-3 rounded-lg ${actionLoading === selectedRequest ? 'bg-purple-400' : 'bg-purple-500'}`}
+                disabled={!escalationReason.trim() || actionLoading === selectedRequest}
               >
-                <Text className="text-white text-center font-medium">Escalate</Text>
+                {actionLoading === selectedRequest ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white text-center font-medium">Escalate</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>

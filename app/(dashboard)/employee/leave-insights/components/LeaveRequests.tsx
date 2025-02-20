@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   ScrollView,
   ActivityIndicator,
   TextInput,
+  Modal,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../../context/ThemeContext';
@@ -38,6 +40,15 @@ interface LeaveBalance {
   days_used: number;
 }
 
+interface LeaveType {
+  id: number;
+  name: string;
+  requires_documentation: boolean;
+  max_days: number;
+  max_consecutive_days: number;
+  notice_period_days: number;
+}
+
 export default function LeaveRequests() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -46,18 +57,59 @@ export default function LeaveRequests() {
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedDateRange, setSelectedDateRange] = useState('all');
   const [expandedRequest, setExpandedRequest] = useState<number | null>(null);
+  const [errorModal, setErrorModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'warning';
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'success'
+  });
+
+  // Cache data in memory
+  const dataCache = useRef({
+    requests: [] as LeaveRequest[],
+    balances: [] as LeaveBalance[],
+    leaveTypes: [] as LeaveType[],
+    lastFetched: 0
+  });
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (isRefreshing = false) => {
     try {
-      const [requestsResponse, balanceResponse] = await Promise.all([
+      if (isRefreshing) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      // Check cache validity (5 minutes)
+      const now = Date.now();
+      const cacheAge = now - dataCache.current.lastFetched;
+      const cacheValid = cacheAge < 5 * 60 * 1000; // 5 minutes
+
+      if (!isRefreshing && cacheValid && dataCache.current.requests.length > 0) {
+        setRequests(dataCache.current.requests);
+        setBalances(dataCache.current.balances);
+        setLeaveTypes(dataCache.current.leaveTypes);
+        setLoading(false);
+        return;
+      }
+
+      const [requestsResponse, balanceResponse, typesResponse] = await Promise.all([
         axios.get(
           `${process.env.EXPO_PUBLIC_API_URL}/api/leave/requests`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -65,15 +117,35 @@ export default function LeaveRequests() {
         axios.get(
           `${process.env.EXPO_PUBLIC_API_URL}/api/leave/balance`,
           { headers: { Authorization: `Bearer ${token}` } }
+        ),
+        axios.get(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/leave/types`,
+          { headers: { Authorization: `Bearer ${token}` } }
         )
       ]);
 
+      // Update cache
+      dataCache.current = {
+        requests: requestsResponse.data,
+        balances: balanceResponse.data,
+        leaveTypes: typesResponse.data,
+        lastFetched: now
+      };
+
       setRequests(requestsResponse.data);
       setBalances(balanceResponse.data);
+      setLeaveTypes(typesResponse.data);
     } catch (error) {
       console.error('Error fetching data:', error);
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to fetch data. Please try again.',
+        type: 'error'
+      });
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -129,27 +201,121 @@ export default function LeaveRequests() {
 
   const handleCancelRequest = async (requestId: number) => {
     try {
+      setCancellingId(requestId);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/leave/cancel/${requestId}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchData();
+      
+      setErrorModal({
+        visible: true,
+        title: 'Success',
+        message: 'Leave request cancelled successfully',
+        type: 'success'
+      });
+
+      await fetchData();
     } catch (error) {
       console.error('Error cancelling request:', error);
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to cancel request. Please try again.',
+        type: 'error'
+      });
+    } finally {
+      setCancellingId(null);
     }
+  };
+
+  const onRefresh = () => {
+    fetchData(true);
   };
 
   return (
     <View className="flex-1">
+      {/* Filters with reduced size */}
+      <View className="mb-6">
+        <Text className={`text-sm font-medium mb-2 ${
+          isDark ? 'text-gray-300' : 'text-gray-600'
+        }`}>
+          Filter Requests
+        </Text>
+        <View className="flex-row space-x-3 gap-2">
+          <View className="flex-1">
+            <View className={`flex-row items-center p-1.5 rounded-xl border ${
+              isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-white'
+            }`}>
+              <Ionicons 
+                name="filter-outline" 
+                size={18} 
+                color={isDark ? '#9CA3AF' : '#6B7280'} 
+                style={{ marginRight: 8, marginLeft: 8 }}
+              />
+              <Picker
+                selectedValue={selectedStatus}
+                onValueChange={setSelectedStatus}
+                style={{ 
+                  flex: 1,
+                  color: isDark ? '#FFFFFF' : '#111827',
+                  backgroundColor: 'transparent',
+                  margin: -8,
+                  height: 52,
+                }}
+              >
+                <Picker.Item label="All Status" value="all" style={{ fontSize: 14 }} />
+                <Picker.Item label="Pending" value="pending" style={{ fontSize: 14 }} />
+                <Picker.Item label="Approved" value="approved" style={{ fontSize: 14 }} />
+                <Picker.Item label="Rejected" value="rejected" style={{ fontSize: 14 }} />
+                <Picker.Item label="Cancelled" value="cancelled" style={{ fontSize: 14 }} />
+              </Picker>
+            </View>
+          </View>
+
+          <View className="flex-1">
+            <View className={`flex-row items-center p-1.5 rounded-xl border ${
+              isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-white'
+            }`}>
+              <Ionicons 
+                name="calendar-outline" 
+                size={18} 
+                color={isDark ? '#9CA3AF' : '#6B7280'} 
+                style={{ marginRight: 8, marginLeft: 8 }}
+              />
+              <Picker
+                selectedValue={selectedDateRange}
+                onValueChange={setSelectedDateRange}
+                style={{ 
+                  flex: 1,
+                  color: isDark ? '#FFFFFF' : '#111827',
+                  backgroundColor: 'transparent',
+                  margin: -8,
+                  height: 52,
+                }}
+              >
+                <Picker.Item label="All Time" value="all" style={{ fontSize: 14 }} />
+                <Picker.Item label="This Month" value="thisMonth" style={{ fontSize: 14 }} />
+                <Picker.Item label="Last Month" value="lastMonth" style={{ fontSize: 14 }} />
+                <Picker.Item label="This Year" value="thisYear" style={{ fontSize: 14 }} />
+              </Picker>
+            </View>
+          </View>
+        </View>
+      </View>
+
       {/* Header with Request Button */}
       <View className="flex-row items-center justify-between mb-4">
         <View className="flex-row items-center">
-          <Ionicons 
-            name="document-text-outline" 
-            size={24} 
-            color={isDark ? '#FFFFFF' : '#111827'} 
-          />
+          <View className={`w-8 h-8 rounded-full items-center justify-center ${
+            isDark ? 'bg-blue-500/20' : 'bg-blue-50'
+          }`}>
+            <Ionicons 
+              name="document-text-outline" 
+              size={20} 
+              color={isDark ? '#60A5FA' : '#2563EB'} 
+            />
+          </View>
           <Text className={`text-xl font-bold ml-2 ${
             isDark ? 'text-white' : 'text-gray-900'
           }`}>
@@ -158,72 +324,60 @@ export default function LeaveRequests() {
         </View>
         <TouchableOpacity
           onPress={() => setShowRequestModal(true)}
-          className="bg-blue-500 py-2 px-4 rounded-lg flex-row items-center"
+          disabled={loading}
+          className={`py-2.5 px-4 rounded-lg flex-row items-center ${
+            isDark ? 'bg-blue-500/20' : 'bg-blue-500'
+          } ${loading ? 'opacity-50' : ''}`}
         >
-          <Ionicons name="add-circle-outline" size={20} color="white" />
-          <Text className="text-white font-semibold ml-1">
+          <Ionicons 
+            name="add-circle-outline" 
+            size={20} 
+            color={isDark ? '#FFFFFF' : '#FFFFFF'} 
+          />
+          <Text className={`font-semibold ml-1 text-base ${
+            isDark ? 'text-white' : 'text-white'
+          }`}>
             New Request
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Filters */}
-      <View className="flex-row mb-4 space-x-2">
-        <View className={`flex-1 rounded-lg overflow-hidden border ${
-          isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
-        }`}>
-          <Picker
-            selectedValue={selectedStatus}
-            onValueChange={setSelectedStatus}
-            style={{ 
-              color: isDark ? '#FFFFFF' : '#111827',
-              backgroundColor: 'transparent'
-            }}
-          >
-            <Picker.Item label="All Status" value="all" />
-            <Picker.Item label="Pending" value="pending" />
-            <Picker.Item label="Approved" value="approved" />
-            <Picker.Item label="Rejected" value="rejected" />
-            <Picker.Item label="Cancelled" value="cancelled" />
-          </Picker>
-        </View>
-
-        <View className={`flex-1 rounded-lg overflow-hidden border ${
-          isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
-        }`}>
-          <Picker
-            selectedValue={selectedDateRange}
-            onValueChange={setSelectedDateRange}
-            style={{ 
-              color: isDark ? '#FFFFFF' : '#111827',
-              backgroundColor: 'transparent'
-            }}
-          >
-            <Picker.Item label="All Time" value="all" />
-            <Picker.Item label="This Month" value="thisMonth" />
-            <Picker.Item label="Last Month" value="lastMonth" />
-            <Picker.Item label="This Year" value="thisYear" />
-          </Picker>
-        </View>
-      </View>
-
-      {/* Leave Requests List */}
-      <ScrollView className="flex-1">
+      {/* Leave Requests List with Pull to Refresh */}
+      <ScrollView 
+        className="flex-1" 
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#3B82F6']}
+            tintColor={isDark ? '#FFFFFF' : '#3B82F6'}
+          />
+        }
+      >
         {loading ? (
           <View className="flex-1 justify-center items-center py-8">
-            <ActivityIndicator size="large" color="#3B82F6" />
+            <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#2563EB'} />
           </View>
         ) : filterRequests().length === 0 ? (
-          <View className="flex-1 justify-center items-center py-8">
-            <Ionicons 
-              name="document-text-outline" 
-              size={48} 
-              color={isDark ? '#4B5563' : '#9CA3AF'} 
-            />
-            <Text className={`mt-4 text-lg ${
+          <View className="flex-1 justify-center items-center py-12">
+            <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${
+              isDark ? 'bg-gray-800' : 'bg-gray-100'
+            }`}>
+              <Ionicons 
+                name="document-text-outline" 
+                size={32} 
+                color={isDark ? '#4B5563' : '#9CA3AF'} 
+              />
+            </View>
+            <Text className={`text-lg font-medium mb-2 ${
               isDark ? 'text-gray-400' : 'text-gray-500'
             }`}>
               No leave requests found
+            </Text>
+            <Text className={`text-sm ${
+              isDark ? 'text-gray-500' : 'text-gray-400'
+            }`}>
+              Try adjusting your filters or create a new request
             </Text>
           </View>
         ) : (
@@ -233,7 +387,7 @@ export default function LeaveRequests() {
               onPress={() => toggleRequest(request.id)}
               className={`mb-4 rounded-lg overflow-hidden border ${
                 isDark 
-                  ? 'border-gray-700 bg-gray-800' 
+                  ? 'border-gray-700 bg-gray-800/50' 
                   : 'border-gray-200 bg-white'
               }`}
             >
@@ -333,12 +487,19 @@ export default function LeaveRequests() {
                     {request.status === 'pending' && (
                       <TouchableOpacity
                         onPress={() => handleCancelRequest(request.id)}
+                        disabled={cancellingId === request.id}
                         className="mt-4 py-2 px-4 bg-red-100 rounded-lg flex-row items-center justify-center"
                       >
-                        <Ionicons name="close-circle-outline" size={20} color="#991B1B" />
-                        <Text className="text-red-800 font-medium ml-2">
-                          Cancel Request
-                        </Text>
+                        {cancellingId === request.id ? (
+                          <ActivityIndicator size="small" color="#991B1B" />
+                        ) : (
+                          <>
+                            <Ionicons name="close-circle-outline" size={20} color="#991B1B" />
+                            <Text className="text-red-800 font-medium ml-2">
+                              Cancel Request
+                            </Text>
+                          </>
+                        )}
                       </TouchableOpacity>
                     )}
                   </View>
@@ -357,7 +518,48 @@ export default function LeaveRequests() {
           fetchData();
           setShowRequestModal(false);
         }}
+        leaveTypes={leaveTypes}
+        balances={balances}
       />
+
+      {/* Status Modal */}
+      <Modal
+        visible={errorModal.visible}
+        transparent
+        animationType="fade"
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className={`w-11/12 p-6 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <View className="items-center mb-4">
+              <Ionicons
+                name={errorModal.type === 'success' ? 'checkmark-circle' : 'alert-circle'}
+                size={48}
+                color={errorModal.type === 'success' ? '#10B981' : '#EF4444'}
+              />
+            </View>
+            <Text className={`text-lg font-semibold text-center mb-2 ${
+              isDark ? 'text-white' : 'text-gray-900'
+            }`}>
+              {errorModal.title}
+            </Text>
+            <Text className={`text-center mb-6 ${
+              isDark ? 'text-gray-300' : 'text-gray-600'
+            }`}>
+              {errorModal.message}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setErrorModal(prev => ({ ...prev, visible: false }))}
+              className={`py-3 rounded-lg ${
+                errorModal.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+              }`}
+            >
+              <Text className="text-white text-center font-medium">
+                OK
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 } 
