@@ -8,6 +8,8 @@ import {
   TextInput,
   Modal,
   RefreshControl,
+  Platform,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../../context/ThemeContext';
@@ -16,6 +18,8 @@ import RequestLeaveModal from './RequestLeaveModal';
 import axios from 'axios';
 import { format, parseISO, isWithinInterval, startOfYear, endOfYear } from 'date-fns';
 import { Picker } from '@react-native-picker/picker';
+import * as IntentLauncher from 'expo-intent-launcher';
+import * as FileSystem from 'expo-file-system';
 
 interface LeaveRequest {
   id: number;
@@ -30,7 +34,9 @@ interface LeaveRequest {
     id: number;
     file_name: string;
     file_type: string;
+    file_data: string;
   }>;
+  rejection_reason?: string;
 }
 
 interface LeaveBalance {
@@ -75,6 +81,8 @@ export default function LeaveRequests() {
     message: '',
     type: 'success'
   });
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [loadingDocumentId, setLoadingDocumentId] = useState<number | null>(null); // Track loading state for specific document
 
   // Cache data in memory
   const dataCache = useRef({
@@ -152,15 +160,15 @@ export default function LeaveRequests() {
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'approved':
-        return { bg: 'bg-green-100', text: 'text-green-800' };
+        return { bg: '#34D399', text: '#10B981' }; // Green
       case 'pending':
-        return { bg: 'bg-yellow-100', text: 'text-yellow-800' };
+        return { bg: '#FCD34D', text: '#F59E0B' }; // Yellow
       case 'rejected':
-        return { bg: 'bg-red-100', text: 'text-red-800' };
+        return { bg: '#F87171', text: '#EF4444' }; // Red
       case 'cancelled':
-        return { bg: 'bg-gray-100', text: 'text-gray-800' };
+        return { bg: '#E5E7EB', text: '#6B7280' }; // Gray
       default:
-        return { bg: 'bg-gray-100', text: 'text-gray-800' };
+        return { bg: '#9CA3AF', text: '#6B7280' }; // Default
     }
   };
 
@@ -231,6 +239,54 @@ export default function LeaveRequests() {
 
   const onRefresh = () => {
     fetchData(true);
+  };
+
+  const getDocumentIcon = (fileType: string) => {
+    if (fileType.startsWith('image/')) {
+      return 'image';
+    }
+    if (fileType === 'application/pdf') {
+      return 'document-text';
+    }
+    return 'document';
+  };
+
+  const handleViewDocument = async (document: { id: number; file_name: string; file_type: string }) => {
+    setLoadingDocumentId(document.id); // Set loading state for the specific document
+    try {
+      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/leave/document/${document.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const fetchedDocument = response.data;
+
+      const fileUri = `${FileSystem.cacheDirectory}${fetchedDocument.file_name}`;
+      const base64Content = fetchedDocument.file_data;
+
+      await FileSystem.writeAsStringAsync(fileUri, base64Content, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const contentUri = await FileSystem.getContentUriAsync(fileUri);
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: contentUri,
+        flags: 1,
+        type: fetchedDocument.file_type,
+      });
+    } catch (error) {
+      console.error('Error fetching or opening document:', error);
+      showError('Error', 'Failed to open document. Please try again.', 'error');
+    } finally {
+      setLoadingDocumentId(null); // Reset loading state
+    }
+  };
+
+  const showError = (title: string, message: string, type: 'error' | 'warning' | 'success') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type
+    });
   };
 
   return (
@@ -381,132 +437,129 @@ export default function LeaveRequests() {
             </Text>
           </View>
         ) : (
-          filterRequests().map(request => (
-            <TouchableOpacity
-              key={request.id}
-              onPress={() => toggleRequest(request.id)}
-              className={`mb-4 rounded-lg overflow-hidden border ${
-                isDark 
-                  ? 'border-gray-700 bg-gray-800/50' 
-                  : 'border-gray-200 bg-white'
-              }`}
-            >
-              <View className="p-4">
-                <View className="flex-row justify-between items-start">
-                  <View className="flex-1">
-                    <Text className={`text-lg font-semibold ${
-                      isDark ? 'text-white' : 'text-gray-900'
-                    }`}>
-                      {request.leave_type}
-                    </Text>
-                    <Text className={isDark ? 'text-gray-300' : 'text-gray-600'}>
-                      {format(new Date(request.start_date), 'MMM dd')} - {format(new Date(request.end_date), 'MMM dd, yyyy')}
-                    </Text>
-                  </View>
-                  <View className={`px-3 py-1 rounded-full ${getStatusColor(request.status).bg}`}>
-                    <Text className={getStatusColor(request.status).text}>
-                      {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                    </Text>
-                  </View>
-                </View>
-
-                {expandedRequest === request.id && (
-                  <View className="mt-4 space-y-3 pt-4 border-t border-gray-200">
-                    <View className="flex-row">
-                      <View className="w-32">
-                        <Text className={`font-medium ${
-                          isDark ? 'text-gray-300' : 'text-gray-600'
-                        }`}>
-                          Days Requested:
+          <View>
+            {filterRequests().map((request, index) => (
+              <React.Fragment key={request.id}>
+                <View className={`rounded-lg overflow-hidden border ${
+                  isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-white'
+                }`}> 
+                  <View className="p-4">
+                    <View className="flex-row justify-between items-start mb-4">
+                      <View className="flex-row items-center">
+                        <Ionicons
+                          name={
+                            request.status === 'approved'
+                              ? 'checkmark-circle'
+                              : request.status === 'rejected'
+                              ? 'close-circle'
+                              : request.status === 'pending'
+                              ? 'time'
+                              : 'alert-circle'
+                          }
+                          size={24}
+                          color={getStatusColor(request.status).text}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{request.leave_type}</Text>
+                      </View>
+                      <View className={`px-3 py-1 rounded-full`} style={{
+                        backgroundColor: `${getStatusColor(request.status).bg}20`
+                      }}>
+                        <Text style={{ color: getStatusColor(request.status).text, fontWeight: '600' }}>
+                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                         </Text>
                       </View>
-                      <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                        {request.days_requested} days
-                      </Text>
                     </View>
 
-                    <View className="flex-row">
-                      <View className="w-32">
-                        <Text className={`font-medium ${
-                          isDark ? 'text-gray-300' : 'text-gray-600'
-                        }`}>
-                          Reason:
+                    <View className="space-y-3">
+                      <View className="flex-row items-center">
+                        <Ionicons
+                          name="calendar-outline"
+                          size={18}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                          {format(new Date(request.start_date), 'MMM dd, yyyy')} - {format(new Date(request.end_date), 'MMM dd, yyyy')}
+                          {' • '}
+                          <Text className="font-medium">
+                            {request.days_requested} day{request.days_requested !== 1 ? 's' : ''}
+                          </Text>
                         </Text>
                       </View>
-                      <Text className={`flex-1 ${
-                        isDark ? 'text-white' : 'text-gray-900'
-                      }`}>
-                        {request.reason}
-                      </Text>
+
+                      <View className="flex-row items-start">
+                        <Ionicons
+                          name="document-text-outline"
+                          size={18}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
+                          style={{ marginRight: 8, marginTop: 2 }}
+                        />
+                        <Text className={`flex-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{request.reason}</Text>
+                      </View>
+
+                      <View className="flex-row items-center">
+                        <Ionicons
+                          name="call-outline"
+                          size={18}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>+91 {request.contact_number}</Text>
+                      </View>
                     </View>
 
-                    <View className="flex-row">
-                      <View className="w-32">
-                        <Text className={`font-medium ${
-                          isDark ? 'text-gray-300' : 'text-gray-600'
-                        }`}>
-                          Contact:
-                        </Text>
-                      </View>
-                      <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                        {request.contact_number}
-                      </Text>
-                    </View>
-                    
-                    {request.documents && request.documents.length > 0 && (
-                      <View className="mt-2">
-                        <Text className={`font-medium mb-2 ${
-                          isDark ? 'text-gray-300' : 'text-gray-600'
-                        }`}>
-                          Attachments:
-                        </Text>
-                        <View className="space-y-1">
-                          {request.documents.map(doc => (
-                            <View 
-                              key={doc.id} 
-                              className={`flex-row items-center p-2 rounded ${
-                                isDark ? 'bg-gray-700' : 'bg-gray-50'
-                              }`}
-                            >
-                              <Ionicons 
-                                name="document-outline" 
-                                size={16} 
-                                color={isDark ? '#9CA3AF' : '#6B7280'} 
-                              />
-                              <Text className={`ml-2 ${
-                                isDark ? 'text-gray-300' : 'text-gray-600'
-                              }`}>
-                                {doc.file_name}
-                              </Text>
+                    {request.documents.length > 0 && (
+                      <View className="mt-4 pt-4 border-t border-gray-200">
+                        <Text className={`text-sm font-medium mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Attachments</Text>
+                        <View className="flex-row flex-wrap">
+                          {request.documents.map((doc) => (
+                            <View key={doc.id} className="flex-1">
+                              {loadingDocumentId === doc.id ? ( // Check if this document is loading
+                                <ActivityIndicator size="small" color="#3B82F6" />
+                              ) : (
+                                <TouchableOpacity
+                                  onPress={() => handleViewDocument(doc)}
+                                  className={`mr-2 mb-2 px-4 py-2 rounded-lg flex-row items-center ${
+                                    isDark ? 'bg-gray-700' : 'bg-gray-100'
+                                  }`}
+                                >
+                                  <Ionicons
+                                    name={getDocumentIcon(doc.file_type)}
+                                    size={18}
+                                    color={isDark ? '#D1D5DB' : '#4B5563'}
+                                  />
+                                  <Text className={`ml-2 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{doc.file_name}</Text>
+                                </TouchableOpacity>
+                              )}
                             </View>
                           ))}
                         </View>
                       </View>
                     )}
 
-                    {request.status === 'pending' && (
-                      <TouchableOpacity
-                        onPress={() => handleCancelRequest(request.id)}
-                        disabled={cancellingId === request.id}
-                        className="mt-4 py-2 px-4 bg-red-100 rounded-lg flex-row items-center justify-center"
-                      >
-                        {cancellingId === request.id ? (
-                          <ActivityIndicator size="small" color="#991B1B" />
-                        ) : (
-                          <>
-                            <Ionicons name="close-circle-outline" size={20} color="#991B1B" />
-                            <Text className="text-red-800 font-medium ml-2">
-                              Cancel Request
-                            </Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
+                    {request.rejection_reason && (
+                      <View className="mt-4 p-4 rounded-lg bg-red-50">
+                        <View className="flex-row items-start">
+                          <Ionicons
+                            name="alert-circle"
+                            size={20}
+                            color="#DC2626"
+                            style={{ marginRight: 8, marginTop: 2 }}
+                          />
+                          <View className="flex-1">
+                            <Text className="text-red-800 font-medium mb-1">Rejection Reason</Text>
+                            <Text className="text-red-600">{request.rejection_reason}</Text>
+                          </View>
+                        </View>
+                      </View>
                     )}
                   </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          ))
+                </View>
+                {index < filterRequests().length - 1 && <View className="h-4 w-full" />}
+              </React.Fragment>
+            ))}
+          </View>
         )}
       </ScrollView>
 
@@ -560,6 +613,10 @@ export default function LeaveRequests() {
           </View>
         </View>
       </Modal>
+
+      {documentLoading && (
+        <ActivityIndicator size="large" color="#3B82F6" style={{ position: 'absolute', top: '50%', left: '50%' }} />
+      )}
     </View>
   );
 } 

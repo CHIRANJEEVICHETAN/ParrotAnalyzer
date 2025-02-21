@@ -76,8 +76,10 @@ export default function LeaveApprovals() {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-      setRequests(response.data);
-      setFilteredRequests(response.data);
+      // Filter for only pending requests
+      const pendingRequests = response.data.filter((request: LeaveRequest) => request.status === 'pending');
+      setRequests(pendingRequests);
+      setFilteredRequests(pendingRequests);
     } catch (error) {
       console.error('Error fetching leave requests:', error);
     } finally {
@@ -280,13 +282,13 @@ export default function LeaveApprovals() {
         <View className="flex-1">
           {/* Filters */}
           <View className={`p-4 mb-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
-            {renderFilter(
+            {/* {renderFilter(
               'Status',
               filters.status,
               (text) => setFilters(prev => ({ ...prev, status: text })),
               'Filter by status',
               'flag-outline'
-            )}
+            )} */}
             {renderFilter(
               'Employee',
               filters.employee,
@@ -305,10 +307,14 @@ export default function LeaveApprovals() {
 
           {/* Requests List */}
           {filteredRequests.length === 0 ? (
-            <View className={`p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
-              <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                No leave requests found
-              </Text>
+            <View className={`flex-1 justify-center items-center p-6 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>  
+              <Ionicons name="checkmark-circle-outline" size={50} color={isDark ? '#60A5FA' : '#3B82F6'} />
+              <Text className={`text-lg font-semibold mt-4 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>No Pending Approvals</Text>
+              <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'} mt-2`}>Currently, there are no pending leave requests from employees awaiting your review.</Text>
+              <TouchableOpacity onPress={onRefresh} className="mt-4 p-2 w-1/3 bg-blue-500 rounded-lg flex-row items-center justify-center">
+                <Ionicons name="refresh" size={20} color={isDark ? '#E0F2FE' : '#FFFFFF'} />
+                <Text className="text-white text-center ml-2">Refresh</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             filteredRequests.map((request) => (
