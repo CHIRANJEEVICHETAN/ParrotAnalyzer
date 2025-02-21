@@ -31,6 +31,8 @@ interface LeaveType {
   max_days: number;
   is_paid: boolean;
   is_active: boolean;
+  notice_period_days: number;
+  max_consecutive_days: number;
 }
 
 interface LeaveRequest {
@@ -109,7 +111,7 @@ export default function LeaveRequests() {
       setLeaveTypes(response.data.filter((type: LeaveType) => type.is_active));
     } catch (error) {
       console.error('Error fetching leave types:', error);
-      showError('Failed to fetch leave types');
+      showError('Error', 'Failed to fetch leave types. Please try again.', 'error');
     }
   };
 
@@ -124,7 +126,7 @@ export default function LeaveRequests() {
       setRequests(response.data);
     } catch (error) {
       console.error('Error fetching requests:', error);
-      showError('Failed to fetch leave requests');
+      showError('Error', 'Failed to fetch leave requests. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -159,7 +161,7 @@ export default function LeaveRequests() {
         if (method === 'camera') {
           const imageAsset = result.assets[0] as ImagePicker.ImagePickerAsset;
           if (!imageAsset.base64) {
-            showError('Failed to get image data');
+            showError('Error', 'Failed to get image data', 'error');
             return;
           }
           
@@ -190,7 +192,7 @@ export default function LeaveRequests() {
       }
     } catch (error) {
       console.error('Error uploading document:', error);
-      showError('Failed to upload document');
+      showError('Error', 'Failed to upload document. Please try again.', 'error');
     }
   };
 
@@ -198,39 +200,46 @@ export default function LeaveRequests() {
     setDocuments(prev => prev.filter((_, i) => i !== index));
   };
 
+  const showError = (title: string, message: string, type: 'error' | 'success' | 'warning' = 'error') => {
+    setErrorModal({
+      visible: true,
+      title,
+      message,
+      type
+    });
+  };
+
   const handleSubmit = async () => {
     try {
       setSubmitting(true);
       
       if (!formData.leave_type_id) {
-        setErrorModal({
-          visible: true,
-          title: 'Warning',
-          message: 'Please select a leave type',
-          type: 'warning'
-        });
+        showError('Warning', 'Please select a leave type', 'warning');
+        return;
+      }
+
+      const selectedLeaveType = leaveTypes.find(
+        type => type.id === parseInt(formData.leave_type_id)
+      );
+
+      if (!selectedLeaveType) {
+        showError('Error', 'Invalid leave type selected', 'error');
         return;
       }
 
       if (!formData.reason.trim()) {
-        setErrorModal({
-          visible: true,
-          title: 'Warning',
-          message: 'Please enter a reason for leave',
-          type: 'warning'
-        });
+        showError('Warning', 'Please enter a reason for leave', 'warning');
         return;
       }
 
       // Contact number validation
       const phoneRegex = /^[6-9]\d{9}$/;
       if (!phoneRegex.test(formData.contact_number)) {
-        setErrorModal({
-          visible: true,
-          title: 'Warning',
-          message: 'Please enter a valid 10-digit mobile number starting with 6-9',
-          type: 'warning'
-        });
+        showError(
+          'Warning',
+          'Please enter a valid 10-digit mobile number starting with 6-9',
+          'warning'
+        );
         return;
       }
 
@@ -241,36 +250,66 @@ export default function LeaveRequests() {
       today.setHours(0, 0, 0, 0);
 
       if (startDate < today) {
-        setErrorModal({
-          visible: true,
-          title: 'Warning',
-          message: 'Start date cannot be in the past',
-          type: 'warning'
-        });
+        showError('Warning', 'Start date cannot be in the past', 'warning');
         return;
       }
 
       if (endDate < startDate) {
-        setErrorModal({
-          visible: true,
-          title: 'Warning',
-          message: 'End date cannot be before start date',
-          type: 'warning'
-        });
+        showError('Warning', 'End date cannot be before start date', 'warning');
         return;
       }
 
-      const selectedLeaveType = leaveTypes.find(
-        type => type.id === parseInt(formData.leave_type_id)
-      );
+      if (selectedLeaveType.requires_documentation && documents.length === 0) {
+        showError('Warning', 'Please upload required documentation', 'warning');
+        return;
+      }
 
-      if (selectedLeaveType?.requires_documentation && documents.length === 0) {
-        setErrorModal({
-          visible: true,
-          title: 'Warning',
-          message: 'Please upload required documentation',
-          type: 'warning'
-        });
+      // Notice Period Validation
+      const noticeDays = Math.ceil((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (noticeDays < selectedLeaveType.notice_period_days) {
+        const earliestPossibleDate = new Date(today);
+        earliestPossibleDate.setDate(earliestPossibleDate.getDate() + selectedLeaveType.notice_period_days);
+        
+        showError(
+          'Notice Period Required',
+          `This leave type requires ${selectedLeaveType.notice_period_days} days advance notice.\n\n` +
+          `• Required Notice: ${selectedLeaveType.notice_period_days} days\n` +
+          `• Earliest Possible Date: ${format(earliestPossibleDate, 'MMM dd, yyyy')}\n\n` +
+          `Please adjust your start date to comply with the notice period requirement.`,
+          'warning'
+        );
+        return;
+      }
+
+      // Additional validation to ensure start date is at least notice_period_days away
+      const minStartDate = new Date(today);
+      minStartDate.setDate(minStartDate.getDate() + selectedLeaveType.notice_period_days);
+      minStartDate.setHours(0, 0, 0, 0);
+      
+      if (startDate < minStartDate) {
+        showError(
+          'Notice Period Required',
+          `This leave type requires ${selectedLeaveType.notice_period_days} days advance notice.\n\n` +
+          `• Required Notice: ${selectedLeaveType.notice_period_days} days\n` +
+          `• Earliest Possible Date: ${format(minStartDate, 'MMM dd, yyyy')}\n\n` +
+          `Please adjust your start date to comply with the notice period requirement.`,
+          'warning'
+        );
+        return;
+      }
+
+      // Validate max consecutive days
+      const workingDays = calculateWorkingDays(startDate, endDate);
+      if (workingDays > selectedLeaveType.max_consecutive_days) {
+        showError(
+          'Maximum Days Exceeded',
+          `This leave type allows a maximum of ${selectedLeaveType.max_consecutive_days} consecutive working days.\n\n` +
+          `• Maximum Allowed: ${selectedLeaveType.max_consecutive_days} days\n` +
+          `• Requested: ${workingDays} days\n\n` +
+          `Please adjust your dates to comply with this limit.`,
+          'warning'
+        );
         return;
       }
 
@@ -320,38 +359,9 @@ export default function LeaveRequests() {
         errorTitle = 'Overlapping Request';
         userFriendlyMessage = 'This leave request overlaps with an existing request.';
         errorType = 'warning';
-      } else if (errorMessage.includes('notice period')) {
-        errorTitle = 'Notice Period Required';
-        userFriendlyMessage = 'Please submit your request within the required notice period.';
-        errorType = 'warning';
-      } else if (errorMessage.includes('minimum service')) {
-        errorTitle = 'Service Period Not Met';
-        userFriendlyMessage = 'You have not completed the minimum service period required for this leave type.';
-        errorType = 'warning';
-      } else if (errorMessage.includes('gender specific')) {
-        errorTitle = 'Not Eligible';
-        userFriendlyMessage = 'This leave type is not applicable for your gender.';
-        errorType = 'warning';
-      } else if (errorMessage.includes('documentation required')) {
-        errorTitle = 'Documentation Required';
-        userFriendlyMessage = 'Please attach the required documentation for this leave type.';
-        errorType = 'warning';
-      } else if (errorMessage.includes('past date')) {
-        errorTitle = 'Invalid Date';
-        userFriendlyMessage = 'Cannot submit leave request for past dates.';
-        errorType = 'warning';
-      } else if (errorMessage.includes('maximum allowed')) {
-        errorTitle = 'Limit Exceeded';
-        userFriendlyMessage = 'You have exceeded the maximum allowed leaves for this type.';
-        errorType = 'warning';
       }
 
-      setErrorModal({
-        visible: true,
-        title: errorTitle,
-        message: userFriendlyMessage,
-        type: errorType
-      });
+      showError(errorTitle, userFriendlyMessage, errorType);
     } finally {
       setSubmitting(false);
     }
@@ -366,15 +376,6 @@ export default function LeaveRequests() {
       contact_number: '',
     });
     setDocuments([]);
-  };
-
-  const showError = (message: string) => {
-    setErrorModal({
-      visible: true,
-      title: 'Error',
-      message,
-      type: 'error'
-    });
   };
 
   const getStatusColor = (status: string) => {
@@ -417,8 +418,24 @@ export default function LeaveRequests() {
       });
     } catch (error) {
       console.error('Error opening document:', error);
-      showError('Failed to open document. Please try again.');
+      showError('Error', 'Failed to open document. Please try again.', 'error');
     }
+  };
+
+  const calculateWorkingDays = (start: Date, end: Date) => {
+    let days = 0;
+    const current = new Date(start);
+    const endDate = new Date(end);
+    endDate.setHours(23, 59, 59, 999);
+
+    while (current <= endDate) {
+      const dayOfWeek = current.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Skip weekends
+        days++;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+    return days;
   };
 
   if (loading) {
@@ -433,162 +450,205 @@ export default function LeaveRequests() {
     <View className="flex-1">
       {/* Header with Add Button */}
       <View className="flex-row justify-between items-center mb-6">
-        <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-          My Leave Requests
-        </Text>
+        <View className="flex-row items-center">
+          <View className={`w-8 h-8 rounded-full items-center justify-center ${
+            isDark ? 'bg-blue-500/20' : 'bg-blue-50'
+          }`}>
+            <Ionicons 
+              name="document-text-outline" 
+              size={20} 
+              color={isDark ? '#60A5FA' : '#2563EB'} 
+            />
+          </View>
+          <Text className={`text-xl font-bold ml-2 ${
+            isDark ? 'text-white' : 'text-gray-900'
+          }`}>
+            Leave Requests
+          </Text>
+        </View>
         <TouchableOpacity
           onPress={() => setShowRequestModal(true)}
-          className="bg-blue-500 px-4 py-2 rounded-lg flex-row items-center"
+          className={`py-2.5 px-4 rounded-lg flex-row items-center ${
+            isDark ? 'bg-blue-500/20' : 'bg-blue-500'
+          }`}
         >
-          <Ionicons name="add" size={24} color="white" />
-          <Text className="text-white font-medium ml-2">New Request</Text>
+          <Ionicons 
+            name="add-circle-outline" 
+            size={20} 
+            color={isDark ? '#FFFFFF' : '#FFFFFF'} 
+          />
+          <Text className="text-white font-semibold ml-1">
+            New Request
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Requests List */}
+      {/* Leave Requests List */}
       <ScrollView className="flex-1">
         {requests.length === 0 ? (
-          <View className={`p-6 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            <Text className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+          <View className="flex-1 justify-center items-center py-12">
+            <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${
+              isDark ? 'bg-gray-800' : 'bg-gray-100'
+            }`}>
+              <Ionicons 
+                name="document-text-outline" 
+                size={32} 
+                color={isDark ? '#4B5563' : '#9CA3AF'} 
+              />
+            </View>
+            <Text className={`text-lg font-medium mb-2 ${
+              isDark ? 'text-gray-400' : 'text-gray-500'
+            }`}>
               No leave requests found
+            </Text>
+            <Text className={`text-sm ${
+              isDark ? 'text-gray-500' : 'text-gray-400'
+            }`}>
+              Create a new request to get started
             </Text>
           </View>
         ) : (
-          requests.map((request, index) => (
-            <React.Fragment key={request.id}>
-              <View className={`p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-                {/* Status Badge */}
-                <View className="flex-row justify-between items-start mb-4">
-                  <View className="flex-row items-center">
-                    <Ionicons
-                      name={
-                        request.status === 'approved'
-                          ? 'checkmark-circle'
-                          : request.status === 'rejected'
-                          ? 'close-circle'
-                          : 'time'
-                      }
-                      size={24}
-                      color={getStatusColor(request.status)}
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      {request.leave_type_name}
-                    </Text>
-                  </View>
-                  <View className={`px-3 py-1 rounded-full`} style={{
-                    backgroundColor: `${getStatusColor(request.status)}20`
-                  }}>
-                    <Text style={{ color: getStatusColor(request.status), fontWeight: '600' }}>
-                      {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Request Details */}
-                <View className="space-y-3">
-                  {/* Date Range */}
-                  <View className="flex-row items-center">
-                    <Ionicons
-                      name="calendar-outline"
-                      size={18}
-                      color={isDark ? '#9CA3AF' : '#6B7280'}
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
-                      {format(new Date(request.start_date), 'MMM dd, yyyy')} - {format(new Date(request.end_date), 'MMM dd, yyyy')}
-                      {' • '}
-                      <Text className="font-medium">
-                        {request.days_requested} day{request.days_requested !== 1 ? 's' : ''}
-                      </Text>
-                    </Text>
-                  </View>
-
-                  {/* Reason */}
-                  <View className="flex-row items-start">
-                    <Ionicons
-                      name="document-text-outline"
-                      size={18}
-                      color={isDark ? '#9CA3AF' : '#6B7280'}
-                      style={{ marginRight: 8, marginTop: 2 }}
-                    />
-                    <Text className={`flex-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                      {request.reason}
-                    </Text>
-                  </View>
-
-                  {/* Contact Number */}
-                  <View className="flex-row items-center">
-                    <Ionicons
-                      name="call-outline"
-                      size={18}
-                      color={isDark ? '#9CA3AF' : '#6B7280'}
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
-                      +91 {request.contact_number}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Documents Section */}
-                {request.documents.length > 0 && (
-                  <View className="mt-4 pt-4 border-t border-gray-200">
-                    <Text className={`text-sm font-medium mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                      Attachments
-                    </Text>
-                    <View className="flex-row flex-wrap">
-                      {request.documents.map((doc) => (
-                        <TouchableOpacity
-                          key={doc.id}
-                          onPress={() => handleViewDocument(doc)}
-                          className={`mr-2 mb-2 px-4 py-2 rounded-lg flex-row items-center ${
-                            isDark ? 'bg-gray-700' : 'bg-gray-100'
-                          }`}
-                        >
-                          <Ionicons
-                            name={getDocumentIcon(doc.file_type)}
-                            size={18}
-                            color={isDark ? '#D1D5DB' : '#4B5563'}
-                          />
-                          <Text className={`ml-2 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                            {doc.file_name}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                )}
-
-                {/* Rejection Reason */}
-                {request.rejection_reason && (
-                  <View className="mt-4 p-4 rounded-lg bg-red-50">
-                    <View className="flex-row items-start">
-                      <Ionicons
-                        name="alert-circle"
-                        size={20}
-                        color="#DC2626"
-                        style={{ marginRight: 8, marginTop: 2 }}
-                      />
-                      <View className="flex-1">
-                        <Text className="text-red-800 font-medium mb-1">
-                          Rejection Reason
+          <View>
+            {requests.map((request, index) => (
+              <React.Fragment key={request.id}>
+                <View className={`rounded-lg overflow-hidden border ${
+                  isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-white'
+                }`}>
+                  {/* Request content */}
+                  <View className="p-4">
+                    {/* Status Badge */}
+                    <View className="flex-row justify-between items-start mb-4">
+                      <View className="flex-row items-center">
+                        <Ionicons
+                          name={
+                            request.status === 'approved'
+                              ? 'checkmark-circle'
+                              : request.status === 'rejected'
+                              ? 'close-circle'
+                              : 'time'
+                          }
+                          size={24}
+                          color={getStatusColor(request.status)}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          {request.leave_type_name}
                         </Text>
-                        <Text className="text-red-600">
-                          {request.rejection_reason}
+                      </View>
+                      <View className={`px-3 py-1 rounded-full`} style={{
+                        backgroundColor: `${getStatusColor(request.status)}20`
+                      }}>
+                        <Text style={{ color: getStatusColor(request.status), fontWeight: '600' }}>
+                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                         </Text>
                       </View>
                     </View>
+
+                    {/* Request Details */}
+                    <View className="space-y-3">
+                      {/* Date Range */}
+                      <View className="flex-row items-center">
+                        <Ionicons
+                          name="calendar-outline"
+                          size={18}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                          {format(new Date(request.start_date), 'MMM dd, yyyy')} - {format(new Date(request.end_date), 'MMM dd, yyyy')}
+                          {' • '}
+                          <Text className="font-medium">
+                            {request.days_requested} day{request.days_requested !== 1 ? 's' : ''}
+                          </Text>
+                        </Text>
+                      </View>
+
+                      {/* Reason */}
+                      <View className="flex-row items-start">
+                        <Ionicons
+                          name="document-text-outline"
+                          size={18}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
+                          style={{ marginRight: 8, marginTop: 2 }}
+                        />
+                        <Text className={`flex-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                          {request.reason}
+                        </Text>
+                      </View>
+
+                      {/* Contact Number */}
+                      <View className="flex-row items-center">
+                        <Ionicons
+                          name="call-outline"
+                          size={18}
+                          color={isDark ? '#9CA3AF' : '#6B7280'}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                          +91 {request.contact_number}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Documents Section */}
+                    {request.documents.length > 0 && (
+                      <View className="mt-4 pt-4 border-t border-gray-200">
+                        <Text className={`text-sm font-medium mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                          Attachments
+                        </Text>
+                        <View className="flex-row flex-wrap">
+                          {request.documents.map((doc) => (
+                            <TouchableOpacity
+                              key={doc.id}
+                              onPress={() => handleViewDocument(doc)}
+                              className={`mr-2 mb-2 px-4 py-2 rounded-lg flex-row items-center ${
+                                isDark ? 'bg-gray-700' : 'bg-gray-100'
+                              }`}
+                            >
+                              <Ionicons
+                                name={getDocumentIcon(doc.file_type)}
+                                size={18}
+                                color={isDark ? '#D1D5DB' : '#4B5563'}
+                              />
+                              <Text className={`ml-2 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {doc.file_name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Rejection Reason */}
+                    {request.rejection_reason && (
+                      <View className="mt-4 p-4 rounded-lg bg-red-50">
+                        <View className="flex-row items-start">
+                          <Ionicons
+                            name="alert-circle"
+                            size={20}
+                            color="#DC2626"
+                            style={{ marginRight: 8, marginTop: 2 }}
+                          />
+                          <View className="flex-1">
+                            <Text className="text-red-800 font-medium mb-1">
+                              Rejection Reason
+                            </Text>
+                            <Text className="text-red-600">
+                              {request.rejection_reason}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    )}
                   </View>
+                </View>
+                {/* Add separator after every item except the last one */}
+                {index < requests.length - 1 && (
+                  <View className="h-4 w-full" />
                 )}
-              </View>
-              
-              {/* Add separator if not the last item */}
-              {index < requests.length - 1 && (
-                <View className="h-4" />
-              )}
-            </React.Fragment>
-          ))
+              </React.Fragment>
+            ))}
+          </View>
         )}
       </ScrollView>
 

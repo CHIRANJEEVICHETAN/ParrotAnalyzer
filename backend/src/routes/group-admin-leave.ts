@@ -28,7 +28,7 @@ router.get('/leave-requests', [authMiddleware, adminMiddleware], async (req: Cus
       JOIN users u ON lr.user_id = u.id
       JOIN leave_types lt ON lr.leave_type_id = lt.id
       LEFT JOIN leave_documents ld ON lr.id = ld.request_id
-      WHERE u.group_admin_id = $1
+      WHERE u.group_admin_id = $1 AND lr.status = 'pending'
       ORDER BY lr.created_at DESC
     `, [groupAdminId]);
 
@@ -409,8 +409,11 @@ router.get('/leave-types', [authMiddleware, adminMiddleware], async (req: Custom
         lt.requires_documentation,
         lt.max_days,
         lt.is_paid,
-        lt.is_active
+        lt.is_active,
+        lp.notice_period_days,
+        lp.max_consecutive_days
       FROM leave_types lt
+      LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
       WHERE lt.is_active = true
       ORDER BY lt.name
     `);
@@ -495,12 +498,40 @@ router.post('/request', [authMiddleware, adminMiddleware], async (req: CustomReq
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    // Validate dates
+    // Get leave type details and policy
+    const leaveTypeResult = await client.query(`
+      SELECT lt.*, lp.notice_period_days, lp.max_consecutive_days
+      FROM leave_types lt
+      LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+      WHERE lt.id = $1
+    `, [leave_type_id]);
+
+    if (!leaveTypeResult.rows.length) {
+      return res.status(400).json({ error: 'Invalid leave type' });
+    }
+
+    const leaveTypePolicy = leaveTypeResult.rows[0];
     const startDate = new Date(start_date);
     const endDate = new Date(end_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Check notice period
+    const noticeDays = Math.ceil((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (noticeDays < leaveTypePolicy.notice_period_days) {
+      const earliestPossibleDate = new Date(today);
+      earliestPossibleDate.setDate(earliestPossibleDate.getDate() + leaveTypePolicy.notice_period_days);
+      return res.status(400).json({
+        error: 'Notice period requirement not met',
+        details: {
+          required_days: leaveTypePolicy.notice_period_days,
+          earliest_possible_date: earliestPossibleDate.toISOString().split('T')[0],
+          message: `This leave type requires ${leaveTypePolicy.notice_period_days} days notice`
+        }
+      });
+    }
+
+    // Validate dates
     if (startDate < today) {
       return res.status(400).json({ error: 'Start date cannot be in the past' });
     }
@@ -512,30 +543,27 @@ router.post('/request', [authMiddleware, adminMiddleware], async (req: CustomReq
     // Calculate days requested (excluding weekends)
     const days_requested = calculateWorkingDays(startDate, endDate);
 
+    // Check max consecutive days
+    if (days_requested > leaveTypePolicy.max_consecutive_days) {
+      return res.status(400).json({
+        error: 'Maximum consecutive days exceeded',
+        details: {
+          max_days: leaveTypePolicy.max_consecutive_days,
+          requested_days: days_requested,
+          message: `Maximum ${leaveTypePolicy.max_consecutive_days} consecutive working days allowed`
+        }
+      });
+    }
+
     // Begin transaction
     await client.query('BEGIN');
 
-    // Get leave type details and user gender
-    const [leaveTypeResult, userResult] = await Promise.all([
-      client.query(
-        `SELECT lt.*, lp.* 
-         FROM leave_types lt
-         JOIN leave_policies lp ON lt.id = lp.leave_type_id
-         WHERE lt.id = $1`,
-        [leave_type_id]
-      ),
-      client.query('SELECT gender FROM users WHERE id = $1', [userId])
-    ]);
-
-    if (!leaveTypeResult.rows.length) {
-      return res.status(400).json({ error: 'Invalid leave type' });
-    }
-
-    const leaveType = leaveTypeResult.rows[0];
+    // Get user gender for gender-specific validation
+    const userResult = await client.query('SELECT gender FROM users WHERE id = $1', [userId]);
     const userGender = userResult.rows[0]?.gender;
 
     // Check gender-specific leave eligibility
-    if (leaveType.gender_specific) {
+    if (leaveTypePolicy.gender_specific) {
       if (!userGender) {
         return res.status(400).json({
           error: 'Missing Information',
@@ -543,16 +571,16 @@ router.post('/request', [authMiddleware, adminMiddleware], async (req: CustomReq
         });
       }
 
-      if (userGender !== leaveType.gender_specific) {
+      if (userGender !== leaveTypePolicy.gender_specific) {
         return res.status(400).json({
           error: 'Not Eligible',
-          details: `This leave type is only available for ${leaveType.gender_specific} employees`
+          details: `This leave type is only available for ${leaveTypePolicy.gender_specific} employees`
         });
       }
     }
 
     // Check if documents are required
-    if (leaveType.requires_documentation && (!documents || !documents.length)) {
+    if (leaveTypePolicy.requires_documentation && (!documents || !documents.length)) {
       return res.status(400).json({ error: 'Documentation is required for this leave type' });
     }
 
@@ -611,7 +639,7 @@ router.post('/request', [authMiddleware, adminMiddleware], async (req: CustomReq
       days_requested,
       reason,
       contact_number,
-      leaveType.requires_documentation
+      leaveTypePolicy.requires_documentation
     ]);
 
     const requestId = requestResult.rows[0].id;

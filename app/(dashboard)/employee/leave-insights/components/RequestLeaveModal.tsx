@@ -282,6 +282,27 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
 
     setLoading(true);
     try {
+      // Fetch leave balance for the selected leave type
+      const balanceResponse = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/leave/balance`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const leaveBalance = balanceResponse.data.find((balance: LeaveBalance) => balance.id === selectedType);
+      if (!leaveBalance) {
+        showError('Warning', 'Leave balance not found for the selected leave type. Please ensure your balance is up to date for this leave type. If the issue persists, contact your group admin.', 'warning');
+        return;
+      }
+
+      const availableDays = leaveBalance.max_days - leaveBalance.days_used;
+      const requestedDays = calculateWorkingDays(startDate, endDate);
+
+      // Validate available days
+      if (availableDays < requestedDays) {
+        showError('Error', 'Insufficient leave balance', 'error');
+        return;
+      }
+
+      // Proceed with submitting the leave request
       const formData = {
         leave_type_id: selectedType,
         start_date: format(startDate, 'yyyy-MM-dd'),
@@ -296,11 +317,9 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
         })),
       };
 
-      await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/leave/request`,
-        formData,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/api/leave/request`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       setErrorModal({
         visible: true,

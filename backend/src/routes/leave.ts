@@ -33,6 +33,7 @@ router.get('/requests', authMiddleware, async (req: CustomRequest, res: Response
         lr.status,
         lr.contact_number,
         lr.created_at,
+        lr.rejection_reason,
         lt.name as leave_type,
         lt.requires_documentation,
         lt.is_paid,
@@ -134,6 +135,12 @@ router.get('/types', authMiddleware, async (req: CustomRequest, res: Response) =
 router.post('/request', authMiddleware, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const userId = req.user; // Type assertion here
+
     const { 
       leave_type_id, 
       start_date, 
@@ -156,12 +163,36 @@ router.post('/request', authMiddleware, async (req: CustomRequest, res: Response
     }
 
     const leaveType = leaveTypeResult.rows[0];
-    
+
     // Calculate days requested
     const days_requested = Math.ceil(
       (new Date(end_date).getTime() - new Date(start_date).getTime()) / 
       (1000 * 60 * 60 * 24)
     ) + 1;
+
+    // Fetch leave balance for the user
+    const balanceResult = await client.query(`
+      SELECT lb.total_days, lb.used_days, lb.pending_days
+      FROM leave_balances lb
+      WHERE lb.user_id = $1 AND lb.leave_type_id = $2
+    `, [userId.id, leave_type_id]);
+
+    if (!balanceResult.rows.length) {
+      return res.status(400).json({ error: 'No leave balance found for this leave type' });
+    }
+
+    const { total_days, used_days, pending_days } = balanceResult.rows[0];
+    const available_days = total_days - used_days - pending_days;
+
+    // Validate available days
+    if (available_days < days_requested) {
+      return res.status(400).json({ error: 'Insufficient leave balance' });
+    }
+
+    // Validate maximum consecutive days
+    if (days_requested > leaveType.max_consecutive_days) {
+      return res.status(400).json({ error: `Cannot request more than ${leaveType.max_consecutive_days} consecutive days` });
+    }
 
     // Insert leave request
     const requestResult = await client.query(`
@@ -178,7 +209,7 @@ router.post('/request', authMiddleware, async (req: CustomRequest, res: Response
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
       RETURNING id
     `, [
-      req.user?.id,
+      userId.id,
       leave_type_id,
       start_date,
       end_date,
@@ -249,6 +280,30 @@ router.post('/cancel/:id', authMiddleware, async (req: CustomRequest, res: Respo
   } catch (error) {
     console.error('Error cancelling leave request:', error);
     res.status(500).json({ error: 'Failed to cancel leave request' });
+  } finally {
+    client.release();
+  }
+});
+
+// Fetch document by ID
+router.get('/document/:id', authMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+
+    const result = await client.query(`
+      SELECT file_name, file_type, file_data
+      FROM leave_documents WHERE id = $1
+    `, [id]);
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching document:', error);
+    res.status(500).json({ error: 'Failed to fetch document' });
   } finally {
     client.release();
   }
