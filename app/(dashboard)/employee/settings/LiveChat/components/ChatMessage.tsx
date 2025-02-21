@@ -21,48 +21,40 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
   const markdownStyles = StyleSheet.create({
     body: {
       color: isUser ? '#FFFFFF' : isDark ? '#E5E7EB' : '#4B5563',
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 20,
       width: '100%',
     },
     strong: {
       color: isUser ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1F2937',
-      fontSize: 16,
-      fontWeight: '700',
-      marginTop: 8,
+      fontSize: 15,
+      fontWeight: '600',
+      marginTop: 10,
       marginBottom: 4,
       width: '100%',
     },
     bullet_list: {
-      marginLeft: 8,
+      marginLeft: 10,
       marginBottom: 8,
       width: '100%',
     },
     bullet_list_item: {
-      marginBottom: 4,
+      marginBottom: 3,
       flexDirection: 'row',
+      alignItems: 'flex-start',
       width: '100%',
     },
     bullet_list_icon: {
-      marginRight: 8,
+      marginRight: 6,
+      marginTop: 3,
     },
     paragraph: {
       marginBottom: 8,
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 20,
       width: '100%',
       flexShrink: 1,
-    },
-    ordered_list: {
-      marginLeft: 8,
-      marginBottom: 8,
-      width: '100%',
-    },
-    ordered_list_item: {
-      marginBottom: 4,
-      flexDirection: 'row',
-      width: '100%',
-    },
+    }
   });
 
   return (
@@ -84,7 +76,7 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
               : isDark ? 'bg-gray-800' : 'bg-white'
           } shadow-sm`}
           style={{ 
-            maxWidth: Math.min(width * (isUser ? 0.65 : 0.70), isUser ? 350 : 400),
+            maxWidth: Math.min(width * (isUser ? 0.75 : 0.85), isUser ? 400 : 600),
             minWidth: 50,
             width: 'auto',
             flex: 1,
@@ -93,42 +85,56 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
             position: 'relative',
           }}
         >
-          {isStreaming ? (
-            <View className="flex-row items-center gap-2 py-2">
-              <View className="flex-row gap-1.5 px-2">
-                <TypingDot delay={0} isDark={isDark} />
-                <TypingDot delay={300} isDark={isDark} />
-                <TypingDot delay={600} isDark={isDark} />
-              </View>
-            </View>
-          ) : (
-            <>
-              <View style={{ 
-                paddingVertical: 2, 
-                paddingRight: 48,
-                width: '100%',
-                flex: 1,
-              }}>
-                <Markdown 
-                  style={markdownStyles}
-                  mergeStyle={true}
-                >{message}</Markdown>
-              </View>
-              <Text 
-                style={{ 
-                  position: 'absolute',
-                  bottom: 8,
-                  right: 12,
-                  fontSize: 11,
-                  color: isUser 
-                    ? 'rgba(255, 255, 255, 0.7)'
-                    : isDark ? '#9CA3AF' : '#6B7280',
-                }}
-              >
-                {timeString}
-              </Text>
-            </>
-          )}
+          <View style={{ 
+            paddingVertical: 1,
+            paddingRight: 40,
+            width: '100%',
+            flex: 1,
+            minHeight: 40,
+          }}>
+            <Markdown 
+              style={markdownStyles}
+              mergeStyle={true}
+              rules={{
+                paragraph: (node, children, parent, styles) => (
+                  <Text key={node.key} style={styles.paragraph}>
+                    {children}
+                  </Text>
+                ),
+                strong: (node, children, parent, styles) => (
+                  <Text key={node.key} style={styles.strong}>
+                    {children}
+                  </Text>
+                ),
+                bullet_list: (node, children, parent, styles) => (
+                  <View key={node.key} style={styles.bullet_list}>
+                    {children}
+                  </View>
+                ),
+                bullet_list_item: (node, children, parent, styles) => (
+                  <View key={node.key} style={styles.bullet_list_item}>
+                    <Text style={styles.bullet_list_icon}>•</Text>
+                    <Text style={{ flex: 1 }}>{children}</Text>
+                  </View>
+                ),
+              }}
+            >
+              {message}
+            </Markdown>
+          </View>
+          <Text 
+            style={{ 
+              position: 'absolute',
+              bottom: 8,
+              right: 12,
+              fontSize: 11,
+              color: isUser 
+                ? 'rgba(255, 255, 255, 0.7)'
+                : isDark ? '#9CA3AF' : '#6B7280',
+            }}
+          >
+            {timeString}
+          </Text>
         </View>
       </View>
     </View>
