@@ -282,23 +282,35 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
 
     setLoading(true);
     try {
-      // Fetch leave balance for the selected leave type
-      const balanceResponse = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/leave/balance`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const leaveBalance = balanceResponse.data.find((balance: LeaveBalance) => balance.id === selectedType);
-      if (!leaveBalance) {
-        showError('Warning', 'Leave balance not found for the selected leave type. Please ensure your balance is up to date for this leave type. If the issue persists, contact your group admin.', 'warning');
+      // Find the selected leave type
+      const selectedLeaveType = leaveTypes.find(type => type.id === selectedType);
+      if (!selectedLeaveType) {
+        showError('Error', 'Invalid leave type selected', 'error');
         return;
       }
 
-      const availableDays = leaveBalance.max_days - leaveBalance.days_used;
-      const requestedDays = calculateWorkingDays(startDate, endDate);
+      // Find the corresponding balance
+      const leaveBalance = balances.find(balance => balance.name === selectedLeaveType.name);
+      if (!leaveBalance) {
+        showError('Warning', 'Leave balance not found. Please contact your administrator.', 'warning');
+        return;
+      }
 
-      // Validate available days
+      // Calculate requested days
+      const requestedDays = calculateWorkingDays(startDate, endDate);
+      const availableDays = leaveBalance.max_days - leaveBalance.days_used;
+
+      // Check if enough days are available
       if (availableDays < requestedDays) {
-        showError('Error', 'Insufficient leave balance', 'error');
+        showError(
+          'Warning',
+          `Insufficient leave balance.\n\n` +
+          `• Available Balance: ${availableDays} days\n` +
+          `• Requested Days: ${requestedDays} days\n` +
+          `• Total Balance: ${leaveBalance.max_days} days\n` +
+          `• Used Days: ${leaveBalance.days_used} days`,
+          'warning'
+        );
         return;
       }
 
@@ -317,9 +329,11 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
         })),
       };
 
-      await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/api/leave/request`, formData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/leave/request`,
+        formData,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
       setErrorModal({
         visible: true,
@@ -341,7 +355,6 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
       const errorDetails = error.response?.data?.details;
       const errorMessage = errorDetails?.message || error.response?.data?.error || 'Failed to submit request';
       
-      // Handle notice period error specifically
       if (errorDetails?.required_days) {
         showError(
           'Notice Period Required',
@@ -349,6 +362,17 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
           `• Required Notice: ${errorDetails.required_days} days\n` +
           `• Earliest Possible Date: ${format(new Date(errorDetails.earliest_possible_date), 'MMM dd, yyyy')}\n\n` +
           `Please adjust your start date to comply with the notice period requirement.`,
+          'warning'
+        );
+      } else if (error.response?.data?.error === 'Insufficient leave balance' && errorDetails) {
+        showError(
+          'Insufficient Leave Balance',
+          `You don't have enough leave balance.\n\n` +
+          `• Available Balance: ${errorDetails.available_days} days\n` +
+          `• Requested Days: ${errorDetails.requested_days} days\n` +
+          `• Total Balance: ${errorDetails.total_balance} days\n` +
+          `• Used Days: ${errorDetails.used_days} days\n` +
+          `• Pending Days: ${errorDetails.pending_days} days`,
           'warning'
         );
       } else {

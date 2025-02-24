@@ -43,6 +43,7 @@ interface TaskStats {
   inProgress: number;
   pending: number;
   completionRate: number;
+  currentMonth: string;
 }
 
 export default function EmployeeDashboard() {
@@ -100,6 +101,10 @@ export default function EmployeeDashboard() {
   // Add new state for shift duration
   const [currentShiftDuration, setCurrentShiftDuration] = useState<string | null>(null);
   const [shiftStartTime, setShiftStartTime] = useState<Date | null>(null);
+
+  // Add these new states for TaskProgressBar
+  const [taskStats, setTaskStats] = useState<TaskStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // Set greeting based on time of day
   useEffect(() => {
@@ -238,6 +243,46 @@ export default function EmployeeDashboard() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Move fetchTaskStats to parent component
+  const fetchTaskStats = async (forceRefresh = false) => {
+    try {
+      setStatsLoading(true);
+      
+      // Check cache first, unless forceRefresh is true
+      if (!forceRefresh) {
+        const cachedStats = await AsyncStorage.getItem('taskStats');
+        const cachedTimestamp = await AsyncStorage.getItem('taskStatsTimestamp');
+        
+        const now = new Date().getTime();
+        const cacheAge = cachedTimestamp ? now - parseInt(cachedTimestamp) : Infinity;
+        const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+        // Use cached data if it's less than 5 minutes old
+        if (cachedStats && cacheAge < CACHE_DURATION) {
+          setTaskStats(JSON.parse(cachedStats));
+          setStatsLoading(false);
+          return;
+        }
+      }
+
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/stats`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      // Update cache
+      await AsyncStorage.setItem('taskStats', JSON.stringify(response.data));
+      await AsyncStorage.setItem('taskStatsTimestamp', new Date().getTime().toString());
+      
+      setTaskStats(response.data);
+    } catch (error) {
+      console.error('Error fetching task stats:', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  // Modify handleUpdateTaskStatus to refresh stats after status update
   const handleUpdateTaskStatus = async (taskId: number, newStatus: string) => {
     try {
       await axios.patch(
@@ -245,62 +290,56 @@ export default function EmployeeDashboard() {
         { status: newStatus },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchTasks(); // Refresh tasks after update
+      // Fetch both tasks and stats after status update
+      await Promise.all([
+        fetchTasks(),
+        fetchTaskStats(true) // Force refresh stats
+      ]);
     } catch (error) {
       console.error('Error updating task status:', error);
       Alert.alert('Error', 'Failed to update task status');
     }
   };
 
-  // Filter tasks based on activeTaskType
-  const filteredTasks = tasks.filter(task => 
-    activeTaskType === 'All Tasks' || 
-    task.status.replace('_', ' ').toLowerCase() === activeTaskType.toLowerCase()
-  );
-
+  // Initial fetch for both tasks and stats
   useEffect(() => {
-    fetchTasks();
+    const initialFetch = async () => {
+      await Promise.all([
+        fetchTasks(),
+        fetchTaskStats()
+      ]);
+    };
+    initialFetch();
   }, []);
 
-  // Add this function to handle refresh
+  // Modify handleRefresh to update both tasks and stats
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await fetchTasks();
+      await Promise.all([
+        fetchTasks(),
+        fetchTaskStats(true) // Force refresh stats
+      ]);
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  // Add this component before your main component
+  // Modify TaskProgressBar component to use props
   const TaskProgressBar = () => {
-    const [stats, setStats] = useState<TaskStats | null>(null);
-    const [loading, setLoading] = useState(true);
     const { theme } = ThemeContext.useTheme();
     const isDark = theme === 'dark';
 
+    // Set up auto-refresh interval
     useEffect(() => {
-      const fetchTaskStats = async () => {
-        try {
-          const token = await AsyncStorage.getItem('auth_token');
-          const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/tasks/stats`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          const data = await response.json();
-          setStats(data);
-        } catch (error) {
-          console.error('Error fetching task stats:', error);
-        } finally {
-          setLoading(false);
-        }
-      };
+      const intervalId = setInterval(() => {
+        fetchTaskStats();
+      }, 5 * 60 * 1000); // Refresh every 5 minutes
 
-      fetchTaskStats();
-    }, []);
+      return () => clearInterval(intervalId);
+    }, []); // Empty dependency array since fetchTaskStats is stable
 
-    if (loading) {
+    if (statsLoading && !taskStats) {
       return (
         <View className="mx-4 mt-4">
           <ActivityIndicator size="small" color="#3B82F6" />
@@ -308,7 +347,7 @@ export default function EmployeeDashboard() {
       );
     }
 
-    if (!stats) return null;
+    if (!taskStats) return null;
 
     return (
       <View style={[
@@ -323,28 +362,28 @@ export default function EmployeeDashboard() {
                 Task Progress
               </Text>
               <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                {stats.total} Total Tasks
+                {taskStats.currentMonth} • {taskStats.total} Total Tasks
               </Text>
             </View>
             <View className={`px-3 py-1 rounded-full ${isDark ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
-              <Text className="text-blue-600 font-medium">{stats.completionRate}%</Text>
+              <Text className="text-blue-600 font-medium">{taskStats.completionRate}%</Text>
             </View>
           </View>
           
           {/* Progress bars container */}
-          <View className="space-y-3" style={{ backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }}>
+          <View className="space-y-3">
             {/* Completed Tasks */}
             <View>
               <View className="flex-row justify-between mb-1.5">
                 <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Completed</Text>
                 <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                  {stats.completed}/{stats.total}
+                  {taskStats.completed}/{taskStats.total}
                 </Text>
               </View>
               <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
                 <View 
                   className="h-full bg-green-500 rounded-full"
-                  style={{ width: `${(stats.completed / stats.total) * 100}%` }}
+                  style={{ width: `${(taskStats.completed / taskStats.total) * 100}%` }}
                 />
               </View>
             </View>
@@ -354,13 +393,13 @@ export default function EmployeeDashboard() {
               <View className="flex-row justify-between mb-1.5">
                 <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>In Progress</Text>
                 <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                  {stats.inProgress}/{stats.total}
+                  {taskStats.inProgress}/{taskStats.total}
                 </Text>
               </View>
               <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
                 <View 
                   className="h-full bg-blue-500 rounded-full"
-                  style={{ width: `${(stats.inProgress / stats.total) * 100}%` }}
+                  style={{ width: `${(taskStats.inProgress / taskStats.total) * 100}%` }}
                 />
               </View>
             </View>
@@ -370,13 +409,13 @@ export default function EmployeeDashboard() {
               <View className="flex-row justify-between mb-1.5">
                 <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Pending</Text>
                 <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                  {stats.pending}/{stats.total}
+                  {taskStats.pending}/{taskStats.total}
                 </Text>
               </View>
               <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
                 <View 
                   className="h-full bg-yellow-500 rounded-full"
-                  style={{ width: `${(stats.pending / stats.total) * 100}%` }}
+                  style={{ width: `${(taskStats.pending / taskStats.total) * 100}%` }}
                 />
               </View>
             </View>

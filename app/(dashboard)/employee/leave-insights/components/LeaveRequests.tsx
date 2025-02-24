@@ -55,6 +55,14 @@ interface LeaveType {
   notice_period_days: number;
 }
 
+// Add this interface for cache structure
+interface CacheData {
+  requests: LeaveRequest[];
+  balances: LeaveBalance[];
+  leaveTypes: LeaveType[];
+  lastFetched: number;
+}
+
 export default function LeaveRequests() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -84,18 +92,33 @@ export default function LeaveRequests() {
   const [documentLoading, setDocumentLoading] = useState(false);
   const [loadingDocumentId, setLoadingDocumentId] = useState<number | null>(null); // Track loading state for specific document
 
-  // Cache data in memory
-  const dataCache = useRef({
-    requests: [] as LeaveRequest[],
-    balances: [] as LeaveBalance[],
-    leaveTypes: [] as LeaveType[],
+  // Enhanced cache implementation
+  const dataCache = useRef<CacheData>({
+    requests: [],
+    balances: [],
+    leaveTypes: [],
     lastFetched: 0
   });
+
+  // Add cache validation function
+  const isCacheValid = (forceRefresh = false): boolean => {
+    if (forceRefresh) return false;
+
+    const now = Date.now();
+    const cacheAge = now - dataCache.current.lastFetched;
+    const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache duration
+
+    return cacheAge < CACHE_DURATION && 
+           dataCache.current.requests.length > 0 &&
+           dataCache.current.balances.length > 0 &&
+           dataCache.current.leaveTypes.length > 0;
+  };
 
   useEffect(() => {
     fetchData();
   }, []);
 
+  // Enhanced fetchData function
   const fetchData = async (isRefreshing = false) => {
     try {
       if (isRefreshing) {
@@ -104,16 +127,13 @@ export default function LeaveRequests() {
         setLoading(true);
       }
 
-      // Check cache validity (5 minutes)
-      const now = Date.now();
-      const cacheAge = now - dataCache.current.lastFetched;
-      const cacheValid = cacheAge < 5 * 60 * 1000; // 5 minutes
-
-      if (!isRefreshing && cacheValid && dataCache.current.requests.length > 0) {
+      // Check cache validity
+      if (isCacheValid(isRefreshing)) {
         setRequests(dataCache.current.requests);
         setBalances(dataCache.current.balances);
         setLeaveTypes(dataCache.current.leaveTypes);
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
@@ -132,25 +152,34 @@ export default function LeaveRequests() {
         )
       ]);
 
-      // Update cache
+      // Update cache with new data
       dataCache.current = {
         requests: requestsResponse.data,
         balances: balanceResponse.data,
         leaveTypes: typesResponse.data,
-        lastFetched: now
+        lastFetched: Date.now()
       };
 
+      // Update state with new data
       setRequests(requestsResponse.data);
       setBalances(balanceResponse.data);
       setLeaveTypes(typesResponse.data);
+
     } catch (error) {
       console.error('Error fetching data:', error);
-      setErrorModal({
-        visible: true,
-        title: 'Error',
-        message: 'Failed to fetch data. Please try again.',
-        type: 'error'
-      });
+      // If cache exists, use it as fallback during error
+      if (dataCache.current.requests.length > 0) {
+        setRequests(dataCache.current.requests);
+        setBalances(dataCache.current.balances);
+        setLeaveTypes(dataCache.current.leaveTypes);
+      } else {
+        setErrorModal({
+          visible: true,
+          title: 'Error',
+          message: 'Failed to fetch data. Please try again.',
+          type: 'error'
+        });
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -207,6 +236,7 @@ export default function LeaveRequests() {
     setExpandedRequest(expandedRequest === requestId ? null : requestId);
   };
 
+  // Enhanced handleCancelRequest to update cache
   const handleCancelRequest = async (requestId: number) => {
     try {
       setCancellingId(requestId);
@@ -216,14 +246,25 @@ export default function LeaveRequests() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
+      // Update cache with the cancelled request
+      const updatedRequests = dataCache.current.requests.map(request => 
+        request.id === requestId 
+          ? { ...request, status: 'cancelled' }
+          : request
+      );
+      dataCache.current = {
+        ...dataCache.current,
+        requests: updatedRequests
+      };
+
+      setRequests(updatedRequests);
+      
       setErrorModal({
         visible: true,
         title: 'Success',
         message: 'Leave request cancelled successfully',
         type: 'success'
       });
-
-      await fetchData();
     } catch (error) {
       console.error('Error cancelling request:', error);
       setErrorModal({
@@ -288,6 +329,19 @@ export default function LeaveRequests() {
       type
     });
   };
+
+  // Add cache cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Clear cache when component unmounts
+      dataCache.current = {
+        requests: [],
+        balances: [],
+        leaveTypes: [],
+        lastFetched: 0
+      };
+    };
+  }, []);
 
   return (
     <View className="flex-1">
