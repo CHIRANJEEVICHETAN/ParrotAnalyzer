@@ -190,7 +190,7 @@ if (!process.env.GOOGLE_GEMINI_API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.0-pro-exp-02-05' });
 
 // Update the appKeywords to include more variations and topics
 const appKeywords = [
@@ -350,6 +350,9 @@ router.post('/send-message', verifyToken, async (req: CustomRequest, res: Respon
       return res.status(400).json({ error: 'User ID and message are required' });
     }
 
+    // Check if client supports streaming (based on headers)
+    const acceptsEventStream = req.headers.accept?.includes('text/event-stream');
+
     // First check exact matches
     if (CUSTOM_RESPONSES[message]) {
       const response = CUSTOM_RESPONSES[message];
@@ -359,6 +362,7 @@ router.post('/send-message', verifyToken, async (req: CustomRequest, res: Respon
          RETURNING *`,
         [userId, message, response]
       );
+      
       return res.json({ message: response });
     }
 
@@ -371,17 +375,30 @@ router.post('/send-message', verifyToken, async (req: CustomRequest, res: Respon
          RETURNING *`,
         [userId, message, matchingResponse]
       );
+
       return res.json({ message: matchingResponse });
     }
 
-    // If no matching response found, return the OFF_TOPIC_RESPONSE
+    // If no matching response found, use Gemini API
+    const chat = model.startChat({
+      history: [],
+      generationConfig: {
+        maxOutputTokens: 1000,
+      },
+    });
+
+    const result = await chat.sendMessage(message);
+    const response = result.response.text();
+    
+    // Save the complete response to database
     await pool.query(
       `INSERT INTO chat_messages (user_id, message, response, created_at)
        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
        RETURNING *`,
-      [userId, message, OFF_TOPIC_RESPONSE]
+      [userId, message, response]
     );
-    return res.json({ message: OFF_TOPIC_RESPONSE });
+
+    return res.json({ message: response });
 
   } catch (error: any) {
     console.error('Server Error:', error);
