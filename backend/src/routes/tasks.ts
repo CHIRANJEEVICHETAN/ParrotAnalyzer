@@ -201,15 +201,23 @@ router.get('/stats', verifyToken, async (req: CustomRequest, res: Response) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
+    // Get the first and last day of the current month
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
     const result = await client.query(`
       SELECT 
         COUNT(*) as total_tasks,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks,
         COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_tasks,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_tasks
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_tasks,
+        TO_CHAR(DATE_TRUNC('month', CURRENT_DATE), 'Month YYYY') as current_month
       FROM employee_tasks 
-      WHERE assigned_to = $1`,
-      [req.user.id]
+      WHERE assigned_to = $1
+      AND created_at >= $2
+      AND created_at <= $3`,
+      [req.user.id, firstDayOfMonth.toISOString(), lastDayOfMonth.toISOString()]
     );
 
     const stats = result.rows[0];
@@ -220,7 +228,8 @@ router.get('/stats', verifyToken, async (req: CustomRequest, res: Response) => {
       completed: parseInt(stats.completed_tasks) || 0,
       inProgress: parseInt(stats.in_progress_tasks) || 0,
       pending: parseInt(stats.pending_tasks) || 0,
-      completionRate: total ? Math.round((parseInt(stats.completed_tasks) / total) * 100) : 0
+      completionRate: total ? Math.round((parseInt(stats.completed_tasks) / total) * 100) : 0,
+      currentMonth: stats.current_month.trim()
     });
   } catch (error) {
     console.error('Error fetching task stats:', error);

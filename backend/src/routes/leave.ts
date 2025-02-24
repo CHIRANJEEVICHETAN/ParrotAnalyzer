@@ -139,8 +139,7 @@ router.post('/request', authMiddleware, async (req: CustomRequest, res: Response
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const userId = req.user; // Type assertion here
-
+    const userId = req.user;
     const { 
       leave_type_id, 
       start_date, 
@@ -170,28 +169,61 @@ router.post('/request', authMiddleware, async (req: CustomRequest, res: Response
       (1000 * 60 * 60 * 24)
     ) + 1;
 
-    // Fetch leave balance for the user
+    // Get current year
+    const currentYear = new Date().getFullYear();
+
+    // Fetch leave balance for the user and leave type for current year
     const balanceResult = await client.query(`
-      SELECT lb.total_days, lb.used_days, lb.pending_days
+      SELECT 
+        lb.total_days, 
+        lb.used_days, 
+        lb.pending_days,
+        lb.carry_forward_days
       FROM leave_balances lb
-      WHERE lb.user_id = $1 AND lb.leave_type_id = $2
-    `, [userId.id, leave_type_id]);
+      WHERE lb.user_id = $1 
+      AND lb.leave_type_id = $2 
+      AND lb.year = $3
+    `, [userId.id, leave_type_id, currentYear]);
 
     if (!balanceResult.rows.length) {
-      return res.status(400).json({ error: 'No leave balance found for this leave type' });
+      return res.status(400).json({ 
+        error: 'No leave balance found', 
+        details: {
+          message: 'Leave balance not found for the selected leave type. Please ensure your balance is up to date.',
+          leave_type_id: leave_type_id,
+          year: currentYear
+        }
+      });
     }
 
-    const { total_days, used_days, pending_days } = balanceResult.rows[0];
-    const available_days = total_days - used_days - pending_days;
+    const balance = balanceResult.rows[0];
+    const total_available = balance.total_days + balance.carry_forward_days;
+    const used_and_pending = balance.used_days + balance.pending_days;
+    const available_days = total_available - used_and_pending;
 
     // Validate available days
     if (available_days < days_requested) {
-      return res.status(400).json({ error: 'Insufficient leave balance' });
+      return res.status(400).json({ 
+        error: 'Insufficient leave balance',
+        details: {
+          available_days,
+          requested_days: days_requested,
+          total_balance: total_available,
+          used_days: balance.used_days,
+          pending_days: balance.pending_days
+        }
+      });
     }
 
     // Validate maximum consecutive days
     if (days_requested > leaveType.max_consecutive_days) {
-      return res.status(400).json({ error: `Cannot request more than ${leaveType.max_consecutive_days} consecutive days` });
+      return res.status(400).json({ 
+        error: 'Maximum consecutive days exceeded',
+        details: {
+          max_allowed: leaveType.max_consecutive_days,
+          requested_days: days_requested
+        }
+      });
     }
 
     // Insert leave request
@@ -219,6 +251,16 @@ router.post('/request', authMiddleware, async (req: CustomRequest, res: Response
       leaveType.requires_documentation
     ]);
 
+    // Update leave balance pending days
+    await client.query(`
+      UPDATE leave_balances 
+      SET pending_days = pending_days + $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2 
+      AND leave_type_id = $3 
+      AND year = $4
+    `, [days_requested, userId.id, leave_type_id, currentYear]);
+
     // Handle document uploads if any
     if (documents && documents.length > 0) {
       for (const doc of documents) {
@@ -241,7 +283,14 @@ router.post('/request', authMiddleware, async (req: CustomRequest, res: Response
     }
 
     await client.query('COMMIT');
-    res.json({ message: 'Leave request submitted successfully' });
+    res.json({ 
+      message: 'Leave request submitted successfully',
+      details: {
+        request_id: requestResult.rows[0].id,
+        days_requested,
+        remaining_balance: available_days - days_requested
+      }
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error submitting leave request:', error);
