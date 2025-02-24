@@ -11,6 +11,37 @@ interface ChatMessageProps {
   isStreaming?: boolean;
 }
 
+// Enhanced typing indicator dot with smoother animation
+const TypingDot = ({ delay, isDark }: { delay: number; isDark: boolean }) => {
+  const [opacity, setOpacity] = React.useState(0.3);
+
+  React.useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    const animate = () => {
+      timeoutId = setTimeout(() => {
+        setOpacity(prev => prev === 0.3 ? 1 : 0.3);
+        animate();
+      }, 500);
+    };
+
+    setTimeout(() => animate(), delay);
+    return () => clearTimeout(timeoutId);
+  }, [delay]);
+
+  return (
+    <View
+      style={{
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: isDark ? '#60A5FA' : '#3B82F6',
+        opacity,
+        transform: [{ scale: opacity === 1 ? 1.2 : 1 }],
+      }}
+    />
+  );
+};
+
 const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: ChatMessageProps) => {
   const { width } = useWindowDimensions();
   const timeString = timestamp.toLocaleTimeString([], { 
@@ -92,35 +123,50 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
             flex: 1,
             minHeight: 40,
           }}>
-            <Markdown 
-              style={markdownStyles}
-              mergeStyle={true}
-              rules={{
-                paragraph: (node, children, parent, styles) => (
-                  <Text key={node.key} style={styles.paragraph}>
-                    {children}
-                  </Text>
-                ),
-                strong: (node, children, parent, styles) => (
-                  <Text key={node.key} style={styles.strong}>
-                    {children}
-                  </Text>
-                ),
-                bullet_list: (node, children, parent, styles) => (
-                  <View key={node.key} style={styles.bullet_list}>
-                    {children}
+            {isStreaming ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8 }}>
+                <TypingDot delay={0} isDark={isDark} />
+                <TypingDot delay={200} isDark={isDark} />
+                <TypingDot delay={400} isDark={isDark} />
+                {message && (
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Markdown style={markdownStyles}>
+                      {message}
+                    </Markdown>
                   </View>
-                ),
-                bullet_list_item: (node, children, parent, styles) => (
-                  <View key={node.key} style={styles.bullet_list_item}>
-                    <Text style={styles.bullet_list_icon}>•</Text>
-                    <Text style={{ flex: 1 }}>{children}</Text>
-                  </View>
-                ),
-              }}
-            >
-              {message}
-            </Markdown>
+                )}
+              </View>
+            ) : (
+              <Markdown 
+                style={markdownStyles}
+                mergeStyle={true}
+                rules={{
+                  paragraph: (node, children, parent, styles) => (
+                    <Text key={node.key} style={styles.paragraph}>
+                      {children}
+                    </Text>
+                  ),
+                  strong: (node, children, parent, styles) => (
+                    <Text key={node.key} style={styles.strong}>
+                      {children}
+                    </Text>
+                  ),
+                  bullet_list: (node, children, parent, styles) => (
+                    <View key={node.key} style={styles.bullet_list}>
+                      {children}
+                    </View>
+                  ),
+                  bullet_list_item: (node, children, parent, styles) => (
+                    <View key={node.key} style={styles.bullet_list_item}>
+                      <Text style={styles.bullet_list_icon}>•</Text>
+                      <Text style={{ flex: 1 }}>{children}</Text>
+                    </View>
+                  ),
+                }}
+              >
+                {message}
+              </Markdown>
+            )}
           </View>
           <Text 
             style={{ 
@@ -140,37 +186,6 @@ const ChatMessage = memo(({ message, isUser, timestamp, isDark, isStreaming }: C
     </View>
   );
 });
-
-// Enhanced typing indicator dot with smoother animation
-const TypingDot = ({ delay, isDark }: { delay: number; isDark: boolean }) => {
-  const [opacity, setOpacity] = React.useState(0.3);
-
-  React.useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    const animate = () => {
-      timeoutId = setTimeout(() => {
-        setOpacity(prev => prev === 0.3 ? 1 : 0.3);
-        animate();
-      }, 500);
-    };
-
-    setTimeout(() => animate(), delay);
-    return () => clearTimeout(timeoutId);
-  }, [delay]);
-
-  return (
-    <View
-      style={{
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: isDark ? '#60A5FA' : '#3B82F6',
-        opacity,
-        transform: [{ scale: opacity === 1 ? 1.2 : 1 }],
-      }}
-    />
-  );
-};
 
 ChatMessage.displayName = 'ChatMessage';
 
