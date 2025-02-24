@@ -43,6 +43,20 @@ interface StreamingMessage extends ChatMessage {
   isStreaming?: boolean;
 }
 
+const ScrollIndicatorDot = ({ active, isDark }: { active: boolean; isDark: boolean }) => (
+  <View
+    style={{
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: active 
+        ? isDark ? '#60A5FA' : '#3B82F6'
+        : isDark ? '#374151' : '#E5E7EB',
+      marginHorizontal: 2,
+    }}
+  />
+);
+
 export default function LiveChat() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -56,6 +70,10 @@ export default function LiveChat() {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [chatId, setChatId] = useState(Date.now().toString());
   const [streamingMessage, setStreamingMessage] = useState<string>('');
+  const [randomSuggestions, setRandomSuggestions] = useState<string[]>([]);
+  const [scrollPosition, setScrollPosition] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   const CLEANUP_INTERVAL = 1000 * 60 * 5; // 5 minutes
   const INITIAL_CLEANUP_DELAY = 1000 * 30; // 30 seconds
@@ -149,6 +167,11 @@ export default function LiveChat() {
     });
   };
 
+  const getRandomSuggestions = useCallback(() => {
+    const shuffled = [...suggestedQueries].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 5);
+  }, []);
+
   const sendMessage = async () => {
     if (!message.trim() || isLoading) return;
 
@@ -179,34 +202,45 @@ export default function LiveChat() {
     setMessages(prev => [...prev, userMessageObj, typingIndicator]);
 
     try {
-      // Add a minimum delay to show typing indicator
-      const response = await Promise.all([
-        axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/chat/send-message`,
-          { message: userMessage },
-          { headers: { Authorization: `Bearer ${token}` } }
-        ),
-        // Minimum typing delay of 1.5 seconds
-        new Promise(resolve => setTimeout(resolve, 1500))
-      ]);
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/chat/send-message`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ message: userMessage })
+        }
+      );
 
-      // Replace typing indicator with actual response
-      setMessages(prev => prev.map(msg => 
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send message');
+      }
+
+      // Replace typing indicator with final message
+      setMessages(prev => prev.map(msg =>
         msg.id === `typing-${newMessageId}`
           ? {
               id: `response-${newMessageId}`,
-              message: response[0].data.message,
+              message: data.message,
               isUser: false,
-              created_at: response[0].data.timestamp || new Date().toISOString()
+              created_at: new Date().toISOString()
             }
           : msg
       ));
 
+      // Generate new random suggestions after response
+      setRandomSuggestions(getRandomSuggestions());
+      setShowSuggestions(true);
+
     } catch (error: any) {
-      console.error('Error sending message:', error.response?.data || error);
+      console.error('Error sending message:', error);
       Alert.alert(
         'Error',
-        error.response?.data?.details || 'Failed to send message. Please try again.'
+        error.message || 'Failed to send message. Please try again.'
       );
       // Remove typing indicator on error
       setMessages(prev => prev.filter(msg => msg.id !== `typing-${newMessageId}`));
@@ -235,6 +269,11 @@ export default function LiveChat() {
       isStreaming={item.isStreaming}
     />
   ), [isDark]);
+
+  const handleScroll = (event: any) => {
+    const position = event.nativeEvent.contentOffset.x;
+    setScrollPosition(position);
+  };
 
   return (
     <>
@@ -342,24 +381,107 @@ export default function LiveChat() {
                 </View>
               </ScrollView>
             ) : (
-              <FlatList
-                ref={flatListRef}
-                data={[...messages].reverse()}
-                keyExtractor={item => item.id}
-                renderItem={renderMessage}
-                className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
-                contentContainerStyle={{ 
-                  paddingVertical: 16,
-                  flexGrow: 1,
-                }}
-                removeClippedSubviews={true}
-                maxToRenderPerBatch={5}
-                windowSize={5}
-                initialNumToRender={10}
-                updateCellsBatchingPeriod={50}
-                onEndReachedThreshold={0.5}
-                inverted
-              />
+              <View className="flex-1">
+                <FlatList
+                  ref={flatListRef}
+                  data={[...messages].reverse()}
+                  keyExtractor={item => item.id}
+                  renderItem={renderMessage}
+                  className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
+                  contentContainerStyle={{ 
+                    paddingVertical: 16,
+                    flexGrow: 1,
+                  }}
+                  removeClippedSubviews={true}
+                  maxToRenderPerBatch={5}
+                  windowSize={5}
+                  initialNumToRender={10}
+                  updateCellsBatchingPeriod={50}
+                  onEndReachedThreshold={0.5}
+                  inverted
+                />
+                {showSuggestions && messages.length > 0 && (
+                  <View className={`border-t ${isDark ? 'border-gray-800' : 'border-gray-200'}`}>
+                    <View style={{ position: 'relative' }}>
+                      <ScrollView 
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        className="py-3 px-2"
+                        contentContainerStyle={{
+                          paddingHorizontal: 2,
+                          paddingRight: 16
+                        }}
+                        onScroll={handleScroll}
+                        scrollEventThrottle={16}
+                        onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+                        onContentSizeChange={(width) => setContentWidth(width)}
+                      >
+                        {randomSuggestions.map((query, index) => (
+                          <TouchableOpacity
+                            key={`suggestion-${index}`}
+                            onPress={() => handleSuggestedQuery(query)}
+                            className={`rounded-full px-4 py-2 mr-2 ${
+                              isDark ? 'bg-gray-800' : 'bg-blue-50'
+                            }`}
+                            style={{
+                              maxWidth: 200
+                            }}
+                          >
+                            <Text 
+                              className={isDark ? 'text-blue-400' : 'text-blue-600'}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
+                              {query}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+
+                      {contentWidth > containerWidth && (
+                        <LinearGradient
+                          colors={[
+                            isDark ? 'rgba(31, 41, 55, 0)' : 'rgba(255, 255, 255, 0)',
+                            isDark ? '#1F2937' : '#FFFFFF'
+                          ]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={{
+                            position: 'absolute',
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: 40,
+                            zIndex: 1,
+                            pointerEvents: 'none'
+                          }}
+                        />
+                      )}
+                    </View>
+
+                    {contentWidth > containerWidth && (
+                      <View 
+                        style={{ 
+                          flexDirection: 'row', 
+                          justifyContent: 'center',
+                          paddingBottom: 4,
+                          paddingTop: 2
+                        }}
+                      >
+                        {[0, 1, 2].map((dot) => (
+                          <ScrollIndicatorDot
+                            key={dot}
+                            active={
+                              dot === Math.floor((scrollPosition / (contentWidth - containerWidth)) * 3)
+                            }
+                            isDark={isDark}
+                          />
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
             )}
           </View>
 
