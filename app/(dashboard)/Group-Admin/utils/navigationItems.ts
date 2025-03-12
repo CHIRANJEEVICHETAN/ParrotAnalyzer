@@ -6,12 +6,16 @@ export const groupAdminNavItems: NavItem[] = [
     label: "Home",
     href: "/(dashboard)/Group-Admin/group-admin",
   },
-  // { icon: 'people-outline', label: 'Employees', href: '/(dashboard)/Group-Admin/employee-management' },
   {
-    icon: "notifications-outline",
-    label: "Test Notifications",
-    href: "/(dashboard)/test-notifications",
+    icon: "people-outline",
+    label: "Employees",
+    href: "/(dashboard)/Group-Admin/employee-management",
   },
+  // {
+  //   icon: "notifications-outline",
+  //   label: "Test Notifications",
+  //   href: "/(dashboard)/test-notifications",
+  // },
   {
     icon: "list-outline",
     label: "Tasks",

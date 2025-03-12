@@ -6,16 +6,16 @@ export const employeeNavItems: NavItem[] = [
     label: "Home",
     href: "/(dashboard)/employee/employee",
   },
-  // {
-  //   icon: "time-outline",
-  //   label: "Shift Tracker",
-  //   href: "/(dashboard)/employee/employeeShiftTracker",
-  // },
   {
-    icon: "notifications-outline",
-    label: "Test Notifications",
-    href: "/(dashboard)/test-notifications",
+    icon: "time-outline",
+    label: "Shift Tracker",
+    href: "/(dashboard)/employee/employeeShiftTracker",
   },
+  // {
+  //   icon: "notifications-outline",
+  //   label: "Test Notifications",
+  //   href: "/(dashboard)/test-notifications",
+  // },
   {
     icon: "calendar-outline",
     label: "Leave",

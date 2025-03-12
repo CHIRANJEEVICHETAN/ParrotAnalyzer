@@ -149,132 +149,148 @@ export default function ManagementSettings() {
     ];
 
     return (
-        <View 
-            className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}`}
-            style={styles.container}
+      <View
+        className={`flex-1 ${isDark ? "bg-gray-900" : "bg-[#F9FAFB]"}`}
+        style={styles.container}
+      >
+        <RNStatusBar
+          backgroundColor={isDark ? "#111827" : "#F9FAFB"}
+          barStyle={isDark ? "light-content" : "dark-content"}
+          translucent
+        />
+
+        <View
+          className={isDark ? "bg-gray-900" : "bg-[#F9FAFB]"}
+          style={styles.header}
         >
-            <RNStatusBar
-                backgroundColor={isDark ? '#111827' : '#F9FAFB'}
-                barStyle={isDark ? 'light-content' : 'dark-content'}
-                translucent
-            />
-
-            <View 
-                className={isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}
-                style={styles.header}
+          <View className="flex-row items-center px-5 pt-4 pb-5">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className={`w-11 h-11 rounded-full items-center justify-center shadow-sm ${
+                isDark ? "bg-gray-800" : "bg-white"
+              }`}
             >
-                <View className="flex-row items-center px-5 pt-4 pb-5">
-                    <TouchableOpacity
-                        onPress={() => router.back()}
-                        className={`w-11 h-11 rounded-full items-center justify-center shadow-sm ${
-                            isDark ? 'bg-gray-800' : 'bg-white'
-                        }`}
-                    >
-                        <Ionicons 
-                            name="arrow-back" 
-                            size={26} 
-                            color={isDark ? '#FFFFFF' : '#000000'}
-                            style={{ marginLeft: -1 }}
-                        />
-                    </TouchableOpacity>
-                    <Text className={`text-[26px] font-bold ml-4 ${
-                        isDark ? 'text-white' : 'text-[#111827]'
-                    }`}>
-                        Settings
-                    </Text>
-                </View>
-            </View>
-
-            <ScrollView 
-                className={isDark ? 'bg-gray-900' : 'bg-[#F9FAFB]'}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 16 }}
-                style={styles.scrollView}
+              <Ionicons
+                name="arrow-back"
+                size={26}
+                color={isDark ? "#FFFFFF" : "#000000"}
+                style={{ marginLeft: -1 }}
+              />
+            </TouchableOpacity>
+            <Text
+              className={`text-[26px] font-bold ml-4 ${
+                isDark ? "text-white" : "text-[#111827]"
+              }`}
             >
-                {settingsSections.map((section, sectionIndex) => (
-                    <View key={section.title} className="mb-7">
-                        <Text className={`px-5 py-2.5 text-[13px] font-semibold uppercase tracking-wide ${
-                            isDark ? 'text-gray-400' : 'text-[#6B7280]'
-                        }`}>
-                            {section.title}
-                        </Text>
-                        <View className={`mx-5 rounded-2xl border ${
-                            isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-[#F3F4F6]'
-                        }`}>
-                            {section.items.map((item, index) => (
-                                <TouchableOpacity
-                                    key={item.label}
-                                    onPress={item.isSwitch ? undefined : item.action}
-                                    className={`flex-row items-center justify-between py-4 px-5 ${
-                                        index !== section.items.length - 1 
-                                            ? isDark 
-                                                ? 'border-b border-gray-700' 
-                                                : 'border-b border-[#F3F4F6]'
-                                            : ''
-                                    }`}
-                                >
-                                    <View className="flex-row items-center flex-1">
-                                        <View className={`w-[42px] h-[42px] rounded-full items-center justify-center ${
-                                            isDark ? 'bg-gray-700' : 'bg-[#F9FAFB]'
-                                        }`}>
-                                            <Ionicons
-                                                name={item.icon}
-                                                size={24}
-                                                color={isDark ? '#FFFFFF' : '#000000'}
-                                                style={{ opacity: 0.9 }}
-                                            />
-                                        </View>
-                                        <Text className={`ml-4 text-[16px] font-semibold ${
-                                            isDark ? 'text-white' : 'text-[#111827]'
-                                        }`}>
-                                            {item.label}
-                                        </Text>
-                                    </View>
-                                    {item.isSwitch ? (
-                                        <Switch
-                                            value={item.switchValue}
-                                            onValueChange={item.action}
-                                            trackColor={{ 
-                                                false: isDark ? '#4B5563' : '#E5E7EB', 
-                                                true: '#3B82F6' 
-                                            }}
-                                            thumbColor="#FFFFFF"
-                                            ios_backgroundColor={isDark ? '#4B5563' : '#E5E7EB'}
-                                            style={{ transform: [{ scale: 0.85 }] }}
-                                        />
-                                    ) : item.showArrow && (
-                                        <Ionicons
-                                            name="chevron-forward"
-                                            size={22}
-                                            color={isDark ? '#9CA3AF' : '#9CA3AF'}
-                                        />
-                                    )}
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    </View>
-                ))}
-
-                <View className="h-6" />
-
-                <TouchableOpacity
-                    onPress={handleLogout}
-                    className="mx-5 mb-5 bg-red-600 rounded-2xl"
-                >
-                    <Text className="text-white font-bold text-[17px] text-center py-4">
-                        Logout
-                    </Text>
-                </TouchableOpacity>
-
-                <View className="mb-10 items-center">
-                    <Text className={`text-[13px] font-medium ${
-                        isDark ? 'text-gray-500' : 'text-gray-400'
-                    }`}>
-                        Version 1.0.0
-                    </Text>
-                </View>
-            </ScrollView>
+              Settings
+            </Text>
+          </View>
         </View>
+
+        <ScrollView
+          className={isDark ? "bg-gray-900" : "bg-[#F9FAFB]"}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 16 }}
+          style={styles.scrollView}
+        >
+          {settingsSections.map((section, sectionIndex) => (
+            <View key={section.title} className="mb-7">
+              <Text
+                className={`px-5 py-2.5 text-[13px] font-semibold uppercase tracking-wide ${
+                  isDark ? "text-gray-400" : "text-[#6B7280]"
+                }`}
+              >
+                {section.title}
+              </Text>
+              <View
+                className={`mx-5 rounded-2xl border ${
+                  isDark
+                    ? "bg-gray-800 border-gray-700"
+                    : "bg-white border-[#F3F4F6]"
+                }`}
+              >
+                {section.items.map((item, index) => (
+                  <TouchableOpacity
+                    key={item.label}
+                    onPress={item.isSwitch ? undefined : item.action}
+                    className={`flex-row items-center justify-between py-4 px-5 ${
+                      index !== section.items.length - 1
+                        ? isDark
+                          ? "border-b border-gray-700"
+                          : "border-b border-[#F3F4F6]"
+                        : ""
+                    }`}
+                  >
+                    <View className="flex-row items-center flex-1">
+                      <View
+                        className={`w-[42px] h-[42px] rounded-full items-center justify-center ${
+                          isDark ? "bg-gray-700" : "bg-[#F9FAFB]"
+                        }`}
+                      >
+                        <Ionicons
+                          name={item.icon}
+                          size={24}
+                          color={isDark ? "#FFFFFF" : "#000000"}
+                          style={{ opacity: 0.9 }}
+                        />
+                      </View>
+                      <Text
+                        className={`ml-4 text-[16px] font-semibold ${
+                          isDark ? "text-white" : "text-[#111827]"
+                        }`}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
+                    {item.isSwitch ? (
+                      <Switch
+                        value={item.switchValue}
+                        onValueChange={item.action}
+                        trackColor={{
+                          false: isDark ? "#4B5563" : "#E5E7EB",
+                          true: "#3B82F6",
+                        }}
+                        thumbColor="#FFFFFF"
+                        ios_backgroundColor={isDark ? "#4B5563" : "#E5E7EB"}
+                        style={{ transform: [{ scale: 0.85 }] }}
+                      />
+                    ) : (
+                      item.showArrow && (
+                        <Ionicons
+                          name="chevron-forward"
+                          size={22}
+                          color={isDark ? "#9CA3AF" : "#9CA3AF"}
+                        />
+                      )
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+
+          <View className="h-6" />
+
+          <TouchableOpacity
+            onPress={handleLogout}
+            className="mx-5 mb-5 bg-red-600 rounded-2xl"
+          >
+            <Text className="text-white font-bold text-[17px] text-center py-4">
+              Logout
+            </Text>
+          </TouchableOpacity>
+
+          <View className="mb-10 items-center">
+            <Text
+              className={`text-[13px] font-medium ${
+                isDark ? "text-gray-500" : "text-gray-400"
+              }`}
+            >
+              Version {process.env.EXPO_PUBLIC_APP_VERSION}
+            </Text>
+          </View>
+        </ScrollView>
+      </View>
     );
 }
 

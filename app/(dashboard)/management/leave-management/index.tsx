@@ -10,8 +10,16 @@ import LeaveTypes from './components/LeaveTypes';
 import LeaveBalances from './components/LeaveBalances';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { managementNavItems } from "../utils/navigationItems";
+import BottomNav from "../../../components/BottomNav";
 
-type TabType = 'types' | 'policies' | 'balances' | 'balances-tracker' | 'analytics' | 'approvals';
+type TabType =
+  | "types"
+  | "policies"
+  | "balances"
+  | "balances-tracker"
+  | "analytics"
+  | "approvals";
 
 interface TabItem {
   id: TabType;
@@ -24,30 +32,30 @@ interface TabItem {
 export default function LeaveManagement() {
   const { theme } = ThemeContext.useTheme();
   const router = useRouter();
-  const isDark = theme === 'dark';
-  const [activeTab, setActiveTab] = useState<TabType>('types');
+  const isDark = theme === "dark";
+  const [activeTab, setActiveTab] = useState<TabType>("types");
 
   const tabs: TabItem[] = [
     {
-      id: 'types',
-      label: 'Types',
-      icon: 'layers-outline',
-      activeIcon: 'layers',
-      color: '#3B82F6'
+      id: "types",
+      label: "Types",
+      icon: "layers-outline",
+      activeIcon: "layers",
+      color: "#3B82F6",
     },
     {
-      id: 'policies',
-      label: 'Policies',
-      icon: 'shield-outline',
-      activeIcon: 'shield',
-      color: '#10B981'
+      id: "policies",
+      label: "Policies",
+      icon: "shield-outline",
+      activeIcon: "shield",
+      color: "#10B981",
     },
     {
-      id: 'balances',
-      label: 'Balances',
-      icon: 'wallet-outline',
-      activeIcon: 'wallet',
-      color: '#F59E0B'
+      id: "balances",
+      label: "Balances",
+      icon: "wallet-outline",
+      activeIcon: "wallet",
+      color: "#F59E0B",
     },
     // {
     //   id: 'analytics',
@@ -57,25 +65,25 @@ export default function LeaveManagement() {
     //   color: '#8B5CF6'
     // },
     {
-      id: 'approvals',
-      label: 'Approvals',
-      icon: 'checkmark-circle-outline',
-      activeIcon: 'checkmark-circle',
-      color: '#6366F1'
-    }
+      id: "approvals",
+      label: "Approvals",
+      icon: "checkmark-circle-outline",
+      activeIcon: "checkmark-circle",
+      color: "#6366F1",
+    },
   ];
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'types':
+      case "types":
         return <LeaveTypes />;
-      case 'policies':
+      case "policies":
         return <LeavePolicies />;
-      case 'balances':
+      case "balances":
         return <LeaveBalances />;
       // case 'analytics':
-        // return <LeaveAnalytics />;
-      case 'approvals':
+      // return <LeaveAnalytics />;
+      case "approvals":
         return <LeaveApprovals />;
       default:
         return null;
@@ -83,38 +91,56 @@ export default function LeaveManagement() {
   };
 
   return (
-    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#F9FAFB' }}>
+    <View
+      className="flex-1"
+      style={{ backgroundColor: isDark ? "#111827" : "#F9FAFB" }}
+    >
       <StatusBar
-        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
-        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={isDark ? "#1F2937" : "#FFFFFF"}
+        barStyle={isDark ? "light-content" : "dark-content"}
         translucent
       />
 
       {/* Header with proper status bar spacing */}
       <LinearGradient
-        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        colors={isDark ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]}
         style={[
           styles.header,
-          { paddingTop: Platform.OS === 'ios' ? RNStatusBar.currentHeight || 44 : RNStatusBar.currentHeight || 0 }
+          {
+            paddingTop:
+              Platform.OS === "ios"
+                ? RNStatusBar.currentHeight || 44
+                : RNStatusBar.currentHeight || 0,
+          },
         ]}
       >
         <View className="flex-row items-center justify-between px-6 py-4">
           <TouchableOpacity
             onPress={() => router.back()}
-            className={`p-2 rounded-full ${isDark ? 'bg-gray-800/80' : 'bg-gray-100'}`}
+            className={`p-2 rounded-full ${
+              isDark ? "bg-gray-800/80" : "bg-gray-100"
+            }`}
             style={styles.backButton}
           >
-            <Ionicons name="arrow-back" size={24} color={isDark ? '#E5E7EB' : '#374151'} />
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={isDark ? "#E5E7EB" : "#374151"}
+            />
           </TouchableOpacity>
-          <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          <Text
+            className={`text-xl font-semibold ${
+              isDark ? "text-white" : "text-gray-900"
+            }`}
+          >
             Leave Management
           </Text>
           <View style={{ width: 40 }} />
         </View>
 
         {/* Enhanced Tabs */}
-        <ScrollView 
-          horizontal 
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           className="px-4 pb-4"
           contentContainerStyle={{ paddingRight: 20 }}
@@ -126,11 +152,11 @@ export default function LeaveManagement() {
               className={`flex-row items-center px-4 py-3 mr-3 rounded-xl ${
                 activeTab === tab.id
                   ? isDark
-                    ? 'bg-gray-800'
-                    : 'bg-white'
+                    ? "bg-gray-800"
+                    : "bg-white"
                   : isDark
-                  ? 'bg-gray-800/50'
-                  : 'bg-gray-100'
+                  ? "bg-gray-800/50"
+                  : "bg-gray-100"
               }`}
               style={[
                 styles.tabButton,
@@ -139,25 +165,31 @@ export default function LeaveManagement() {
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: 0.3,
                   shadowRadius: 3.84,
-                  elevation: 5
-                }
+                  elevation: 5,
+                },
               ]}
             >
               <Ionicons
                 name={activeTab === tab.id ? tab.activeIcon : tab.icon}
                 size={20}
-                color={activeTab === tab.id ? tab.color : isDark ? '#9CA3AF' : '#6B7280'}
+                color={
+                  activeTab === tab.id
+                    ? tab.color
+                    : isDark
+                    ? "#9CA3AF"
+                    : "#6B7280"
+                }
                 style={{ marginRight: 8 }}
               />
               <Text
                 className={`font-medium ${
                   activeTab === tab.id
                     ? isDark
-                      ? 'text-white'
-                      : 'text-gray-900'
+                      ? "text-white"
+                      : "text-gray-900"
                     : isDark
-                    ? 'text-gray-400'
-                    : 'text-gray-600'
+                    ? "text-gray-400"
+                    : "text-gray-600"
                 }`}
                 style={activeTab === tab.id ? { color: tab.color } : {}}
               >
@@ -169,13 +201,14 @@ export default function LeaveManagement() {
       </LinearGradient>
 
       {/* Content */}
-      <ScrollView 
-        className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
+      <ScrollView
+        className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.contentContainer}
       >
         {renderContent()}
       </ScrollView>
+      <BottomNav items={managementNavItems} />
     </View>
   );
 }

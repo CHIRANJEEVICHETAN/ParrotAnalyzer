@@ -7,12 +7,14 @@ import ThemeContext from '../../context/ThemeContext';
 import axios from 'axios';
 import Modal from 'react-native-modal';
 import { StatusBar } from 'expo-status-bar';
+import { superAdminNavItems } from "./utils/navigationItems";
+import BottomNav from "../../components/BottomNav";
 
 interface Company {
   id: number;
   name: string;
   email: string;
-  status: 'active' | 'disabled';
+  status: "active" | "disabled";
   management: {
     name: string;
     email: string;
@@ -28,15 +30,17 @@ export default function CompanyManagement() {
   const { theme } = ThemeContext.useTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
-  
+
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "active" | "disabled"
+  >("all");
   const [error, setError] = useState<string | null>(null);
   const [isEditLimitModalVisible, setIsEditLimitModalVisible] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
-  const [newUserLimit, setNewUserLimit] = useState('');
+  const [newUserLimit, setNewUserLimit] = useState("");
   const [isUpdatingLimit, setIsUpdatingLimit] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,9 +50,11 @@ export default function CompanyManagement() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      RNStatusBar.setBackgroundColor(theme === 'dark' ? '#1F2937' : '#FFFFFF');
-      RNStatusBar.setBarStyle(theme === 'dark' ? 'light-content' : 'dark-content');
+    if (Platform.OS === "android") {
+      RNStatusBar.setBackgroundColor(theme === "dark" ? "#1F2937" : "#FFFFFF");
+      RNStatusBar.setBarStyle(
+        theme === "dark" ? "light-content" : "dark-content"
+      );
     }
   }, [theme]);
 
@@ -56,13 +62,18 @@ export default function CompanyManagement() {
     setError(null);
     setLoading(true);
     try {
-      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/companies`);
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/companies`
+      );
       setCompanies(response.data);
       if (response.data.length === 0) {
-        setError('No companies found. Add your first company!');
+        setError("No companies found. Add your first company!");
       }
     } catch (error: any) {
-      setError(error.response?.data?.message || 'Failed to fetch companies. Please try again.');
+      setError(
+        error.response?.data?.message ||
+          "Failed to fetch companies. Please try again."
+      );
       setCompanies([]);
     } finally {
       setLoading(false);
@@ -75,24 +86,22 @@ export default function CompanyManagement() {
       const response = await axios.patch(
         `${process.env.EXPO_PUBLIC_API_URL}/api/companies/${companyId}/toggle-status`
       );
-      
-      setCompanies(companies.map(company => 
-        company.id === companyId 
-          ? { ...company, status: response.data.status }
-          : company
-      ));
 
-      Alert.alert(
-        'Success',
-        response.data.message,
-        [{ text: 'OK' }]
+      setCompanies(
+        companies.map((company) =>
+          company.id === companyId
+            ? { ...company, status: response.data.status }
+            : company
+        )
       );
+
+      Alert.alert("Success", response.data.message, [{ text: "OK" }]);
     } catch (error: any) {
-      console.error('Error updating company status:', error);
+      console.error("Error updating company status:", error);
       Alert.alert(
-        'Error',
-        error.response?.data?.error || 'Failed to update company status',
-        [{ text: 'OK' }]
+        "Error",
+        error.response?.data?.error || "Failed to update company status",
+        [{ text: "OK" }]
       );
     } finally {
       setUpdatingStatus(null);
@@ -126,36 +135,43 @@ export default function CompanyManagement() {
 
     const limit = parseInt(newUserLimit);
     if (isNaN(limit) || limit < 1) {
-      Alert.alert('Error', 'Please enter a valid number');
+      Alert.alert("Error", "Please enter a valid number");
       return;
     }
 
     try {
       setIsUpdatingLimit(true);
-      await axios.patch(`${process.env.EXPO_PUBLIC_API_URL}/api/companies/${selectedCompany.id}/user-limit`, {
-        userLimit: limit
-      });
-      
-      setCompanies(companies.map(company => 
-        company.id === selectedCompany.id 
-          ? { ...company, user_limit: limit }
-          : company
-      ));
-      
+      await axios.patch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/companies/${selectedCompany.id}/user-limit`,
+        {
+          userLimit: limit,
+        }
+      );
+
+      setCompanies(
+        companies.map((company) =>
+          company.id === selectedCompany.id
+            ? { ...company, user_limit: limit }
+            : company
+        )
+      );
+
       setIsEditLimitModalVisible(false);
-      Alert.alert('Success', 'User limit updated successfully');
+      Alert.alert("Success", "User limit updated successfully");
     } catch (error) {
-      console.error('Error updating user limit:', error);
-      Alert.alert('Error', 'Failed to update user limit');
+      console.error("Error updating user limit:", error);
+      Alert.alert("Error", "Failed to update user limit");
     } finally {
       setIsUpdatingLimit(false);
     }
   };
 
-  const filteredCompanies = companies.filter(company => {
-    const matchesSearch = company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         company.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || company.status === statusFilter;
+  const filteredCompanies = companies.filter((company) => {
+    const matchesSearch =
+      company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      company.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus =
+      statusFilter === "all" || company.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -169,59 +185,87 @@ export default function CompanyManagement() {
   }, []);
 
   return (
-    <View className="flex-1" style={{ 
-      backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' 
-    }}>
-      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-      
-      <View style={{ 
-        height: Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 0,
-        backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF'
-      }} />
+    <View
+      className="flex-1"
+      style={{
+        backgroundColor: theme === "dark" ? "#1F2937" : "#FFFFFF",
+      }}
+    >
+      <StatusBar style={theme === "dark" ? "light" : "dark"} />
+
+      <View
+        style={{
+          height: Platform.OS === "ios" ? 44 : RNStatusBar.currentHeight || 0,
+          backgroundColor: theme === "dark" ? "#1F2937" : "#FFFFFF",
+        }}
+      />
 
       <LinearGradient
-        colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        colors={
+          theme === "dark" ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]
+        }
         className="pb-4"
-        style={[
-          styles.header,
-          { paddingTop: 10 }
-        ]}
+        style={[styles.header, { paddingTop: 10 }]}
       >
         <View className="flex-row items-center justify-between px-6">
           <TouchableOpacity
             onPress={() => router.back()}
             className="mr-4 p-2 rounded-full"
-            style={[styles.backButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
+            style={[
+              styles.backButton,
+              { backgroundColor: theme === "dark" ? "#374151" : "#F3F4F6" },
+            ]}
           >
-            <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={theme === "dark" ? "#FFFFFF" : "#000000"}
+            />
           </TouchableOpacity>
-          <Text className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+          <Text
+            className={`text-2xl font-bold ${
+              theme === "dark" ? "text-white" : "text-gray-900"
+            }`}
+          >
             Companies
           </Text>
           <TouchableOpacity
-            onPress={() => router.push('/(dashboard)/super-admin/add-company')}
+            onPress={() => router.push("/(dashboard)/super-admin/add-company")}
             className="p-2 rounded-full flex-row items-center"
             accessibilityLabel="Add new company"
-            style={[styles.addButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
+            style={[
+              styles.addButton,
+              { backgroundColor: theme === "dark" ? "#374151" : "#F3F4F6" },
+            ]}
           >
-            <Ionicons name="add" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
-            <Text className={`ml-1 text-sm ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+            <Ionicons
+              name="add"
+              size={24}
+              color={theme === "dark" ? "#FFFFFF" : "#000000"}
+            />
+            <Text
+              className={`ml-1 text-sm ${
+                theme === "dark" ? "text-white" : "text-gray-900"
+              }`}
+            >
               Add
             </Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
 
-      <View className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
+      <View
+        className={`flex-1 ${theme === "dark" ? "bg-gray-900" : "bg-gray-50"}`}
+      >
         {/* Search and Filter */}
         <View className="p-4">
           {/* Search Input with Icon */}
           <View className="relative mb-4">
             <View className="absolute left-4 top-[14px] z-10">
-              <Ionicons 
-                name="search-outline" 
-                size={20} 
-                color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
+              <Ionicons
+                name="search-outline"
+                size={20}
+                color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
               />
             </View>
             <TextInput
@@ -229,31 +273,37 @@ export default function CompanyManagement() {
               onChangeText={setSearchQuery}
               placeholder="Search companies..."
               className={`pl-12 p-4 rounded-lg ${
-                theme === 'dark' 
-                  ? 'bg-gray-800 text-white' 
-                  : 'bg-white text-gray-900'
+                theme === "dark"
+                  ? "bg-gray-800 text-white"
+                  : "bg-white text-gray-900"
               }`}
               style={styles.searchInput}
-              placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+              placeholderTextColor={theme === "dark" ? "#9CA3AF" : "#6B7280"}
             />
           </View>
 
           <View className="flex-row mb-4">
-            {['all', 'active', 'disabled'].map((status) => (
+            {["all", "active", "disabled"].map((status) => (
               <TouchableOpacity
                 key={status}
                 onPress={() => setStatusFilter(status as any)}
                 className={`mr-2 px-4 py-2 rounded-full ${
                   statusFilter === status
-                    ? 'bg-blue-500'
-                    : theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                    ? "bg-blue-500"
+                    : theme === "dark"
+                    ? "bg-gray-800"
+                    : "bg-white"
                 }`}
               >
-                <Text className={
-                  statusFilter === status
-                    ? 'text-white'
-                    : theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-                }>
+                <Text
+                  className={
+                    statusFilter === status
+                      ? "text-white"
+                      : theme === "dark"
+                      ? "text-gray-300"
+                      : "text-gray-600"
+                  }
+                >
                   {status.charAt(0).toUpperCase() + status.slice(1)}
                 </Text>
               </TouchableOpacity>
@@ -262,29 +312,44 @@ export default function CompanyManagement() {
         </View>
 
         {/* Companies List */}
-        <ScrollView 
+        <ScrollView
           className="flex-1"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={[theme === 'dark' ? '#FFFFFF' : '#111827']}
-              tintColor={theme === 'dark' ? '#FFFFFF' : '#111827'}
-              progressBackgroundColor={theme === 'dark' ? '#374151' : '#F3F4F6'}
+              colors={[theme === "dark" ? "#FFFFFF" : "#111827"]}
+              tintColor={theme === "dark" ? "#FFFFFF" : "#111827"}
+              progressBackgroundColor={theme === "dark" ? "#374151" : "#F3F4F6"}
             />
           }
         >
           {loading ? (
             <View className="flex-1 justify-center items-center p-4">
-              <ActivityIndicator size="large" color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
-              <Text className={`mt-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+              <ActivityIndicator
+                size="large"
+                color={theme === "dark" ? "#FFFFFF" : "#000000"}
+              />
+              <Text
+                className={`mt-4 ${
+                  theme === "dark" ? "text-white" : "text-gray-900"
+                }`}
+              >
                 Loading companies...
               </Text>
             </View>
           ) : error ? (
             <View className="flex-1 justify-center items-center p-4">
-              <Ionicons name="alert-circle-outline" size={48} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
-              <Text className={`mt-4 text-center ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+              <Ionicons
+                name="alert-circle-outline"
+                size={48}
+                color={theme === "dark" ? "#FFFFFF" : "#000000"}
+              />
+              <Text
+                className={`mt-4 text-center ${
+                  theme === "dark" ? "text-white" : "text-gray-900"
+                }`}
+              >
                 {error}
               </Text>
               <TouchableOpacity
@@ -298,36 +363,58 @@ export default function CompanyManagement() {
             filteredCompanies.map((company) => (
               <TouchableOpacity
                 key={company.id}
-                onPress={() => router.push(`/super-admin/company/${company.id}`)}
+                onPress={() =>
+                  router.push(`/super-admin/company/${company.id}`)
+                }
                 className={`mx-4 mb-4 p-4 rounded-lg ${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                  theme === "dark" ? "bg-gray-800" : "bg-white"
                 }`}
                 style={styles.companyCard}
               >
                 <View className="flex-row justify-between">
                   <View className="flex-1">
-                    <Text className={`text-lg font-semibold ${
-                      theme === 'dark' ? 'text-white' : 'text-gray-900'
-                    }`}>
+                    <Text
+                      className={`text-lg font-semibold ${
+                        theme === "dark" ? "text-white" : "text-gray-900"
+                      }`}
+                    >
                       {company.name}
                     </Text>
-                    <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                    <Text
+                      className={
+                        theme === "dark" ? "text-gray-400" : "text-gray-600"
+                      }
+                    >
                       {company.email}
                     </Text>
                     {company.management ? (
                       <View className="mt-2">
-                        <Text className={`font-medium ${
-                          theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                        }`}>
+                        <Text
+                          className={`font-medium ${
+                            theme === "dark" ? "text-gray-300" : "text-gray-700"
+                          }`}
+                        >
                           Management:
                         </Text>
-                        <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                        <Text
+                          className={
+                            theme === "dark" ? "text-gray-400" : "text-gray-600"
+                          }
+                        >
                           {company.management.name}
                         </Text>
-                        <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                        <Text
+                          className={
+                            theme === "dark" ? "text-gray-400" : "text-gray-600"
+                          }
+                        >
                           {company.management.email}
                         </Text>
-                        <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                        <Text
+                          className={
+                            theme === "dark" ? "text-gray-400" : "text-gray-600"
+                          }
+                        >
                           {company.management.phone}
                         </Text>
                       </View>
@@ -337,15 +424,18 @@ export default function CompanyManagement() {
                       </Text>
                     )}
                     <View className="mt-2 flex-row items-center">
-                      <Ionicons 
-                        name="people-outline" 
-                        size={16} 
-                        color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
+                      <Ionicons
+                        name="people-outline"
+                        size={16}
+                        color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
                       />
-                      <Text className={`ml-1 ${
-                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                      }`}>
-                        {company.user_count} {company.user_count === 1 ? 'user' : 'users'}
+                      <Text
+                        className={`ml-1 ${
+                          theme === "dark" ? "text-gray-400" : "text-gray-600"
+                        }`}
+                      >
+                        {company.user_count}{" "}
+                        {company.user_count === 1 ? "user" : "users"}
                       </Text>
                     </View>
                   </View>
@@ -355,21 +445,25 @@ export default function CompanyManagement() {
                       onPress={() => handleStatusToggle(company.id)}
                       disabled={updatingStatus === company.id}
                       className={`p-2 rounded-full ${
-                        company.status === 'active' ? 'bg-green-500' : 'bg-red-500'
-                      } ${updatingStatus === company.id ? 'opacity-50' : ''}`}
+                        company.status === "active"
+                          ? "bg-green-500"
+                          : "bg-red-500"
+                      } ${updatingStatus === company.id ? "opacity-50" : ""}`}
                       style={styles.actionButton}
                     >
                       {updatingStatus === company.id ? (
                         <ActivityIndicator size="small" color="white" />
                       ) : (
                         <Ionicons
-                          name={company.status === 'active' ? 'checkmark' : 'close'}
+                          name={
+                            company.status === "active" ? "checkmark" : "close"
+                          }
                           size={20}
                           color="white"
                         />
                       )}
                     </TouchableOpacity>
-                    
+
                     {/* <TouchableOpacity
                       onPress={() => handleDeleteCompany(company.id)}
                       className="p-2 rounded-full bg-red-500"
@@ -380,19 +474,30 @@ export default function CompanyManagement() {
                   </View>
                 </View>
 
-                <View className={`absolute top-2 right-2 px-2 py-1 rounded-full ${
-                  company.status === 'active' ? 'bg-green-100' : 'bg-red-100'
-                }`}>
-                  <Text className={`text-xs font-medium ${
-                    company.status === 'active' ? 'text-green-800' : 'text-red-800'
-                  }`}>
-                    {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
+                <View
+                  className={`absolute top-2 right-2 px-2 py-1 rounded-full ${
+                    company.status === "active" ? "bg-green-100" : "bg-red-100"
+                  }`}
+                >
+                  <Text
+                    className={`text-xs font-medium ${
+                      company.status === "active"
+                        ? "text-green-800"
+                        : "text-red-800"
+                    }`}
+                  >
+                    {company.status.charAt(0).toUpperCase() +
+                      company.status.slice(1)}
                   </Text>
                 </View>
 
                 {company.pending_users > 0 && (
                   <TouchableOpacity
-                    onPress={() => router.push(`/super-admin/company/${company.id}/pending-users`)}
+                    onPress={() =>
+                      router.push(
+                        `/super-admin/company/${company.id}/pending-users`
+                      )
+                    }
                     className="absolute top-2 right-20 px-2 py-1 bg-yellow-100 rounded-full"
                   >
                     <Text className="text-yellow-800 text-xs font-medium">
@@ -402,7 +507,11 @@ export default function CompanyManagement() {
                 )}
 
                 <View className="flex-row items-center justify-between mb-2">
-                  <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                  <Text
+                    className={
+                      theme === "dark" ? "text-gray-400" : "text-gray-600"
+                    }
+                  >
                     Users: {company.user_count} / {company.user_limit || 50}
                   </Text>
                   <TouchableOpacity
@@ -413,10 +522,10 @@ export default function CompanyManagement() {
                     }}
                     className="p-2"
                   >
-                    <Ionicons 
-                      name="pencil" 
-                      size={20} 
-                      color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
+                    <Ionicons
+                      name="pencil"
+                      size={20}
+                      color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
                     />
                   </TouchableOpacity>
                 </View>
@@ -428,11 +537,21 @@ export default function CompanyManagement() {
 
       <Modal
         isVisible={isEditLimitModalVisible}
-        onBackdropPress={() => !isUpdatingLimit && setIsEditLimitModalVisible(false)}
+        onBackdropPress={() =>
+          !isUpdatingLimit && setIsEditLimitModalVisible(false)
+        }
         className="m-4"
       >
-        <View className={`p-6 rounded-2xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
-          <Text className={`text-lg font-semibold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+        <View
+          className={`p-6 rounded-2xl ${
+            theme === "dark" ? "bg-gray-800" : "bg-white"
+          }`}
+        >
+          <Text
+            className={`text-lg font-semibold mb-4 ${
+              theme === "dark" ? "text-white" : "text-gray-900"
+            }`}
+          >
             Edit User Limit for {selectedCompany?.name}
           </Text>
           <TextInput
@@ -441,24 +560,30 @@ export default function CompanyManagement() {
             keyboardType="numeric"
             editable={!isUpdatingLimit}
             className={`p-4 rounded-lg mb-4 ${
-              theme === 'dark' ? 'bg-gray-700 text-white' : 'bg-gray-50 text-gray-900'
+              theme === "dark"
+                ? "bg-gray-700 text-white"
+                : "bg-gray-50 text-gray-900"
             }`}
             style={styles.input}
             placeholder="Enter new user limit"
-            placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+            placeholderTextColor={theme === "dark" ? "#9CA3AF" : "#6B7280"}
           />
           <View className="flex-row justify-end gap-2">
             <TouchableOpacity
               onPress={() => setIsEditLimitModalVisible(false)}
               disabled={isUpdatingLimit}
-              className={`px-4 py-2 rounded-lg bg-gray-500 ${isUpdatingLimit ? 'opacity-50' : ''}`}
+              className={`px-4 py-2 rounded-lg bg-gray-500 ${
+                isUpdatingLimit ? "opacity-50" : ""
+              }`}
             >
               <Text className="text-white">Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleUpdateUserLimit}
               disabled={isUpdatingLimit}
-              className={`px-4 py-2 rounded-lg bg-blue-500 ${isUpdatingLimit ? 'opacity-50' : ''}`}
+              className={`px-4 py-2 rounded-lg bg-blue-500 ${
+                isUpdatingLimit ? "opacity-50" : ""
+              }`}
             >
               {isUpdatingLimit ? (
                 <ActivityIndicator color="white" size="small" />
@@ -469,6 +594,8 @@ export default function CompanyManagement() {
           </View>
         </View>
       </Modal>
+
+      <BottomNav items={superAdminNavItems} />
     </View>
   );
 }

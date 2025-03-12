@@ -123,137 +123,187 @@ export default function GroupAdminSettings() {
     ];
 
     return (
-        <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }}>
-            <StatusBar
-                backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
-                barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
-            />
+      <View
+        className="flex-1"
+        style={{ backgroundColor: theme === "dark" ? "#111827" : "#F3F4F6" }}
+      >
+        <StatusBar
+          backgroundColor={theme === "dark" ? "#1F2937" : "#FFFFFF"}
+          barStyle={theme === "dark" ? "light-content" : "dark-content"}
+        />
 
-            {/* Header */}
-            <View 
-                className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
-                style={styles.header}
+        {/* Header */}
+        <View
+          className={`${theme === "dark" ? "bg-gray-800" : "bg-white"}`}
+          style={styles.header}
+        >
+          <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className={`p-2 rounded-full ${
+                theme === "dark" ? "bg-gray-700" : "bg-gray-100"
+              }`}
+              style={{
+                width: 40,
+                height: 40,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
             >
-                <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
-                    <TouchableOpacity
-                        onPress={() => router.back()}
-                        className={`p-2 rounded-full ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'}`}
-                        style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
-                    >
-                        <Ionicons 
-                            name="arrow-back" 
-                            size={24} 
-                            color={theme === 'dark' ? '#FFFFFF' : '#111827'} 
-                        />
-                    </TouchableOpacity>
-                    <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}>
-                        <Text className={`text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                            Settings
-                        </Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color={theme === "dark" ? "#FFFFFF" : "#111827"}
+              />
+            </TouchableOpacity>
+            <View
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                className={`text-xl font-semibold ${
+                  theme === "dark" ? "text-white" : "text-gray-900"
+                }`}
+              >
+                Settings
+              </Text>
             </View>
-
-            {/* Settings Content with Enhanced Styling */}
-            <ScrollView 
-                className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
-                showsVerticalScrollIndicator={false}
-                style={styles.scrollView}
-            >
-                {settingsSections.map((section, sectionIndex) => (
-                    <View key={section.title} 
-                          className={`mb-6 ${sectionIndex !== 0 ? 'mt-2' : ''}`}
-                          style={styles.section}>
-                        <Text className={`px-6 py-2 text-sm font-semibold ${
-                            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                        }`} style={styles.sectionTitle}>
-                            {section.title}
-                        </Text>
-                        <View className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
-                              style={styles.sectionContent}>
-                            {section.items.map((item, index) => (
-                                <TouchableOpacity
-                                    key={item.label}
-                                    onPress={item.action}
-                                    className={`flex-row items-center justify-between px-6 py-4`}
-                                    style={[
-                                        styles.settingItem,
-                                        index !== section.items.length - 1 && styles.settingItemBorder,
-                                        { borderColor: theme === 'dark' ? '#374151' : '#E5E7EB' }
-                                    ]}
-                                >
-                                    <View className="flex-row items-center" style={styles.settingItemLeft}>
-                                        <View style={[
-                                            styles.iconContainer,
-                                            { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }
-                                        ]}>
-                                            <Ionicons
-                                                name={item.icon as keyof typeof Ionicons.glyphMap}
-                                                size={22}
-                                                color={theme === 'dark' ? '#FFFFFF' : '#000000'}
-                                            />
-                                        </View>
-                                        <Text className={`text-base ${
-                                            theme === 'dark' ? 'text-white' : 'text-gray-900'
-                                        }`} style={styles.settingLabel}>
-                                            {item.label}
-                                        </Text>
-                                    </View>
-                                    {item.isSwitch ? (
-                                        <Switch
-                                            value={item.switchValue}
-                                            onValueChange={item.action}
-                                            trackColor={{ 
-                                                false: theme === 'dark' ? '#4B5563' : '#D1D5DB',
-                                                true: '#60A5FA'
-                                            }}
-                                            thumbColor={item.switchValue ? '#3B82F6' : '#F3F4F6'}
-                                            style={styles.switch}
-                                        />
-                                    ) : item.showArrow && (
-                                        <View style={styles.arrowContainer}>
-                                            <Ionicons
-                                                name="chevron-forward"
-                                                size={20}
-                                                color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                                            />
-                                        </View>
-                                    )}
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    </View>
-                ))}
-
-                {/* Enhanced Logout Button with Gradient */}
-                <TouchableOpacity
-                    onPress={handleLogout}
-                    style={styles.logoutButtonContainer}
-                >
-                    <LinearGradient
-                        colors={['#DC2626', '#B91C1C']}
-                        className="p-4 rounded-xl"
-                        style={styles.logoutGradient}
-                    >
-                        <Text className="text-white font-semibold text-base" style={styles.logoutText}>
-                            Logout
-                        </Text>
-                    </LinearGradient>
-                </TouchableOpacity>
-
-                {/* Version Info with Enhanced Styling */}
-                <View style={styles.versionContainer}>
-                    <Text className={`text-center ${
-                        theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-                    }`} style={styles.versionText}>
-                        Version 1.0.0
-                    </Text>
-                </View>
-            </ScrollView>
-
-            <BottomNav items={groupAdminNavItems} />
+            <View style={{ width: 40 }} />
+          </View>
         </View>
+
+        {/* Settings Content with Enhanced Styling */}
+        <ScrollView
+          className={`flex-1 ${
+            theme === "dark" ? "bg-gray-900" : "bg-gray-50"
+          }`}
+          showsVerticalScrollIndicator={false}
+          style={styles.scrollView}
+        >
+          {settingsSections.map((section, sectionIndex) => (
+            <View
+              key={section.title}
+              className={`mb-6 ${sectionIndex !== 0 ? "mt-2" : ""}`}
+              style={styles.section}
+            >
+              <Text
+                className={`px-6 py-2 text-sm font-semibold ${
+                  theme === "dark" ? "text-gray-400" : "text-gray-500"
+                }`}
+                style={styles.sectionTitle}
+              >
+                {section.title}
+              </Text>
+              <View
+                className={`${theme === "dark" ? "bg-gray-800" : "bg-white"}`}
+                style={styles.sectionContent}
+              >
+                {section.items.map((item, index) => (
+                  <TouchableOpacity
+                    key={item.label}
+                    onPress={item.action}
+                    className={`flex-row items-center justify-between px-6 py-4`}
+                    style={[
+                      styles.settingItem,
+                      index !== section.items.length - 1 &&
+                        styles.settingItemBorder,
+                      { borderColor: theme === "dark" ? "#374151" : "#E5E7EB" },
+                    ]}
+                  >
+                    <View
+                      className="flex-row items-center"
+                      style={styles.settingItemLeft}
+                    >
+                      <View
+                        style={[
+                          styles.iconContainer,
+                          {
+                            backgroundColor:
+                              theme === "dark" ? "#374151" : "#F3F4F6",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={item.icon as keyof typeof Ionicons.glyphMap}
+                          size={22}
+                          color={theme === "dark" ? "#FFFFFF" : "#000000"}
+                        />
+                      </View>
+                      <Text
+                        className={`text-base ${
+                          theme === "dark" ? "text-white" : "text-gray-900"
+                        }`}
+                        style={styles.settingLabel}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
+                    {item.isSwitch ? (
+                      <Switch
+                        value={item.switchValue}
+                        onValueChange={item.action}
+                        trackColor={{
+                          false: theme === "dark" ? "#4B5563" : "#D1D5DB",
+                          true: "#60A5FA",
+                        }}
+                        thumbColor={item.switchValue ? "#3B82F6" : "#F3F4F6"}
+                        style={styles.switch}
+                      />
+                    ) : (
+                      item.showArrow && (
+                        <View style={styles.arrowContainer}>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={20}
+                            color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+                          />
+                        </View>
+                      )
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+
+          {/* Enhanced Logout Button with Gradient */}
+          <TouchableOpacity
+            onPress={handleLogout}
+            style={styles.logoutButtonContainer}
+          >
+            <LinearGradient
+              colors={["#DC2626", "#B91C1C"]}
+              className="p-4 rounded-xl"
+              style={styles.logoutGradient}
+            >
+              <Text
+                className="text-white font-semibold text-base"
+                style={styles.logoutText}
+              >
+                Logout
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Version Info with Enhanced Styling */}
+          <View style={styles.versionContainer}>
+            <Text
+              className={`text-center ${
+                theme === "dark" ? "text-gray-500" : "text-gray-400"
+              }`}
+              style={styles.versionText}
+            >
+              Version {process.env.EXPO_PUBLIC_APP_VERSION}
+            </Text>
+          </View>
+        </ScrollView>
+
+        <BottomNav items={groupAdminNavItems} />
+      </View>
     );
 }
 
