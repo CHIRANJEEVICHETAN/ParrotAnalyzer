@@ -3,17 +3,13 @@
 # dependencies
 node_modules/
 
-backend/node_modules/
+backend/
 
-backend/.env
+.cursorrules
+
+cursorUpdates/
 
 miscellaneous/
-constants/
-
-# cursorUpdates/
-
-.cursor/
-
 
 # Expo
 .expo/
