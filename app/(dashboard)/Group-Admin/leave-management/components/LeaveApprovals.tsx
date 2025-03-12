@@ -126,24 +126,80 @@ export default function LeaveApprovals() {
     setActionLoading(requestId);
     try {
       let response;
-      if (action === 'approve') {
+      const request = requests.find((req) => req.id === requestId);
+
+      if (!request) {
+        throw new Error("Leave request not found");
+      }
+
+      if (action === "approve") {
         response = await axios.post(
           `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/approve`,
           {},
           { headers: { Authorization: `Bearer ${token}` } }
         );
-      } else if (action === 'reject') {
+
+        // Send approval notification
+        await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications/notify-leave-status`,
+          {
+            employeeId: request.user_id,
+            status: "approved",
+            leaveDetails: {
+              start_date: request.start_date,
+              end_date: request.end_date,
+              leave_type_name: request.leave_type_name,
+              days_requested: request.days_requested,
+            },
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } else if (action === "reject") {
         response = await axios.post(
           `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/reject`,
           { rejection_reason: rejectionReason },
           { headers: { Authorization: `Bearer ${token}` } }
         );
+
+        // Send rejection notification
+        await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications/notify-leave-status`,
+          {
+            employeeId: request.user_id,
+            status: "rejected",
+            leaveDetails: {
+              start_date: request.start_date,
+              end_date: request.end_date,
+              leave_type_name: request.leave_type_name,
+              days_requested: request.days_requested,
+            },
+            reason: rejectionReason,
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
       } else {
         response = await axios.post(
           `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/escalate`,
-          { 
+          {
             escalation_reason: escalationReason,
-            escalated_to: null // This will be automatically assigned to a management user in the backend
+            escalated_to: null, // This will be automatically assigned to a management user in the backend
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        // Send escalation notification
+        await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications/notify-leave-status`,
+          {
+            employeeId: request.user_id,
+            status: "escalated",
+            leaveDetails: {
+              start_date: request.start_date,
+              end_date: request.end_date,
+              leave_type_name: request.leave_type_name,
+              days_requested: request.days_requested,
+            },
+            reason: escalationReason,
           },
           { headers: { Authorization: `Bearer ${token}` } }
         );
@@ -153,8 +209,17 @@ export default function LeaveApprovals() {
         await fetchRequests();
         setShowRejectModal(false);
         setShowEscalateModal(false);
-        setRejectionReason('');
-        setEscalationReason('');
+        setRejectionReason("");
+        setEscalationReason("");
+
+        // Show success message
+        Alert.alert(
+          "Success",
+          `Leave request has been ${action}${
+            action === "approve" ? "d" : action === "reject" ? "ed" : "d"
+          }`,
+          [{ text: "OK" }]
+        );
       }
     } catch (error) {
       console.error('Error processing leave request:', error);

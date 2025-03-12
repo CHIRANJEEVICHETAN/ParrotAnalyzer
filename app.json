@@ -17,7 +17,8 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.loginware.parrotanalyzer"
+      "package": "com.loginware.parrotanalyzer",
+      "googleServicesFile": "./constants/google-services.json"
     },
     "web": {
       "bundler": "metro",

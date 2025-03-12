@@ -37,31 +37,31 @@ export default function RejectModal({ visible, onClose, onReject, isDark }: Prop
       <View className="flex-1 justify-center items-center bg-black/50">
         <View
           className={`w-[90%] p-4 rounded-lg ${
-            isDark ? 'bg-gray-800' : 'bg-white'
+            isDark ? "bg-gray-800" : "bg-white"
           }`}
           style={styles.modalContent}
         >
           <Text
             className={`text-lg font-semibold mb-4 ${
-              isDark ? 'text-white' : 'text-gray-900'
+              isDark ? "text-white" : "text-gray-900"
             }`}
           >
             Reject Expense
           </Text>
           <TextInput
             placeholder="Enter reason for rejection"
-            placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+            placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
             value={reason}
             onChangeText={setReason}
             multiline
             numberOfLines={3}
             className={`border p-2 rounded-lg mb-4 ${
               isDark
-                ? 'border-gray-600 text-white'
-                : 'border-gray-300 text-gray-900'
+                ? "border-gray-600 text-white"
+                : "border-gray-300 text-gray-900"
             }`}
           />
-          <View className="flex-row justify-end space-x-2">
+          <View className="flex-row justify-end gap-3 space-x-2">
             <TouchableOpacity
               onPress={onClose}
               className="px-4 py-2 rounded-lg bg-gray-500"

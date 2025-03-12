@@ -1,263 +1,243 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
+  Pressable,
   ActivityIndicator,
-  RefreshControl,
-  Alert,
-  StatusBar,
+  Animated,
+  ScrollView,
+  Dimensions,
   Platform,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import ThemeContext from '../../context/ThemeContext';
-import AuthContext from '../../context/AuthContext';
-import axios from 'axios';
-import { format } from 'date-fns';
+  StatusBar,
+  StyleSheet,
+} from "react-native";
+import { Stack } from "expo-router";
+import ThemeContext from "../../context/ThemeContext";
+import PushNotificationsList from "./../../components/PushNotificationsList";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useMemo } from "react";
 import { LinearGradient } from 'expo-linear-gradient';
-import BottomNav from '../../components/BottomNav';
-import { employeeNavItems } from './utils/navigationItems';
 
-interface Notification {
-  id: number;
-  title: string;
-  message: string;
-  type: string;
-  read: boolean;
-  created_at: string;
-}
+type NotificationType = "all" | "general" | "task" | "reminder";
 
-export default function Notifications() {
+export default function EmployeeNotifications() {
   const { theme } = ThemeContext.useTheme();
-  const { token } = AuthContext.useAuth();
-  const router = useRouter();
-  const isDark = theme === 'dark';
+  const isDark = theme === "dark";
+  const [selectedType, setSelectedType] = useState<NotificationType>("all");
+  const [isLoading, setIsLoading] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const filterTypes = useMemo(() => [
+    { id: "all", label: "All", icon: "bell-outline", count: 12 },
+    { id: "general", label: "General", icon: "information-outline", count: 5 },
+    { id: "task", label: "Tasks", icon: "clipboard-list-outline", count: 4 },
+    { id: "reminder", label: "Reminders", icon: "clock-outline", count: 3 },
+  ], []);
 
-  const fetchNotifications = async () => {
-    try {
-      console.log('Fetching notifications...');
-      const url = `${process.env.EXPO_PUBLIC_API_URL}/api/notifications`;
-      console.log('Request URL:', url);
-      
-      const config = {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      };
-      console.log('Request config:', config);
+  const handleTypeChange = useCallback(async (type: NotificationType) => {
+    setIsLoading(true);
+    
+    // Parallel animations for smoother transition
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+          delay: 100,
+        }),
+      ]),
+      Animated.spring(scrollX, {
+        toValue: filterTypes.findIndex(t => t.id === type) * (SCREEN_WIDTH / filterTypes.length),
+        useNativeDriver: true,
+        damping: 20,
+        stiffness: 90,
+      }),
+    ]).start();
 
-      const response = await axios.get(url, config);
-      console.log('Response:', response.data);
-      
-      setNotifications(response.data);
-    } catch (error) {
-      console.error('Full error:', error);
-      
-      if (axios.isAxiosError(error)) {
-        console.error('Error details:', {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-          headers: error.response?.headers
-        });
-        
-        Alert.alert(
-          'Error',
-          error.response?.data?.details || 'Failed to fetch notifications'
-        );
-      } else {
-        console.error('Non-Axios error:', error);
-        Alert.alert(
-          'Error',
-          'Failed to fetch notifications'
-        );
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const markAsRead = async (id: number) => {
-    try {
-      await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/notifications/${id}/read`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setNotifications(prev =>
-        prev.map(notif =>
-          notif.id === id ? { ...notif, read: true } : notif
-        )
-      );
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchNotifications();
-  };
-
-  const getIconName = (type: string): keyof typeof Ionicons.glyphMap => {
-    switch (type) {
-      case 'approval':
-        return 'checkmark-circle';
-      case 'rejection':
-        return 'close-circle';
-      default:
-        return 'notifications';
-    }
-  };
-
-  const getIconColor = (type: string): string => {
-    switch (type) {
-      case 'approval':
-        return '#10B981';
-      case 'rejection':
-        return '#EF4444';
-      default:
-        return '#6B7280';
-    }
-  };
+    setSelectedType(type);
+    // Simulate loading delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+    setIsLoading(false);
+  }, [fadeAnim, scrollX, filterTypes, SCREEN_WIDTH]);
 
   return (
-    <View className="flex-1" style={{ backgroundColor: isDark ? '#111827' : '#FFFFFF' }}>
-      <StatusBar
-        barStyle={isDark ? 'light-content' : 'dark-content'}
-        backgroundColor={isDark ? '#1F2937' : '#FFFFFF'}
+    <View className="flex-1">
+      <Stack.Screen
+        options={{
+          headerShown: false,
+        }}
       />
 
+      {/* Enhanced Header with proper status bar height and integrated tabs */}
       <LinearGradient
-        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        className="pb-4"
-        style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+        colors={isDark ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]}
+        style={[styles.header]}
       >
-        <View className="flex-row items-center justify-between px-6">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="mr-4 p-2 rounded-full"
-            style={{ backgroundColor: isDark ? '#374151' : '#F3F4F6' }}
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor="transparent"
+          translucent
+        />
+
+        {/* Header Content with adjusted spacing */}
+        <View
+          style={{
+            paddingTop:
+              Platform.OS === "ios"
+                ? 60
+                : StatusBar.currentHeight
+                ? StatusBar.currentHeight + 20
+                : 40,
+          }}
+        >
+          <View className="px-6 mb-6">
+            <Text
+              className={`text-2xl font-bold ${
+                isDark ? "text-white" : "text-gray-900"
+              }`}
+            >
+              Notifications
+            </Text>
+            <Text
+              className={`text-sm mt-1 ${
+                isDark ? "text-gray-400" : "text-gray-600"
+              }`}
+            >
+              Stay updated with your activities
+            </Text>
+          </View>
+
+          {/* Tabs integrated in header */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsContainer}
+            style={styles.scrollView}
+            className="pl-6"
           >
-            <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : '#000000'} />
-          </TouchableOpacity>
-          <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Notifications
-          </Text>
-          <View style={{ width: 40 }} />
+            {filterTypes.map((type, index) => (
+              <Pressable
+                key={type.id}
+                onPress={() => handleTypeChange(type.id as NotificationType)}
+                className={`py-2.5 px-4 rounded-2xl flex-row items-center ${
+                  selectedType === type.id
+                    ? isDark
+                      ? "bg-blue-500/90 border border-blue-400/30"
+                      : "bg-blue-500 border border-blue-600/20"
+                    : isDark
+                    ? "bg-gray-800/40 border border-gray-700"
+                    : "bg-gray-50 border border-gray-200"
+                }`}
+                style={[
+                  styles.tabButton,
+                  selectedType === type.id && styles.activeTabButton,
+                  {
+                    transform: [
+                      {
+                        scale: selectedType === type.id ? 1 : 0.98,
+                      },
+                    ],
+                    marginRight: index === filterTypes.length - 1 ? 10 : 0,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={type.icon as any}
+                  size={20}
+                  color={
+                    selectedType === type.id
+                      ? "#FFFFFF"
+                      : isDark
+                      ? "#94A3B8"
+                      : "#64748B"
+                  }
+                  style={{ marginRight: 8 }}
+                />
+                <Text
+                  className={`text-sm font-medium ${
+                    selectedType === type.id
+                      ? "text-white"
+                      : isDark
+                      ? "text-gray-300"
+                      : "text-gray-700"
+                  }`}
+                >
+                  {type.label}
+                </Text>
+                {type.count > 0 && (
+                  <View
+                    className={`ml-2 px-2 py-0.5 rounded-full ${
+                      selectedType === type.id
+                        ? "bg-white/20 border border-white/10"
+                        : isDark
+                        ? "bg-gray-900/60 border border-gray-700"
+                        : "bg-white border border-gray-200"
+                    }`}
+                  >
+                    <Text
+                      className={`text-xs font-medium ${
+                        selectedType === type.id
+                          ? "text-white/90"
+                          : isDark
+                          ? "text-gray-300"
+                          : "text-gray-600"
+                      }`}
+                    >
+                      {type.count}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
       </LinearGradient>
 
-      <ScrollView
-        className="flex-1"
-        refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh}
-            tintColor={isDark ? '#60A5FA' : '#3B82F6'}
-          />
-        }
-        contentContainerStyle={styles.scrollContent}
-      >
-        {loading ? (
-          <View className="flex-1 justify-center items-center py-8">
-            <ActivityIndicator 
-              size="large" 
-              color={isDark ? '#60A5FA' : '#3B82F6'} 
+      <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
+        {/* Loading State and Animated Content */}
+        <Animated.View
+          className="flex-1 pt-3"
+          style={{
+            opacity: fadeAnim,
+            transform: [
+              {
+                translateX: scrollX.interpolate({
+                  inputRange: [0, SCREEN_WIDTH],
+                  outputRange: [0, -20],
+                }),
+              },
+            ],
+          }}
+        >
+          {isLoading ? (
+            <View className="flex-1 justify-center items-center">
+              <ActivityIndicator
+                size="large"
+                color={isDark ? "#60A5FA" : "#3B82F6"}
+              />
+              <Text
+                className={`mt-4 text-sm ${
+                  isDark ? "text-gray-400" : "text-gray-600"
+                }`}
+              >
+                Loading notifications...
+              </Text>
+            </View>
+          ) : (
+            <PushNotificationsList
+              filterType={selectedType === "all" ? undefined : selectedType}
             />
-            <Text 
-              className={`mt-4 ${
-                isDark ? 'text-gray-400' : 'text-gray-600'
-              }`}
-            >
-              Loading notifications...
-            </Text>
-          </View>
-        ) : notifications.length === 0 ? (
-          <View className="flex-1 justify-center items-center py-20">
-            <Ionicons
-              name="notifications-off-outline"
-              size={48}
-              color={isDark ? '#4B5563' : '#9CA3AF'}
-            />
-            <Text 
-              className={`mt-4 text-lg ${
-                isDark ? 'text-gray-400' : 'text-gray-600'
-              }`}
-            >
-              No notifications yet
-            </Text>
-          </View>
-        ) : (
-          notifications.map((notification) => (
-            <TouchableOpacity
-              key={notification.id}
-              onPress={() => markAsRead(notification.id)}
-              className={`mx-4 mt-4 rounded-lg ${
-                isDark ? 'bg-gray-800' : 'bg-white'
-              } ${!notification.read ? 'opacity-100' : 'opacity-80'}`}
-              style={styles.notificationCard}
-            >
-              <View className="flex-row items-start p-4">
-                <View 
-                  className={`mr-3 p-2 rounded-full ${
-                    isDark ? 'bg-gray-700' : 'bg-gray-100'
-                  }`}
-                >
-                  <Ionicons
-                    name={getIconName(notification.type)}
-                    size={24}
-                    color={getIconColor(notification.type)}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Text 
-                    className={`font-semibold ${
-                      isDark ? 'text-white' : 'text-gray-900'
-                    }`}
-                  >
-                    {notification.title}
-                  </Text>
-                  <Text 
-                    className={`mt-1 ${
-                      isDark ? 'text-gray-400' : 'text-gray-600'
-                    }`}
-                  >
-                    {notification.message}
-                  </Text>
-                  <Text 
-                    className={`mt-2 text-sm ${
-                      isDark ? 'text-gray-500' : 'text-gray-400'
-                    }`}
-                  >
-                    {format(new Date(notification.created_at), 'MMM dd, yyyy HH:mm')}
-                  </Text>
-                </View>
-                {!notification.read && (
-                  <View className="h-3 w-3 rounded-full bg-blue-500" />
-                )}
-              </View>
-            </TouchableOpacity>
-          ))
-        )}
-        <View className="h-4" />
-      </ScrollView>
-
-      <BottomNav items={employeeNavItems} />
+          )}
+        </Animated.View>
+      </View>
     </View>
   );
 }
@@ -270,17 +250,26 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
   },
-  scrollContent: {
-    flexGrow: 1,
+  scrollView: {
+    // Remove paddingLeft from here since we're using className
   },
-  notificationCard: {
+  tabsContainer: {
+    paddingRight: 24,
+    paddingBottom: 16,
+    gap: 12,
+  },
+  tabButton: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
   },
-  backButton: {
-    paddingTop: 44,
+  activeTabButton: {
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });

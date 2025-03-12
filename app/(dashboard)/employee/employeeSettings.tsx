@@ -9,13 +9,15 @@ import {
   Image,
   StatusBar,
   Platform,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import AuthContext from '../../context/AuthContext';
-import ThemeContext from '../../context/ThemeContext';
-import axios from 'axios';
+  Alert,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import AuthContext from "../../context/AuthContext";
+import ThemeContext from "../../context/ThemeContext";
+import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface BaseSettingItem {
   icon: keyof typeof Ionicons.glyphMap;
@@ -31,7 +33,7 @@ interface ActionSettingItem extends BaseSettingItem {
 }
 
 interface SwitchSettingItem extends BaseSettingItem {
-  type: 'switch';
+  type: "switch";
   value: boolean;
   onChange: (value: boolean) => void;
   action?: never;
@@ -49,11 +51,11 @@ export default function EmployeeSettings() {
   const { user, logout, token } = AuthContext.useAuth();
   const router = useRouter();
   const [notifications, setNotifications] = React.useState(true);
-  const [darkMode, setDarkMode] = React.useState(theme === 'dark');
+  const [darkMode, setDarkMode] = React.useState(theme === "dark");
   const [profileImage, setProfileImage] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    setDarkMode(theme === 'dark');
+    setDarkMode(theme === "dark");
   }, [theme]);
 
   React.useEffect(() => {
@@ -72,7 +74,7 @@ export default function EmployeeSettings() {
         setProfileImage(response.data.image);
       }
     } catch (error) {
-      console.error('Error fetching profile image:', error);
+      console.error("Error fetching profile image:", error);
     }
   };
 
@@ -83,99 +85,128 @@ export default function EmployeeSettings() {
 
   const settingsSections: SettingSection[] = [
     {
-      title: 'Account',
+      title: "Account",
       items: [
         {
-          icon: 'person-outline',
-          title: 'Edit Profile',
-          action: () => router.push('/employee/settings/editProfile'),
+          icon: "person-outline",
+          title: "Edit Profile",
+          action: () => router.push("/employee/settings/editProfile"),
         },
         {
-          icon: 'lock-closed-outline', 
-          title: 'Change Password',
-          action: () => router.push('/employee/settings/changePassword'),
+          icon: "lock-closed-outline",
+          title: "Change Password",
+          action: () => router.push("/employee/settings/changePassword"),
         },
         {
-          icon: 'notifications-outline',
-          title: 'Notifications',
-          type: 'switch',
+          icon: "notifications-outline",
+          title: "Notifications",
+          type: "switch",
           value: notifications,
           onChange: setNotifications,
         },
       ],
     },
     {
-      title: 'Preferences',
+      title: "Preferences",
       items: [
         {
-          icon: 'moon-outline',
-          title: 'Dark Mode',
-          type: 'switch',
+          icon: "moon-outline",
+          title: "Dark Mode",
+          type: "switch",
           value: darkMode,
           onChange: handleThemeToggle,
         },
       ],
     },
     {
-      title: 'Support',
+      title: "Support",
       items: [
         {
-          icon: 'help-circle-outline',
-          title: 'Help Center',
-          action: () => router.push('/employee/settings/help'),
+          icon: "help-circle-outline",
+          title: "Help Center",
+          action: () => router.push("/employee/settings/help"),
         },
         {
-          icon: 'chatbox-outline',
-          title: 'Contact Support',
-          action: () => router.push('/employee/settings/support'),
+          icon: "chatbox-outline",
+          title: "Contact Support",
+          action: () => router.push("/employee/settings/support"),
         },
         {
-          icon: 'document-text-outline',
-          title: 'Terms & Privacy',
-          action: () => router.push('/employee/settings/terms'),
+          icon: "document-text-outline",
+          title: "Terms & Privacy",
+          action: () => router.push("/employee/settings/terms"),
         },
       ],
     },
   ];
 
   const handleLogout = async () => {
-    try {
-      await logout();
-      router.replace('/');
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          await AsyncStorage.removeItem("userToken");
+          logout();
+          router.replace("/(auth)/signin");
+        },
+      },
+    ]);
   };
 
   return (
-    <View className="flex-1" style={{ backgroundColor: theme === 'dark' ? '#111827' : '#F3F4F6' }}>
-      <StatusBar 
-        backgroundColor={theme === 'dark' ? '#1F2937' : '#FFFFFF'}
-        barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+    <View
+      className="flex-1"
+      style={{ backgroundColor: theme === "dark" ? "#111827" : "#F3F4F6" }}
+    >
+      <StatusBar
+        backgroundColor={theme === "dark" ? "#1F2937" : "#FFFFFF"}
+        barStyle={theme === "dark" ? "light-content" : "dark-content"}
       />
-      
+
       <LinearGradient
-        colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        colors={
+          theme === "dark" ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]
+        }
         className="pb-4"
-        style={[styles.headerGradient, { paddingTop: Platform.OS === 'ios' ? 44 : StatusBar.currentHeight }]}
+        style={[
+          styles.headerGradient,
+          { paddingTop: Platform.OS === "ios" ? 44 : StatusBar.currentHeight },
+        ]}
       >
         <View className="flex-row items-center justify-between px-4">
           <TouchableOpacity
             onPress={() => router.back()}
             className="p-2 rounded-full"
-            style={{ backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }}
+            style={{
+              backgroundColor: theme === "dark" ? "#374151" : "#F3F4F6",
+            }}
           >
-            <Ionicons name="arrow-back" size={24} color={theme === 'dark' ? '#FFFFFF' : '#000000'} />
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={theme === "dark" ? "#FFFFFF" : "#000000"}
+            />
           </TouchableOpacity>
-          <Text className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+          <Text
+            className={`text-xl font-bold ${
+              theme === "dark" ? "text-white" : "text-gray-900"
+            }`}
+          >
             Settings
           </Text>
           <View style={{ width: 40 }} />
         </View>
       </LinearGradient>
 
-      <View 
-        className={`mx-4 mt-4 p-4 rounded-2xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
+      <View
+        className={`mx-4 mt-4 p-4 rounded-2xl ${
+          theme === "dark" ? "bg-gray-800" : "bg-white"
+        }`}
         style={styles.profileCard}
       >
         <View className="flex-row items-center">
@@ -187,8 +218,8 @@ export default function EmployeeSettings() {
                 style={styles.profileImage}
               />
             ) : (
-              <View 
-                className="w-20 h-20 rounded-full bg-blue-500 items-center justify-center" 
+              <View
+                className="w-20 h-20 rounded-full bg-blue-500 items-center justify-center"
                 style={styles.profileImage}
               >
                 <Text className="text-white text-3xl font-bold">
@@ -196,27 +227,39 @@ export default function EmployeeSettings() {
                 </Text>
               </View>
             )}
-            <View 
+            <View
               className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-green-500 border-2 border-white"
               style={styles.statusDot}
             />
           </View>
           <View className="ml-4 flex-1">
-            <Text 
-              className={`text-xl font-bold mb-1 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}
+            <Text
+              className={`text-xl font-bold mb-1 ${
+                theme === "dark" ? "text-white" : "text-gray-900"
+              }`}
               numberOfLines={1}
             >
               {user?.name}
             </Text>
-            <Text 
-              className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}
+            <Text
+              className={`text-sm ${
+                theme === "dark" ? "text-gray-400" : "text-gray-600"
+              }`}
               numberOfLines={1}
             >
               {user?.email}
             </Text>
             <View className="flex-row items-center mt-1">
-              <View className={`px-2 py-1 rounded-full ${theme === 'dark' ? 'bg-blue-900/50' : 'bg-blue-100'}`}>
-                <Text className={`text-xs ${theme === 'dark' ? 'text-blue-300' : 'text-blue-800'}`}>
+              <View
+                className={`px-2 py-1 rounded-full ${
+                  theme === "dark" ? "bg-blue-900/50" : "bg-blue-100"
+                }`}
+              >
+                <Text
+                  className={`text-xs ${
+                    theme === "dark" ? "text-blue-300" : "text-blue-800"
+                  }`}
+                >
                   {user?.role?.toUpperCase()}
                 </Text>
               </View>
@@ -225,70 +268,77 @@ export default function EmployeeSettings() {
         </View>
       </View>
 
-      <ScrollView 
-        className="flex-1 px-4"
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {settingsSections.map((section, index) => (
           <View key={index} style={styles.section}>
-            <Text 
-              className={`text-sm font-semibold mb-2 px-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}
+            <Text
+              className={`text-sm font-semibold mb-2 px-1 ${
+                theme === "dark" ? "text-gray-400" : "text-gray-500"
+              }`}
             >
               {section.title}
             </Text>
-            <View 
-              className={`rounded-2xl overflow-hidden ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
+            <View
+              className={`rounded-2xl overflow-hidden ${
+                theme === "dark" ? "bg-gray-800" : "bg-white"
+              }`}
               style={styles.sectionCard}
             >
               {section.items.map((item, itemIndex) => (
                 <TouchableOpacity
                   key={itemIndex}
                   className={`flex-row items-center justify-between p-4 ${
-                    itemIndex < section.items.length - 1 ? 'border-b' : ''
-                  } ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'}`}
-                  onPress={'action' in item ? item.action : undefined}
+                    itemIndex < section.items.length - 1 ? "border-b" : ""
+                  } ${
+                    theme === "dark" ? "border-gray-700" : "border-gray-100"
+                  }`}
+                  onPress={"action" in item ? item.action : undefined}
                   style={styles.settingItem}
                 >
                   <View className="flex-row items-center flex-1">
-                    <View 
+                    <View
                       className={`w-8 h-8 rounded-full items-center justify-center ${
-                        theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
+                        theme === "dark" ? "bg-gray-700" : "bg-gray-100"
                       }`}
                     >
                       <Ionicons
                         name={item.icon}
                         size={20}
-                        color={theme === 'dark' ? '#FFFFFF' : '#374151'}
+                        color={theme === "dark" ? "#FFFFFF" : "#374151"}
                       />
                     </View>
                     <View className="ml-3 flex-1">
-                      <Text 
-                        className={`text-base font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}
+                      <Text
+                        className={`text-base font-medium ${
+                          theme === "dark" ? "text-white" : "text-gray-900"
+                        }`}
                       >
                         {item.title}
                       </Text>
-                      {!('type' in item) && item.subtitle && (
-                        <Text 
-                          className={`text-sm mt-0.5 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}
+                      {!("type" in item) && item.subtitle && (
+                        <Text
+                          className={`text-sm mt-0.5 ${
+                            theme === "dark" ? "text-gray-400" : "text-gray-500"
+                          }`}
                         >
                           {item.subtitle}
                         </Text>
                       )}
                     </View>
                   </View>
-                  {item.type === 'switch' ? (
+                  {item.type === "switch" ? (
                     <Switch
                       value={item.value}
                       onValueChange={item.onChange}
-                      trackColor={{ false: '#767577', true: '#3B82F6' }}
-                      thumbColor={item.value ? '#FFFFFF' : '#F4F3F4'}
+                      trackColor={{ false: "#767577", true: "#3B82F6" }}
+                      thumbColor={item.value ? "#FFFFFF" : "#F4F3F4"}
                       ios_backgroundColor="#3e3e3e"
                     />
                   ) : (
                     <Ionicons
                       name="chevron-forward"
                       size={20}
-                      color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                      color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
                     />
                   )}
                 </TouchableOpacity>
@@ -303,9 +353,7 @@ export default function EmployeeSettings() {
           onPress={handleLogout}
         >
           <Ionicons name="log-out-outline" size={24} color="#FFFFFF" />
-          <Text className="text-white font-semibold text-lg ml-2">
-            Logout
-          </Text>
+          <Text className="text-white font-semibold text-lg ml-2">Logout</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

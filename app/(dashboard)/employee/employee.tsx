@@ -67,31 +67,31 @@ export default function EmployeeDashboard() {
   const [quickActions] = useState([
     {
       id: 1,
-      title: 'Shift Tracker',
-      icon: 'time-outline',
-      color: '#10B981',
-      action: () => router.push('/(dashboard)/employee/employeeShiftTracker'),
+      title: "Shift Tracker",
+      icon: "time-outline",
+      color: "#10B981",
+      action: () => router.push("/(dashboard)/shared/shiftTracker"),
     },
     {
       id: 2,
-      title: 'Submit Expenses',
-      icon: 'receipt-outline',
-      color: '#F59E0B',
-      action: () => router.push('/(dashboard)/employee/employeeExpenses'),
+      title: "Submit Expenses",
+      icon: "receipt-outline",
+      color: "#F59E0B",
+      action: () => router.push("/(dashboard)/employee/employeeExpenses"),
     },
     {
       id: 3,
-      title: 'View Schedule',
-      icon: 'calendar-outline',
-      color: '#3B82F6',
-      action: () => router.push('/(dashboard)/employee/employeeSchedule'),
+      title: "View Schedule",
+      icon: "calendar-outline",
+      color: "#3B82F6",
+      action: () => router.push("/(dashboard)/employee/employeeSchedule"),
     },
     {
       id: 4,
-      title: 'Request Leave',
-      icon: 'airplane-outline',
-      color: '#8B5CF6',
-      action: () => router.push('/(dashboard)/employee/leave-insights'),
+      title: "Request Leave",
+      icon: "airplane-outline",
+      color: "#8B5CF6",
+      action: () => router.push("/(dashboard)/employee/leave-insights"),
     },
   ]);
 
@@ -99,7 +99,9 @@ export default function EmployeeDashboard() {
   const isFocused = useIsFocused();
 
   // Add new state for shift duration
-  const [currentShiftDuration, setCurrentShiftDuration] = useState<string | null>(null);
+  const [currentShiftDuration, setCurrentShiftDuration] = useState<
+    string | null
+  >(null);
   const [shiftStartTime, setShiftStartTime] = useState<Date | null>(null);
 
   // Add these new states for TaskProgressBar
@@ -109,9 +111,9 @@ export default function EmployeeDashboard() {
   // Set greeting based on time of day
   useEffect(() => {
     const hour = new Date().getHours();
-    if (hour < 12) setGreeting('Good Morning');
-    else if (hour < 17) setGreeting('Good Afternoon');
-    else setGreeting('Good Evening');
+    if (hour < 12) setGreeting("Good Morning");
+    else if (hour < 17) setGreeting("Good Afternoon");
+    else setGreeting("Good Evening");
 
     // Simulate fetching last login
     setLastLogin(new Date().toLocaleString());
@@ -123,45 +125,52 @@ export default function EmployeeDashboard() {
 
     const updateDashboard = async () => {
       try {
-        const shiftStatusData = await AsyncStorage.getItem('shiftStatus');
-        
+        const shiftStatusData = await AsyncStorage.getItem(
+          `${user?.role}-shiftStatus`
+        );
+
         if (shiftStatusData) {
           const { isActive, startTime } = JSON.parse(shiftStatusData);
-          
+
           if (isActive && startTime) {
-            setShiftStatus('Active Shift');
-            setAttendanceStatus('Present');
+            setShiftStatus("Active Shift");
+            setAttendanceStatus("Present");
             setShiftStartTime(new Date(startTime));
-            
+
             // Calculate duration in real-time
-            const elapsedSeconds = differenceInSeconds(new Date(), new Date(startTime));
+            const elapsedSeconds = differenceInSeconds(
+              new Date(),
+              new Date(startTime)
+            );
             const hours = Math.floor(elapsedSeconds / 3600);
             const minutes = Math.floor((elapsedSeconds % 3600) / 60);
             const seconds = elapsedSeconds % 60;
-            const duration = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            
+            const duration = `${hours.toString().padStart(2, "0")}:${minutes
+              .toString()
+              .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+
             setCurrentShiftDuration(duration);
           } else {
-            setShiftStatus('No Active Shift');
-            setAttendanceStatus('Not Marked');
+            setShiftStatus("No Active Shift");
+            setAttendanceStatus("Not Marked");
             setCurrentShiftDuration(null);
             setShiftStartTime(null);
           }
         } else {
-          setShiftStatus('No Active Shift');
-          setAttendanceStatus('Not Marked');
+          setShiftStatus("No Active Shift");
+          setAttendanceStatus("Not Marked");
           setCurrentShiftDuration(null);
           setShiftStartTime(null);
         }
       } catch (error) {
-        console.error('Error updating dashboard:', error);
+        console.error("Error updating dashboard:", error);
       }
     };
 
     if (isFocused) {
       // Initial update
       updateDashboard();
-      
+
       // Set up interval for real-time updates
       intervalId = setInterval(updateDashboard, 1000);
     }
@@ -290,24 +299,56 @@ export default function EmployeeDashboard() {
         { status: newStatus },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+
+      // Get the task that was updated
+      const updatedTask = tasks.find((task) => task.id === taskId);
+      if (updatedTask) {
+        // Send notification to group admin
+        await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/employee-notifications/notify-admin`,
+          {
+            title: `📋 Task Status Updated by ${user?.name}`,
+            message:
+              `━━━━━━━━ Task Details ━━━━━━━━\n` +
+              `📌 Task: ${updatedTask.title}\n` +
+              `📝 Description: ${updatedTask.description}\n\n` +
+              `🔄 Status Change\n` +
+              `• From: ${updatedTask.status
+                .replace("_", " ")
+                .toUpperCase()}\n` +
+              `• To: ${newStatus.replace("_", " ").toUpperCase()}\n\n` +
+              `⚡ Priority: ${updatedTask.priority.toUpperCase()}\n` +
+              `📅 Due Date: ${
+                updatedTask.due_date
+                  ? format(new Date(updatedTask.due_date), "dd MMM yyyy")
+                  : "Not set"
+              }\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+            type: "task-update",
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+      }
+
       // Fetch both tasks and stats after status update
       await Promise.all([
         fetchTasks(),
-        fetchTaskStats(true) // Force refresh stats
+        fetchTaskStats(true), // Force refresh stats
       ]);
     } catch (error) {
-      console.error('Error updating task status:', error);
-      Alert.alert('Error', 'Failed to update task status');
+      console.error("Error updating task status:", error);
+      Alert.alert("Error", "Failed to update task status");
     }
   };
 
   // Initial fetch for both tasks and stats
   useEffect(() => {
     const initialFetch = async () => {
-      await Promise.all([
-        fetchTasks(),
-        fetchTaskStats()
-      ]);
+      await Promise.all([fetchTasks(), fetchTaskStats()]);
     };
     initialFetch();
   }, []);
@@ -318,7 +359,7 @@ export default function EmployeeDashboard() {
     try {
       await Promise.all([
         fetchTasks(),
-        fetchTaskStats(true) // Force refresh stats
+        fetchTaskStats(true), // Force refresh stats
       ]);
     } finally {
       setIsRefreshing(false);
@@ -328,7 +369,7 @@ export default function EmployeeDashboard() {
   // Modify TaskProgressBar component to use props
   const TaskProgressBar = () => {
     const { theme } = ThemeContext.useTheme();
-    const isDark = theme === 'dark';
+    const isDark = theme === "dark";
 
     // Set up auto-refresh interval
     useEffect(() => {
@@ -349,41 +390,90 @@ export default function EmployeeDashboard() {
 
     if (!taskStats) return null;
 
+    // Calculate percentages safely
+    const calculatePercentage = (value: number, total: number) => {
+      if (total === 0) return 0; // Return 0% if total is 0
+      return (value / total) * 100;
+    };
+
     return (
-      <View style={[
-        styles.mainContainer,
-        { backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF' }
-      ]} className="mx-4 mt-4">
-        <View className={`p-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-md`}>
+      <View
+        style={[
+          styles.mainContainer,
+          { backgroundColor: theme === "dark" ? "#1F2937" : "#FFFFFF" },
+        ]}
+        className="mx-4 mt-4"
+      >
+        <View
+          className={`p-4 rounded-xl ${
+            isDark ? "bg-gray-800" : "bg-white"
+          } shadow-md`}
+        >
           {/* Header */}
           <View className="flex-row items-center mb-4">
             <View className="flex-1">
-              <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              <Text
+                className={`text-lg font-semibold ${
+                  isDark ? "text-white" : "text-gray-900"
+                }`}
+              >
                 Task Progress
               </Text>
-              <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                {taskStats.currentMonth} • {taskStats.total} Total Tasks
+              <Text
+                className={`text-sm ${
+                  isDark ? "text-gray-400" : "text-gray-500"
+                }`}
+              >
+                {taskStats.currentMonth} •{" "}
+                {taskStats.total === 0
+                  ? "No Tasks"
+                  : `${taskStats.total} Total Tasks`}
               </Text>
             </View>
-            <View className={`px-3 py-1 rounded-full ${isDark ? 'bg-blue-500/20' : 'bg-blue-50'}`}>
-              <Text className="text-blue-600 font-medium">{taskStats.completionRate}%</Text>
+            <View
+              className={`px-3 py-1 rounded-full ${
+                isDark ? "bg-blue-500/20" : "bg-blue-50"
+              }`}
+            >
+              <Text className="text-blue-600 font-medium">
+                {taskStats.total === 0 ? "0" : taskStats.completionRate}%
+              </Text>
             </View>
           </View>
-          
+
           {/* Progress bars container */}
           <View className="space-y-3">
             {/* Completed Tasks */}
             <View>
               <View className="flex-row justify-between mb-1.5">
-                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Completed</Text>
-                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                <Text
+                  className={`text-sm ${
+                    isDark ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
+                  Completed
+                </Text>
+                <Text
+                  className={`text-sm ${
+                    isDark ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
                   {taskStats.completed}/{taskStats.total}
                 </Text>
               </View>
-              <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
-                <View 
+              <View
+                className={`h-2 ${
+                  isDark ? "bg-gray-700" : "bg-gray-100"
+                } rounded-full overflow-hidden`}
+              >
+                <View
                   className="h-full bg-green-500 rounded-full"
-                  style={{ width: `${(taskStats.completed / taskStats.total) * 100}%` }}
+                  style={{
+                    width: `${calculatePercentage(
+                      taskStats.completed,
+                      taskStats.total
+                    )}%`,
+                  }}
                 />
               </View>
             </View>
@@ -391,15 +481,34 @@ export default function EmployeeDashboard() {
             {/* In Progress Tasks */}
             <View>
               <View className="flex-row justify-between mb-1.5">
-                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>In Progress</Text>
-                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                <Text
+                  className={`text-sm ${
+                    isDark ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
+                  In Progress
+                </Text>
+                <Text
+                  className={`text-sm ${
+                    isDark ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
                   {taskStats.inProgress}/{taskStats.total}
                 </Text>
               </View>
-              <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
-                <View 
+              <View
+                className={`h-2 ${
+                  isDark ? "bg-gray-700" : "bg-gray-100"
+                } rounded-full overflow-hidden`}
+              >
+                <View
                   className="h-full bg-blue-500 rounded-full"
-                  style={{ width: `${(taskStats.inProgress / taskStats.total) * 100}%` }}
+                  style={{
+                    width: `${calculatePercentage(
+                      taskStats.inProgress,
+                      taskStats.total
+                    )}%`,
+                  }}
                 />
               </View>
             </View>
@@ -407,15 +516,34 @@ export default function EmployeeDashboard() {
             {/* Pending Tasks */}
             <View>
               <View className="flex-row justify-between mb-1.5">
-                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Pending</Text>
-                <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                <Text
+                  className={`text-sm ${
+                    isDark ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
+                  Pending
+                </Text>
+                <Text
+                  className={`text-sm ${
+                    isDark ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
                   {taskStats.pending}/{taskStats.total}
                 </Text>
               </View>
-              <View className={`h-2 ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded-full overflow-hidden`}>
-                <View 
+              <View
+                className={`h-2 ${
+                  isDark ? "bg-gray-700" : "bg-gray-100"
+                } rounded-full overflow-hidden`}
+              >
+                <View
                   className="h-full bg-yellow-500 rounded-full"
-                  style={{ width: `${(taskStats.pending / taskStats.total) * 100}%` }}
+                  style={{
+                    width: `${calculatePercentage(
+                      taskStats.pending,
+                      taskStats.total
+                    )}%`,
+                  }}
                 />
               </View>
             </View>

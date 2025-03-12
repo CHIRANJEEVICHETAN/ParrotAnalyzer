@@ -155,11 +155,29 @@ export default function TaskManagement() {
         dueDate: newTask.due_date // Make sure this matches the backend expectation
       };
 
-      await axios.post(
+      const response = await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/tasks`,
         taskData,
         {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      // Send notification to assigned employee
+      await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications/notify-task-assignment`,
+        {
+          employeeId: taskData.assignedTo,
+          taskDetails: {
+            title: taskData.title,
+            description: taskData.description,
+            priority: taskData.priority,
+            dueDate: taskData.dueDate,
+            taskId: response.data.id,
+          },
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
         }
       );
       

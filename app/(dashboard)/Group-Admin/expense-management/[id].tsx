@@ -118,17 +118,17 @@ export default function ExpenseDetailView() {
   const handleApprove = async () => {
     try {
       setActionLoading(true);
-      await axios.post(
+      const response = await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
         { approved: true },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      Alert.alert('Success', 'Expense approved successfully', [
-        { text: 'OK', onPress: () => router.back() }
+      Alert.alert("Success", "Expense approved successfully", [
+        { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error) {
-      console.error('Error approving expense:', error);
-      Alert.alert('Error', 'Failed to approve expense');
+      console.error("Error approving expense:", error);
+      Alert.alert("Error", "Failed to approve expense");
     } finally {
       setActionLoading(false);
     }
@@ -137,24 +137,24 @@ export default function ExpenseDetailView() {
   const handleReject = async (reason: string) => {
     try {
       setActionLoading(true);
-      await axios.post(
+      const response = await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
-        { 
+        {
           approved: false,
-          comments: reason 
+          comments: reason,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      Alert.alert('Success', 'Expense rejected successfully', [
-        { text: 'OK', onPress: () => router.back() }
+      Alert.alert("Success", "Expense rejected successfully", [
+        { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error) {
-      console.error('Error rejecting expense:', error);
+      console.error("Error rejecting expense:", error);
       Alert.alert(
-        'Error',
+        "Error",
         axios.isAxiosError(error)
-          ? error.response?.data?.details || 'Failed to reject expense'
-          : 'Failed to reject expense'
+          ? error.response?.data?.details || "Failed to reject expense"
+          : "Failed to reject expense"
       );
     } finally {
       setActionLoading(false);

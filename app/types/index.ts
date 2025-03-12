@@ -5,5 +5,6 @@ export interface User {
   phone?: string;
   role: string;
   company_id?: number;
+  group_id?: number;
   profile_image?: string;
 } 

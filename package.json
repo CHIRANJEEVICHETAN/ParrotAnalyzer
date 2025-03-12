@@ -3,7 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --clear",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
@@ -33,7 +33,7 @@
     "dotenv": "^16.4.7",
     "expo": "~52.0.35",
     "expo-blur": "~14.0.3",
-    "expo-constants": "~17.0.6",
+    "expo-constants": "~17.0.7",
     "expo-dev-client": "~5.0.12",
     "expo-document-picker": "~13.0.3",
     "expo-file-system": "~18.0.10",
