@@ -26,6 +26,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Picker } from "@react-native-picker/picker";
 import axios from "axios";
 import { LinearGradient } from 'expo-linear-gradient';
+import { managementNavItems } from "./utils/navigationItems";
+import BottomNav from "../../components/BottomNav";
 
 type NotificationType = "all" | "role" | "user" | "announcement" | "general";
 type NotificationMode = "role" | "user";
@@ -51,7 +53,7 @@ export default function ManagementNotifications() {
   const [isLoading, setIsLoading] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const scrollX = useRef(new Animated.Value(0)).current;
-  const { width: SCREEN_WIDTH } = Dimensions.get('window');
+  const { width: SCREEN_WIDTH } = Dimensions.get("window");
   const [notificationData, setNotificationData] = useState<NotificationData>({
     title: "",
     message: "",
@@ -67,13 +69,13 @@ export default function ManagementNotifications() {
   // Add keyboard listeners
   useEffect(() => {
     const keyboardWillShow = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
       (e) => {
         setKeyboardHeight(e.endCoordinates.height);
       }
     );
     const keyboardWillHide = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
       () => {
         setKeyboardHeight(0);
       }
@@ -89,7 +91,12 @@ export default function ManagementNotifications() {
     { id: "all", label: "All", icon: "bell-outline", count: 15 },
     { id: "role", label: "Role", icon: "account-group-outline", count: 6 },
     { id: "user", label: "User", icon: "account-outline", count: 4 },
-    { id: "announcement", label: "Announcements", icon: "bullhorn-outline", count: 3 },
+    {
+      id: "announcement",
+      label: "Announcements",
+      icon: "bullhorn-outline",
+      count: 3,
+    },
     { id: "general", label: "General", icon: "information-outline", count: 2 },
   ];
 
@@ -98,40 +105,45 @@ export default function ManagementNotifications() {
     { id: "group-admin", label: "Group Admins" },
   ];
 
-  const handleTypeChange = useCallback(async (type: NotificationType) => {
-    setIsLoading(true);
-    
-    // Parallel animations for smoother transition
-    Animated.parallel([
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-          delay: 100,
-        }),
-      ]),
-      Animated.spring(scrollX, {
-        toValue: filterTypes.findIndex(t => t.id === type) * (SCREEN_WIDTH / filterTypes.length),
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 90,
-      }),
-    ]).start();
+  const handleTypeChange = useCallback(
+    async (type: NotificationType) => {
+      setIsLoading(true);
 
-    setSelectedType(type);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setIsLoading(false);
-  }, [fadeAnim, scrollX, filterTypes, SCREEN_WIDTH]);
+      // Parallel animations for smoother transition
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+            delay: 100,
+          }),
+        ]),
+        Animated.spring(scrollX, {
+          toValue:
+            filterTypes.findIndex((t) => t.id === type) *
+            (SCREEN_WIDTH / filterTypes.length),
+          useNativeDriver: true,
+          damping: 20,
+          stiffness: 90,
+        }),
+      ]).start();
+
+      setSelectedType(type);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      setIsLoading(false);
+    },
+    [fadeAnim, scrollX, filterTypes, SCREEN_WIDTH]
+  );
 
   const sendNotification = async () => {
     if (isSending) return; // Prevent double submission
-    
+
     try {
       setIsSending(true);
       if (!user?.id) {
@@ -198,31 +210,44 @@ export default function ManagementNotifications() {
         statusBarTranslucent
         animationType="fade"
       >
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.3)' }]}>
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.3)" },
+          ]}
+        >
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             style={{ flex: 1 }}
           >
-            <TouchableWithoutFeedback onPress={() => {
-              Keyboard.dismiss();
-              setShowSendModal(false);
-            }}>
+            <TouchableWithoutFeedback
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowSendModal(false);
+              }}
+            >
               <View style={{ flex: 1 }} />
             </TouchableWithoutFeedback>
 
-            <Animated.View 
+            <Animated.View
               className={`rounded-t-xl ${isDark ? "bg-gray-900" : "bg-white"}`}
               style={{
-                transform: [{
-                  translateY: modalHeight.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [600, 0]
-                  })
-                }]
+                transform: [
+                  {
+                    translateY: modalHeight.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [600, 0],
+                    }),
+                  },
+                ],
               }}
             >
               <View className="flex-row justify-between items-center px-4 py-3 border-b border-gray-200/10">
-                <Text className={`text-xl font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
+                <Text
+                  className={`text-xl font-semibold ${
+                    isDark ? "text-white" : "text-gray-900"
+                  }`}
+                >
                   Send Notification
                 </Text>
                 <Pressable
@@ -246,7 +271,9 @@ export default function ManagementNotifications() {
                   className="px-4 py-3"
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? 20 : 80 }}
+                  contentContainerStyle={{
+                    paddingBottom: Platform.OS === "ios" ? 20 : 80,
+                  }}
                 >
                   {/* Notification Mode Selection */}
                   <View className="flex-row mb-4 bg-gray-100/5 p-1 rounded-lg">
@@ -254,15 +281,21 @@ export default function ManagementNotifications() {
                       onPress={() => setNotificationMode("role")}
                       className={`flex-1 py-2.5 rounded-md ${
                         notificationMode === "role"
-                          ? isDark ? "bg-blue-600" : "bg-blue-500"
+                          ? isDark
+                            ? "bg-blue-600"
+                            : "bg-blue-500"
                           : "bg-transparent"
                       }`}
                     >
-                      <Text className={`text-center font-medium ${
-                        notificationMode === "role"
-                          ? "text-white"
-                          : isDark ? "text-gray-300" : "text-gray-600"
-                      }`}>
+                      <Text
+                        className={`text-center font-medium ${
+                          notificationMode === "role"
+                            ? "text-white"
+                            : isDark
+                            ? "text-gray-300"
+                            : "text-gray-600"
+                        }`}
+                      >
                         By Role
                       </Text>
                     </Pressable>
@@ -270,15 +303,21 @@ export default function ManagementNotifications() {
                       onPress={() => setNotificationMode("user")}
                       className={`flex-1 py-2.5 rounded-md ${
                         notificationMode === "user"
-                          ? isDark ? "bg-blue-600" : "bg-blue-500"
+                          ? isDark
+                            ? "bg-blue-600"
+                            : "bg-blue-500"
                           : "bg-transparent"
                       }`}
                     >
-                      <Text className={`text-center font-medium ${
-                        notificationMode === "user"
-                          ? "text-white"
-                          : isDark ? "text-gray-300" : "text-gray-600"
-                      }`}>
+                      <Text
+                        className={`text-center font-medium ${
+                          notificationMode === "user"
+                            ? "text-white"
+                            : isDark
+                            ? "text-gray-300"
+                            : "text-gray-600"
+                        }`}
+                      >
                         By User
                       </Text>
                     </Pressable>
@@ -287,14 +326,18 @@ export default function ManagementNotifications() {
                   {/* Role Selection */}
                   {notificationMode === "role" && (
                     <View className="mb-4">
-                      <Text className={`text-sm font-medium mb-2 ${
-                        isDark ? "text-gray-300" : "text-gray-700"
-                      }`}>
+                      <Text
+                        className={`text-sm font-medium mb-2 ${
+                          isDark ? "text-gray-300" : "text-gray-700"
+                        }`}
+                      >
                         Select Role
                       </Text>
-                      <View className={`rounded-lg overflow-hidden ${
-                        isDark ? "bg-gray-800" : "bg-gray-100"
-                      }`}>
+                      <View
+                        className={`rounded-lg overflow-hidden ${
+                          isDark ? "bg-gray-800" : "bg-gray-100"
+                        }`}
+                      >
                         <Picker
                           selectedValue={notificationData.targetRole}
                           onValueChange={(value) =>
@@ -324,20 +367,27 @@ export default function ManagementNotifications() {
 
                   {/* Title Input */}
                   <View className="mb-4">
-                    <Text className={`text-sm font-medium mb-2 ${
-                      isDark ? "text-gray-300" : "text-gray-700"
-                    }`}>
+                    <Text
+                      className={`text-sm font-medium mb-2 ${
+                        isDark ? "text-gray-300" : "text-gray-700"
+                      }`}
+                    >
                       Title
                     </Text>
                     <TextInput
                       value={notificationData.title}
                       onChangeText={(text) =>
-                        setNotificationData((prev) => ({ ...prev, title: text }))
+                        setNotificationData((prev) => ({
+                          ...prev,
+                          title: text,
+                        }))
                       }
                       placeholder="Notification title"
                       placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
                       className={`p-3 rounded-lg ${
-                        isDark ? "bg-gray-800 text-white" : "bg-gray-100 text-gray-900"
+                        isDark
+                          ? "bg-gray-800 text-white"
+                          : "bg-gray-100 text-gray-900"
                       }`}
                       style={{ height: 50 }}
                       returnKeyType="next"
@@ -347,24 +397,31 @@ export default function ManagementNotifications() {
 
                   {/* Message Input */}
                   <View className="mb-4">
-                    <Text className={`text-sm font-medium mb-2 ${
-                      isDark ? "text-gray-300" : "text-gray-700"
-                    }`}>
+                    <Text
+                      className={`text-sm font-medium mb-2 ${
+                        isDark ? "text-gray-300" : "text-gray-700"
+                      }`}
+                    >
                       Message
                     </Text>
                     <TextInput
                       value={notificationData.message}
                       onChangeText={(text) =>
-                        setNotificationData((prev) => ({ ...prev, message: text }))
+                        setNotificationData((prev) => ({
+                          ...prev,
+                          message: text,
+                        }))
                       }
                       placeholder="Notification message"
                       placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
                       multiline
                       numberOfLines={4}
                       className={`p-3 rounded-lg ${
-                        isDark ? "bg-gray-800 text-white" : "bg-gray-100 text-gray-900"
+                        isDark
+                          ? "bg-gray-800 text-white"
+                          : "bg-gray-100 text-gray-900"
                       }`}
-                      style={{ 
+                      style={{
                         height: 100,
                         textAlignVertical: "top",
                       }}
@@ -374,14 +431,18 @@ export default function ManagementNotifications() {
 
                   {/* Priority Selection */}
                   <View className="mb-6">
-                    <Text className={`text-sm font-medium mb-2 ${
-                      isDark ? "text-gray-300" : "text-gray-700"
-                    }`}>
+                    <Text
+                      className={`text-sm font-medium mb-2 ${
+                        isDark ? "text-gray-300" : "text-gray-700"
+                      }`}
+                    >
                       Priority
                     </Text>
-                    <View className={`rounded-lg overflow-hidden ${
-                      isDark ? "bg-gray-800" : "bg-gray-100"
-                    }`}>
+                    <View
+                      className={`rounded-lg overflow-hidden ${
+                        isDark ? "bg-gray-800" : "bg-gray-100"
+                      }`}
+                    >
                       <Picker
                         selectedValue={notificationData.priority}
                         onValueChange={(value) =>
@@ -409,14 +470,22 @@ export default function ManagementNotifications() {
                       onPress={sendNotification}
                       disabled={isSending}
                       className={`py-3.5 px-4 rounded-lg flex-row justify-center items-center ${
-                        isDark 
-                          ? isSending ? "bg-blue-600/70" : "bg-blue-600"
-                          : isSending ? "bg-blue-500/70" : "bg-blue-500"
+                        isDark
+                          ? isSending
+                            ? "bg-blue-600/70"
+                            : "bg-blue-600"
+                          : isSending
+                          ? "bg-blue-500/70"
+                          : "bg-blue-500"
                       } ${isSending ? "opacity-80" : ""}`}
                     >
                       {isSending ? (
                         <>
-                          <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
+                          <ActivityIndicator
+                            size="small"
+                            color="white"
+                            style={{ marginRight: 8 }}
+                          />
                           <Text className="text-white font-semibold text-base">
                             Sending...
                           </Text>
@@ -447,7 +516,7 @@ export default function ManagementNotifications() {
 
       {/* Enhanced Header with proper status bar height and integrated tabs */}
       <LinearGradient
-        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
+        colors={isDark ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]}
         style={[styles.header]}
       >
         <StatusBar
@@ -455,30 +524,45 @@ export default function ManagementNotifications() {
           backgroundColor="transparent"
           translucent
         />
-        
+
         {/* Header Content with adjusted spacing */}
-        <View style={{ 
-          paddingTop: Platform.OS === 'ios' ? 60 : StatusBar.currentHeight ? StatusBar.currentHeight + 20 : 40 
-        }}>
+        <View
+          style={{
+            paddingTop:
+              Platform.OS === "ios"
+                ? 60
+                : StatusBar.currentHeight
+                ? StatusBar.currentHeight + 20
+                : 40,
+          }}
+        >
           <View className="px-6 mb-6">
             <View className="flex-row items-center mb-1">
               <TouchableOpacity
                 onPress={() => router.back()}
                 className={`w-8 h-8 rounded-full items-center justify-center mr-3 ${
-                  isDark ? 'bg-gray-800/80' : 'bg-gray-100'
+                  isDark ? "bg-gray-800/80" : "bg-gray-100"
                 }`}
               >
                 <MaterialCommunityIcons
                   name="arrow-left"
                   size={20}
-                  color={isDark ? '#E5E7EB' : '#374151'}
+                  color={isDark ? "#E5E7EB" : "#374151"}
                 />
               </TouchableOpacity>
-              <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              <Text
+                className={`text-2xl font-bold ${
+                  isDark ? "text-white" : "text-gray-900"
+                }`}
+              >
                 Notifications
               </Text>
             </View>
-            <Text className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'} ml-11`}>
+            <Text
+              className={`text-sm mt-1 ${
+                isDark ? "text-gray-400" : "text-gray-600"
+              } ml-11`}
+            >
               Manage system notifications
             </Text>
           </View>
@@ -570,9 +654,9 @@ export default function ManagementNotifications() {
 
       <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
         {/* Loading State and Animated Content */}
-        <Animated.View 
-          className="flex-1 pt-3" 
-          style={{ 
+        <Animated.View
+          className="flex-1 pt-3"
+          style={{
             opacity: fadeAnim,
             transform: [
               {
@@ -586,13 +670,15 @@ export default function ManagementNotifications() {
         >
           {isLoading ? (
             <View className="flex-1 justify-center items-center">
-              <ActivityIndicator 
-                size="large" 
-                color={isDark ? "#60A5FA" : "#3B82F6"} 
+              <ActivityIndicator
+                size="large"
+                color={isDark ? "#60A5FA" : "#3B82F6"}
               />
-              <Text className={`mt-4 text-sm ${
-                isDark ? "text-gray-400" : "text-gray-600"
-              }`}>
+              <Text
+                className={`mt-4 text-sm ${
+                  isDark ? "text-gray-400" : "text-gray-600"
+                }`}
+              >
                 Loading notifications...
               </Text>
             </View>
@@ -607,6 +693,7 @@ export default function ManagementNotifications() {
       </View>
 
       <SendNotificationModal />
+      <BottomNav items={managementNavItems} />
     </View>
   );
 }

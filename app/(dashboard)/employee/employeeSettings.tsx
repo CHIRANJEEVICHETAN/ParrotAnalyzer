@@ -355,6 +355,11 @@ export default function EmployeeSettings() {
           <Ionicons name="log-out-outline" size={24} color="#FFFFFF" />
           <Text className="text-white font-semibold text-lg ml-2">Logout</Text>
         </TouchableOpacity>
+        <View className="items-center mb-8">
+          <Text className="text-gray-500 text-sm">
+            Version {process.env.EXPO_PUBLIC_APP_VERSION}
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );

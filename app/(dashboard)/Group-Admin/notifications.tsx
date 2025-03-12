@@ -21,6 +21,8 @@ import PushNotificationsList from "./../../components/PushNotificationsList";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import axios from "axios";
 import { LinearGradient } from 'expo-linear-gradient';
+import BottomNav from "../../components/BottomNav";
+import { groupAdminNavItems } from "./utils/navigationItems";
 
 type NotificationType = "all" | "group" | "general" | "announcement";
 
@@ -33,7 +35,7 @@ export default function GroupAdminNotifications() {
   const [isLoading, setIsLoading] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const scrollX = useRef(new Animated.Value(0)).current;
-  const { width: SCREEN_WIDTH } = Dimensions.get('window');
+  const { width: SCREEN_WIDTH } = Dimensions.get("window");
   const [notificationData, setNotificationData] = useState({
     title: "",
     message: "",
@@ -44,40 +46,50 @@ export default function GroupAdminNotifications() {
     { id: "all", label: "All", icon: "bell-outline", count: 12 },
     { id: "group", label: "Group", icon: "account-group-outline", count: 5 },
     { id: "general", label: "General", icon: "information-outline", count: 4 },
-    { id: "announcement", label: "Announcements", icon: "bullhorn-outline", count: 3 },
+    {
+      id: "announcement",
+      label: "Announcements",
+      icon: "bullhorn-outline",
+      count: 3,
+    },
   ];
 
-  const handleTypeChange = useCallback(async (type: NotificationType) => {
-    setIsLoading(true);
-    
-    // Parallel animations for smoother transition
-    Animated.parallel([
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-          delay: 100,
-        }),
-      ]),
-      Animated.spring(scrollX, {
-        toValue: filterTypes.findIndex(t => t.id === type) * (SCREEN_WIDTH / filterTypes.length),
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 90,
-      }),
-    ]).start();
+  const handleTypeChange = useCallback(
+    async (type: NotificationType) => {
+      setIsLoading(true);
 
-    setSelectedType(type);
-    // Simulate loading delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setIsLoading(false);
-  }, [fadeAnim, scrollX, filterTypes, SCREEN_WIDTH]);
+      // Parallel animations for smoother transition
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+            delay: 100,
+          }),
+        ]),
+        Animated.spring(scrollX, {
+          toValue:
+            filterTypes.findIndex((t) => t.id === type) *
+            (SCREEN_WIDTH / filterTypes.length),
+          useNativeDriver: true,
+          damping: 20,
+          stiffness: 90,
+        }),
+      ]).start();
+
+      setSelectedType(type);
+      // Simulate loading delay
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      setIsLoading(false);
+    },
+    [fadeAnim, scrollX, filterTypes, SCREEN_WIDTH]
+  );
 
   const sendGroupNotification = async () => {
     try {
@@ -251,26 +263,39 @@ export default function GroupAdminNotifications() {
 
       {/* Enhanced Header with proper status bar height and integrated tabs */}
       <LinearGradient
-        colors={isDark ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-        style={[
-          styles.header,
-        ]}
+        colors={isDark ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]}
+        style={[styles.header]}
       >
         <StatusBar
           barStyle={isDark ? "light-content" : "dark-content"}
           backgroundColor="transparent"
           translucent
         />
-        
+
         {/* Header Content with adjusted spacing */}
-        <View style={{ 
-          paddingTop: Platform.OS === 'ios' ? 60 : StatusBar.currentHeight ? StatusBar.currentHeight + 20 : 40 
-        }}>
+        <View
+          style={{
+            paddingTop:
+              Platform.OS === "ios"
+                ? 60
+                : StatusBar.currentHeight
+                ? StatusBar.currentHeight + 20
+                : 40,
+          }}
+        >
           <View className="px-6 mb-6">
-            <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            <Text
+              className={`text-2xl font-bold ${
+                isDark ? "text-white" : "text-gray-900"
+              }`}
+            >
               Notifications
             </Text>
-            <Text className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            <Text
+              className={`text-sm mt-1 ${
+                isDark ? "text-gray-400" : "text-gray-600"
+              }`}
+            >
               Manage group notifications
             </Text>
           </View>
@@ -362,9 +387,9 @@ export default function GroupAdminNotifications() {
 
       <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
         {/* Loading State and Animated Content */}
-        <Animated.View 
-          className="flex-1 pt-3" 
-          style={{ 
+        <Animated.View
+          className="flex-1 pt-3"
+          style={{
             opacity: fadeAnim,
             transform: [
               {
@@ -378,13 +403,15 @@ export default function GroupAdminNotifications() {
         >
           {isLoading ? (
             <View className="flex-1 justify-center items-center">
-              <ActivityIndicator 
-                size="large" 
-                color={isDark ? "#60A5FA" : "#3B82F6"} 
+              <ActivityIndicator
+                size="large"
+                color={isDark ? "#60A5FA" : "#3B82F6"}
               />
-              <Text className={`mt-4 text-sm ${
-                isDark ? "text-gray-400" : "text-gray-600"
-              }`}>
+              <Text
+                className={`mt-4 text-sm ${
+                  isDark ? "text-gray-400" : "text-gray-600"
+                }`}
+              >
                 Loading notifications...
               </Text>
             </View>
@@ -399,6 +426,7 @@ export default function GroupAdminNotifications() {
       </View>
 
       <SendNotificationModal />
+      <BottomNav items={groupAdminNavItems} />
     </View>
   );
 }

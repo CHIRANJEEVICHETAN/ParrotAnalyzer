@@ -17,12 +17,12 @@ import ThemeContext from "../../context/ThemeContext";
 import BottomNav from "../../components/BottomNav";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import type { NavItem } from "../../types/nav";
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import axios from "axios";
 import { StatusBar as RNStatusBar } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { managementNavItems } from "./utils/navigationItems";
 
 interface Activity {
   title: string;
@@ -290,32 +290,6 @@ export default function ManagementDashboard() {
       clearInterval(intervalId);
     };
   }, [user?.role]);
-
-  const navItems: NavItem[] = [
-    //   { icon: "home-outline", label: "Home", href: "/management" },
-    // { icon: 'analytics-outline', label: 'Analytics', href: '/management/analytics' },
-    {
-      icon: "notifications-outline",
-      label: "Push Notifications",
-      href: "/(dashboard)/management/notifications",
-    },
-    {
-      icon: "notifications-outline",
-      label: "Test Notifications",
-      href: "/(dashboard)/test-notifications",
-    },
-    {
-      icon: "calendar-outline",
-      label: "Leave",
-      href: "/(dashboard)/management/leave-management",
-    },
-    {
-      icon: "people-circle-outline",
-      label: "Group Admins",
-      href: "/management/group-admin-management",
-    },
-    { icon: "person-outline", label: "Profile", href: "/management/profile" },
-  ];
 
   const quickActions: QuickAction[] = [
     {
@@ -1068,7 +1042,7 @@ export default function ManagementDashboard() {
                 </View>
             </TouchableOpacity> */}
 
-      <BottomNav items={navItems} />
+      <BottomNav items={managementNavItems} />
     </View>
   );
 }
