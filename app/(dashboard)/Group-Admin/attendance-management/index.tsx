@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import {
   View,
   Text,
@@ -10,13 +10,16 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  TextInput,
+  Modal,
+  FlatList,
+  Keyboard
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Calendar } from 'react-native-calendars';
 import { format } from 'date-fns';
-import { Picker } from '@react-native-picker/picker';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
@@ -49,6 +52,17 @@ interface CalendarDay {
   year: number;
 }
 
+interface EmployeePickerModalProps {
+  show: boolean;
+  onClose: () => void;
+  employeeSearch: string;
+  setEmployeeSearch: (text: string) => void;
+  filteredEmployees: Employee[];
+  isDark: boolean;
+  onSelectEmployee: (id: number | string) => void;
+  selectedEmployeeId: string | number;
+}
+
 // Add these cache keys
 const CACHE_KEYS = {
   EMPLOYEES: 'admin_employees',
@@ -58,6 +72,136 @@ const CACHE_KEYS = {
 
 // Add cache duration (e.g., 1 hour in milliseconds)
 const CACHE_DURATION = 60 * 60 * 1000;
+
+const EmployeePickerModal = memo(({
+  show,
+  onClose,
+  employeeSearch,
+  setEmployeeSearch,
+  filteredEmployees,
+  isDark,
+  onSelectEmployee,
+  selectedEmployeeId
+}: EmployeePickerModalProps) => {
+  const employeeInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    if (show && Platform.OS === 'android') {
+      setTimeout(() => {
+        employeeInputRef.current?.focus();
+      }, 300);
+    }
+  }, [show]);
+
+  return (
+    <Modal
+      visible={show}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity 
+        style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}
+        activeOpacity={1}
+        onPress={() => {
+          Keyboard.dismiss();
+          onClose();
+        }}
+      >
+        <TouchableOpacity 
+          activeOpacity={1} 
+          onPress={(e) => e.stopPropagation()}
+          style={{
+            maxHeight: '80%',
+            borderTopLeftRadius: 30,
+            borderTopRightRadius: 30,
+            padding: 20,
+            backgroundColor: isDark ? '#1F2937' : '#fff'
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <Text style={{ fontSize: 20, fontWeight: 'bold', color: isDark ? '#fff' : '#000' }}>
+              Select Employee
+            </Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={isDark ? '#fff' : '#000'} />
+            </TouchableOpacity>
+          </View>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              padding: 10,
+              marginBottom: 20,
+              borderRadius: 8,
+              backgroundColor: isDark ? '#374151' : '#f3f4f6'
+            }}
+          >
+            <Ionicons name="search" size={20} color={isDark ? '#9CA3AF' : '#6B7280'} style={{ marginRight: 8 }} />
+            <TextInput
+              ref={employeeInputRef}
+              value={employeeSearch}
+              onChangeText={setEmployeeSearch}
+              placeholder="Search by name or employee number..."
+              placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+              style={{ flex: 1, color: isDark ? '#fff' : '#000' }}
+              autoFocus={false}
+            />
+            {employeeSearch.length > 0 && (
+              <TouchableOpacity onPress={() => setEmployeeSearch('')}>
+                <Ionicons name="close-circle" size={20} color={isDark ? '#9CA3AF' : '#6B7280'} />
+              </TouchableOpacity>
+            )}
+          </View>
+          {filteredEmployees.length === 0 ? (
+            <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+              <Ionicons name="people" size={48} color={isDark ? '#4B5563' : '#9CA3AF'} />
+              <Text style={{ marginTop: 16, textAlign: 'center', color: isDark ? '#9CA3AF' : '#6B7280' }}>
+                No employees found
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredEmployees}
+              keyboardShouldPersistTaps="always"
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={{
+                    padding: 16,
+                    marginBottom: 10,
+                    borderRadius: 8,
+                    backgroundColor: selectedEmployeeId === item.id || 
+                      (selectedEmployeeId === 'all' && item.id === 0) ||
+                      (selectedEmployeeId === item.id.toString())
+                      ? (isDark ? '#2563eb' : '#bfdbfe')
+                      : (isDark ? '#374151' : '#f3f4f6')
+                  }}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    onSelectEmployee(item.id === 0 ? 'all' : item.id.toString());
+                    onClose();
+                  }}
+                >
+                  <Text style={{ fontWeight: '500', color: isDark ? '#fff' : '#000' }}>
+                    {item.id === 0 ? '👥 All Employees' : `👤 ${item.name}`}
+                  </Text>
+                  {item.id !== 0 && (
+                    <Text style={{ color: isDark ? '#9CA3AF' : '#6B7280' }}>
+                      {item.employee_number}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              )}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={{ paddingBottom: 20 }}
+            />
+          )}
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+});
 
 export default function AdminAttendanceManagement() {
   const { theme } = ThemeContext.useTheme();
@@ -80,6 +224,8 @@ export default function AdminAttendanceManagement() {
   const [error, setError] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [refreshing, setRefreshing] = useState(false);
+  const [showEmployeePicker, setShowEmployeePicker] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState('');
 
   useEffect(() => {
     fetchEmployees();
@@ -294,6 +440,14 @@ export default function AdminAttendanceManagement() {
     }
   }, [selectedDate]);
 
+  const filteredEmployees = [
+    { id: 0, name: "All Employees", employee_number: "" },
+    ...employees.filter(employee =>
+      employee.name.toLowerCase().includes(employeeSearch.toLowerCase()) ||
+      employee.employee_number.toLowerCase().includes(employeeSearch.toLowerCase())
+    )
+  ];
+
   return (
     <View className="flex-1">
       <LinearGradient
@@ -323,60 +477,33 @@ export default function AdminAttendanceManagement() {
           <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
             Select Employee
           </Text>
-          <View
-            className={`rounded-xl overflow-hidden ${
-              isDark ? 'bg-gray-800' : 'bg-white'
-            }`}
+          <TouchableOpacity
+            onPress={() => {
+              setShowEmployeePicker(true);
+              setEmployeeSearch('');
+              Keyboard.dismiss();
+            }}
             style={[
               styles.pickerContainer, 
               { 
+                padding: 16,
                 borderWidth: 1, 
                 borderColor: isDark ? '#374151' : '#E5E7EB',
-                backgroundColor: isDark ? '#1F2937' : '#FFFFFF'
+                backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center'
               }
             ]}
           >
-            <Picker
-              selectedValue={selectedEmployee}
-              onValueChange={(value) => setSelectedEmployee(value)}
-              dropdownIconColor={isDark ? '#FFFFFF' : '#000000'}
-              style={{
-                backgroundColor: 'transparent',
-                color: isDark ? '#FFFFFF' : '#000000',
-                height: Platform.OS === 'ios' ? 120 : 50,
-                paddingHorizontal: 12,
-              }}
-              itemStyle={{
-                fontSize: 16,
-                height: Platform.OS === 'ios' ? 120 : 50,
-                color: isDark ? '#FFFFFF' : '#000000',
-                backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-                paddingHorizontal: 12,
-              }}
-            >
-              <Picker.Item 
-                label="👥 All Employees" 
-                value="all"
-                style={{
-                  fontSize: 16,
-                  color: isDark ? '#FFFFFF' : '#000000',
-                  backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-                }}
-              />
-              {employees.map((emp) => (
-                <Picker.Item
-                  key={emp.id}
-                  label={`👤 ${emp.name} (${emp.employee_number})`}
-                  value={emp.id.toString()}
-                  style={{
-                    fontSize: 16,
-                    color: isDark ? '#FFFFFF' : '#000000',
-                    backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-                  }}
-                />
-              ))}
-            </Picker>
-          </View>
+            <Text style={{ color: isDark ? '#FFFFFF' : '#000000' }}>
+              {selectedEmployee === 'all' 
+                ? '👥 All Employees' 
+                : `👤 ${employees.find(e => e.id.toString() === selectedEmployee)?.name || ''} (${employees.find(e => e.id.toString() === selectedEmployee)?.employee_number || ''})`
+              }
+            </Text>
+            <Ionicons name="chevron-down" size={20} color={isDark ? '#FFFFFF' : '#000000'} />
+          </TouchableOpacity>
         </View>
       </LinearGradient>
 
@@ -566,6 +693,19 @@ export default function AdminAttendanceManagement() {
           </View>
         )}
       </ScrollView>
+
+      <EmployeePickerModal
+        show={showEmployeePicker}
+        onClose={() => setShowEmployeePicker(false)}
+        employeeSearch={employeeSearch}
+        setEmployeeSearch={setEmployeeSearch}
+        filteredEmployees={filteredEmployees}
+        isDark={isDark}
+        onSelectEmployee={(value) => {
+          setSelectedEmployee(value.toString());
+        }}
+        selectedEmployeeId={selectedEmployee}
+      />
     </View>
   );
 }

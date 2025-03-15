@@ -81,19 +81,28 @@ router.post('/',
       const { 
         companyName, 
         companyEmail,
-        companyPhone, // Add this
+        companyPhone,
         companyAddress, 
         managementName, 
         managementEmail, 
         managementPhone, 
         managementPassword,
+        managementGender,
         userLimit
       } = req.body;
 
       // Validate required fields
-      if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword) {
+      if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword || !managementGender) {
         return res.status(400).json({ 
           error: 'Missing required fields'
+        });
+      }
+
+      // Validate gender value
+      const validGenders = ['male', 'female', 'other'];
+      if (!validGenders.includes(managementGender.toLowerCase())) {
+        return res.status(400).json({
+          error: 'Invalid gender value'
         });
       }
 
@@ -160,11 +169,12 @@ router.post('/',
           email, 
           phone, 
           password, 
-          role, 
+          role,
+          gender,
           company_id
         )
-        VALUES ($1, $2, $3, $4, 'management', $5)`,
-        [managementName, managementEmail, managementPhone, hashedPassword, companyId]
+        VALUES ($1, $2, $3, $4, 'management', $5, $6)`,
+        [managementName, managementEmail, managementPhone, hashedPassword, managementGender.toLowerCase(), companyId]
       );
 
       await client.query('COMMIT');

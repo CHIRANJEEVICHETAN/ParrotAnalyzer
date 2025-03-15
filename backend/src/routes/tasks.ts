@@ -2,6 +2,7 @@ import express, { Response } from 'express';
 import { pool } from '../config/database';
 import { verifyToken, adminMiddleware } from '../middleware/auth';
 import { CustomRequest } from '../types';
+import axios from 'axios';
 
 const router = express.Router();
 
@@ -234,6 +235,50 @@ router.get('/stats', verifyToken, async (req: CustomRequest, res: Response) => {
   } catch (error) {
     console.error('Error fetching task stats:', error);
     res.status(500).json({ error: 'Failed to fetch task statistics' });
+  } finally {
+    client.release();
+  }
+});
+
+// Group Admin: Update task
+router.patch('/:taskId', verifyToken, adminMiddleware, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { taskId } = req.params;
+    const { assignedTo, dueDate, isReassignment } = req.body;
+
+    // Get the current task details first
+    const currentTask = await client.query(
+      `SELECT * FROM employee_tasks WHERE id = $1`,
+      [taskId]
+    );
+
+    if (currentTask.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Update task
+    const result = await client.query(
+      `UPDATE employee_tasks 
+       SET assigned_to = $1, 
+           due_date = $2,
+           is_reassigned = $3,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4 AND assigned_by = $5
+       RETURNING *`,
+      [assignedTo, dueDate, isReassignment, taskId, req.user?.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found or unauthorized' });
+    }
+
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating task:', error);
+    res.status(500).json({ error: 'Failed to update task' });
   } finally {
     client.release();
   }

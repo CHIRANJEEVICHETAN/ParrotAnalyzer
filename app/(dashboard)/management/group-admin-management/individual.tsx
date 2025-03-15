@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
 import ThemeContext from '../../../context/ThemeContext';
@@ -10,6 +11,7 @@ interface GroupAdminFormData {
   email: string;
   phone: string;
   password: string;
+  gender: string;
 }
 
 interface ValidationErrors {
@@ -34,10 +36,43 @@ export default function IndividualUpload() {
     email: '',
     phone: '',
     password: '',
+    gender: '',
   });
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  const validatePhoneNumber = (phone: string) => {
+    // Remove any non-digit characters and the +91 prefix
+    const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+    
+    // Check if it's exactly 10 digits and starts with 6-9
+    if (!cleanPhone) return true; // Allow empty phone as it's optional
+    if (cleanPhone.length !== 10) return false;
+    return /^[6-9]\d{9}$/.test(cleanPhone);
+  };
+
+  const formatPhoneNumber = (phone: string) => {
+    // Remove any existing +91 prefix and any non-digit characters
+    const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+    // Add the +91 prefix back if there are digits
+    return cleanPhone ? `+91${cleanPhone}` : '';
+  };
+
+  const handlePhoneChange = (text: string) => {
+    // Remove any non-digit characters except the +91 prefix
+    const formattedPhone = formatPhoneNumber(text);
+    setFormData(prev => ({ ...prev, phone: formattedPhone }));
+    
+    // Clear phone error if the field is empty or valid
+    if (!text || validatePhoneNumber(formattedPhone)) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors.phone;
+        return newErrors;
+      });
+    }
+  };
 
   const validateForm = () => {
     const errors: ValidationErrors = {};
@@ -65,9 +100,14 @@ export default function IndividualUpload() {
       errors.password = 'Password must contain uppercase, lowercase and numbers';
     }
 
-    // Phone validation (optional)
-    if (formData.phone && !/^\+?[1-9]\d{9,11}$/.test(formData.phone)) {
-      errors.phone = 'Invalid phone number format';
+    // Gender validation
+    if (!formData.gender) {
+      errors.gender = 'Please select a gender';
+    }
+
+    // Phone validation (if provided)
+    if (formData.phone && !validatePhoneNumber(formData.phone)) {
+      errors.phone = 'Please enter a valid 10-digit Indian mobile number';
     }
 
     return errors;
@@ -106,7 +146,7 @@ export default function IndividualUpload() {
             text: 'OK',
             onPress: () => {
               // Clear form and navigate back
-              setFormData({ name: '', email: '', phone: '', password: '' });
+              setFormData({ name: '', email: '', phone: '', password: '', gender: '' });
               router.back();
             }
           }]
@@ -122,6 +162,13 @@ export default function IndividualUpload() {
         const serverErrors = error.response.data.errors;
         if (serverErrors) {
           setValidationErrors(serverErrors);
+        } else if (error.response.data.error === 'User limit reached') {
+          const details = error.response.data.details;
+          Alert.alert(
+            'User Limit Reached',
+            `${details.message}\n\nCurrent Users: ${details.currentCount}\nUser Limit: ${details.limit}\n\nPlease contact your super admin to increase the user limit.`,
+            [{ text: 'OK' }]
+          );
         } else {
           setApiError(error.response.data.error || 'Invalid input data');
         }
@@ -151,31 +198,114 @@ export default function IndividualUpload() {
         {[
           { label: 'Full Name', key: 'name', placeholder: 'Enter full name' },
           { label: 'Email Address', key: 'email', placeholder: 'Enter email address', keyboardType: 'email-address' },
-          { label: 'Phone Number', key: 'phone', placeholder: 'Enter phone number', keyboardType: 'phone-pad' },
+          { 
+            label: 'Phone Number', 
+            key: 'phone', 
+            placeholder: 'Enter 10-digit number',
+            keyboardType: 'phone-pad',
+            prefix: '+91'
+          },
+          { 
+            label: 'Gender', 
+            key: 'gender', 
+            placeholder: 'Select gender',
+            isDropdown: true,
+            options: [
+              { label: 'Select Gender', value: '' },
+              { label: 'Male', value: 'male' },
+              { label: 'Female', value: 'female' },
+              { label: 'Other', value: 'other' }
+            ]
+          },
           { label: 'Password', key: 'password', placeholder: 'Enter password', secure: true }
         ].map((field) => (
           <View key={field.key} style={styles.fieldContainer}>
             <Text style={[styles.label, { color: theme === 'dark' ? '#D1D5DB' : '#374151' }]}>
               {field.label}
             </Text>
-            <TextInput
-              style={[
+            {field.isDropdown ? (
+              <View style={[
                 styles.input,
                 { 
                   backgroundColor: theme === 'dark' ? '#374151' : '#F9FAFB',
-                  color: theme === 'dark' ? '#F9FAFB' : '#111827',
-                  borderColor: validationErrors[field.key] ? '#EF4444' : (theme === 'dark' ? '#4B5563' : '#D1D5DB')
+                  borderColor: validationErrors[field.key] ? '#EF4444' : (theme === 'dark' ? '#4B5563' : '#D1D5DB'),
+                  padding: 0,
+                  overflow: 'hidden'
                 }
-              ]}
-              placeholder={field.placeholder}
-              placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-              value={formData[field.key as keyof GroupAdminFormData]}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
-              secureTextEntry={field.secure}
-              keyboardType={field.keyboardType as any || 'default'}
-              autoCapitalize={field.key === 'email' ? 'none' : 'words'}
-              autoComplete="off"
-            />
+              ]}>
+                <Picker
+                  selectedValue={formData[field.key as keyof GroupAdminFormData]}
+                  onValueChange={(value: string) => setFormData(prev => ({ ...prev, [field.key]: value }))}
+                  style={{ 
+                    color: theme === 'dark' ? '#F9FAFB' : '#111827',
+                    height: 48,
+                  }}
+                  dropdownIconColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                >
+                  {field.options?.map(option => (
+                    <Picker.Item 
+                      key={option.value} 
+                      label={option.label} 
+                      value={option.value}
+                      color={option.value === '' ? (theme === 'dark' ? '#9CA3AF' : '#6B7280') : undefined}
+                    />
+                  ))}
+                </Picker>
+              </View>
+            ) : field.key === 'phone' ? (
+              <View style={[
+                styles.input,
+                styles.phoneInputContainer,
+                { 
+                  backgroundColor: theme === 'dark' ? '#374151' : '#F9FAFB',
+                  borderColor: validationErrors[field.key] ? '#EF4444' : (theme === 'dark' ? '#4B5563' : '#D1D5DB'),
+                  padding: 0,
+                  paddingLeft: 16
+                }
+              ]}>
+                <Text style={[
+                  styles.phonePrefix,
+                  { color: theme === 'dark' ? '#9CA3AF' : '#6B7280' }
+                ]}>
+                  +91
+                </Text>
+                <TextInput
+                  style={[
+                    styles.phoneInput,
+                    { 
+                      color: theme === 'dark' ? '#F9FAFB' : '#111827',
+                      backgroundColor: 'transparent',
+                      borderWidth: 0,
+                    }
+                  ]}
+                  placeholder="Enter 10-digit number"
+                  placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                  value={formData[field.key].replace(/^\+91/, '')}
+                  onChangeText={(text) => handlePhoneChange(text)}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                />
+              </View>
+            ) : (
+              <TextInput
+                style={[
+                  styles.input,
+                  { 
+                    backgroundColor: theme === 'dark' ? '#374151' : '#F9FAFB',
+                    color: theme === 'dark' ? '#F9FAFB' : '#111827',
+                    borderColor: validationErrors[field.key] ? '#EF4444' : (theme === 'dark' ? '#4B5563' : '#D1D5DB')
+                  }
+                ]}
+                placeholder={field.placeholder}
+                placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                value={formData[field.key as keyof GroupAdminFormData]}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
+                secureTextEntry={field.secure}
+                keyboardType={field.keyboardType as any || 'default'}
+                autoCapitalize={field.key === 'email' ? 'none' : 'words'}
+                autoComplete="off"
+              />
+            )}
             {validationErrors[field.key] && (
               <Text style={styles.errorText}>{validationErrors[field.key]}</Text>
             )}
@@ -231,6 +361,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 16,
     fontSize: 16,
+  },
+  phoneInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  phonePrefix: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginRight: 8,
+  },
+  phoneInput: {
+    flex: 1,
+    height: 48,
+    fontSize: 16,
+    paddingLeft: 0,
   },
   button: {
     backgroundColor: '#3B82F6',

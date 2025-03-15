@@ -8,12 +8,12 @@ backend/node_modules/
 backend/.env
 
 miscellaneous/
-constants/
+# constants/
 
 # cursorUpdates/
 
 .cursor/
-
+.cursorrules
 
 # Expo
 .expo/

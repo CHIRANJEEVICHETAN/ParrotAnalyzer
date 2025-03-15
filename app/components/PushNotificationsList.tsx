@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { router } from "expo-router";
 import { useNotifications } from "../context/NotificationContext";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from "axios";
 import type {
   ExternalPathString,
@@ -38,13 +39,17 @@ interface PushNotificationsListProps {
   onSendNotification?: () => void; // For Group Admin and Management
   showSendButton?: boolean;
   filterType?: string;
+  onMarkAllAsRead?: () => void;
+  unreadCount?: number;
 }
 
-export default function PushNotificationsList({
+const PushNotificationsList = forwardRef(({
   onSendNotification,
   showSendButton = false,
   filterType,
-}: PushNotificationsListProps) {
+  onMarkAllAsRead,
+  unreadCount,
+}: PushNotificationsListProps, ref) => {
   const { user, token } = useAuth();
   const { theme } = ThemeContext.useTheme();
   const isDark = theme === "dark";
@@ -54,7 +59,65 @@ export default function PushNotificationsList({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { decrementUnreadCount, incrementUnreadCount } = useNotifications();
+  const { decrementUnreadCount, incrementUnreadCount, setUnreadCount } = useNotifications();
+
+  // Expose markAllAsRead to parent components
+  useImperativeHandle(ref, () => ({
+    markAllAsRead
+  }));
+
+  const loadReadStatus = useCallback(async (notifs: Notification[]) => {
+    try {
+      const readStatusKey = `${user?.id}_read_notifications`;
+      const storedReadStatus = await AsyncStorage.getItem(readStatusKey);
+      const readNotifications = storedReadStatus ? JSON.parse(storedReadStatus) : {};
+
+      // Update unread count based on stored read status
+      const unreadCount = notifs.filter(n => !readNotifications[n.uniqueId || n.id]).length;
+      setUnreadCount(unreadCount);
+
+      return notifs.map(notification => ({
+        ...notification,
+        read: readNotifications[notification.uniqueId || notification.id] || false
+      }));
+    } catch (error) {
+      console.error('Error loading read status:', error);
+      return notifs;
+    }
+  }, [user?.id, setUnreadCount]);
+
+  const saveReadStatus = useCallback(async (notification: Notification) => {
+    try {
+      const readStatusKey = `${user?.id}_read_notifications`;
+      const storedReadStatus = await AsyncStorage.getItem(readStatusKey);
+      const readNotifications = storedReadStatus ? JSON.parse(storedReadStatus) : {};
+      
+      // Use uniqueId if available, otherwise use id
+      const notificationId = notification.uniqueId || notification.id;
+      readNotifications[notificationId] = true;
+      
+      await AsyncStorage.setItem(readStatusKey, JSON.stringify(readNotifications));
+    } catch (error) {
+      console.error('Error saving read status:', error);
+    }
+  }, [user?.id]);
+
+  const saveReadStatusBulk = useCallback(async (notifications: Notification[]) => {
+    try {
+      const readStatusKey = `${user?.id}_read_notifications`;
+      const storedReadStatus = await AsyncStorage.getItem(readStatusKey);
+      const readNotifications = storedReadStatus ? JSON.parse(storedReadStatus) : {};
+      
+      notifications.forEach(notification => {
+        const notificationId = notification.uniqueId || notification.id;
+        readNotifications[notificationId] = true;
+      });
+      
+      await AsyncStorage.setItem(readStatusKey, JSON.stringify(readNotifications));
+    } catch (error) {
+      console.error('Error saving read status:', error);
+    }
+  }, [user?.id]);
 
   const getNotificationsEndpoint = useCallback(() => {
     const baseUrl = process.env.EXPO_PUBLIC_API_URL;
@@ -113,7 +176,9 @@ export default function PushNotificationsList({
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
 
-      setNotifications(sortedData);
+      // Load read status from AsyncStorage and update notifications
+      const notificationsWithReadStatus = await loadReadStatus(sortedData);
+      setNotifications(notificationsWithReadStatus);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -121,7 +186,7 @@ export default function PushNotificationsList({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [filterType, getNotificationsEndpoint, token]);
+  }, [filterType, getNotificationsEndpoint, token, loadReadStatus]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -132,141 +197,32 @@ export default function PushNotificationsList({
     fetchNotifications();
   }, [fetchNotifications]);
 
-  const markAsRead = async (notificationId: number) => {
+  const markAsRead = async (notification: Notification) => {
     try {
-      if (!user?.id || !token) {
+      if (!user?.id) {
         throw new Error("User not authenticated");
       }
 
-      console.log("[Notification] Marking as read:", {
-        notificationId,
-        userId: user.id,
-        userRole: user.role,
-        source: notifications.find((n) => n.id === notificationId)?.source,
-      });
-
       // Optimistically update the UI
       setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
+        prev.map((n) => (n.id === notification.id ? { ...n, read: true } : n))
       );
       decrementUnreadCount();
 
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL;
-      let endpoint = "";
-
-      // Use role-specific endpoints
-      switch (user.role) {
-        case "employee":
-          endpoint = `${baseUrl}/api/employee-notifications/${notificationId}/read`;
-          break;
-        case "group-admin":
-          endpoint = `${baseUrl}/api/group-admin-notifications/${notificationId}/read`;
-          break;
-        case "management":
-          endpoint = `${baseUrl}/api/management-notifications/${notificationId}/read`;
-          break;
-        default:
-          throw new Error("Invalid user role");
-      }
-
-      console.log("[Notification] Using endpoint:", endpoint);
-
-      const response = await axios.put<{ id: number; read: boolean }>(
-        endpoint,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      console.log("[Notification] Response:", response.data);
-
-      // Verify the response
-      if (!response.data || typeof response.data.read !== "boolean") {
-        throw new Error("Invalid response from server");
-      }
-
-      // Update the notification in state with the server response
-      setNotifications((prev) =>
-        prev.map((n) =>
-          n.id === notificationId ? { ...n, ...response.data } : n
-        )
-      );
+      // Save read status to AsyncStorage
+      await saveReadStatus(notification);
     } catch (err) {
       console.error("[Notification] Error marking as read:", err);
 
       // Revert optimistic update on error
       setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, read: false } : n))
+        prev.map((n) => (n.id === notification.id ? { ...n, read: false } : n))
       );
       incrementUnreadCount();
 
-      let errorMessage = "Failed to mark notification as read";
-      let errorDetails = "";
-      let shouldRefresh = false;
-
-      if (axios.isAxiosError(err)) {
-        console.error("[Notification] Response data:", err.response?.data);
-        console.error("[Notification] Status:", err.response?.status);
-
-        switch (err.response?.status) {
-          case 400:
-            errorMessage = "Invalid notification";
-            errorDetails =
-              err.response.data?.details || "The notification ID is invalid";
-            break;
-          case 401:
-            errorMessage = "Authentication required";
-            errorDetails = "Please log in again";
-            shouldRefresh = true;
-            break;
-          case 403:
-            errorMessage = "Permission denied";
-            errorDetails =
-              err.response.data?.details ||
-              "You don't have permission to mark this notification as read";
-            // Refresh to ensure we have the correct notifications list
-            shouldRefresh = true;
-            break;
-          case 404:
-            errorMessage = "Notification not found";
-            errorDetails =
-              err.response.data?.details ||
-              "The notification could not be found";
-            // Remove the notification from the list
-            setNotifications((prev) =>
-              prev.filter((n) => n.id !== notificationId)
-            );
-            break;
-          case 500:
-            errorMessage = "Server error";
-            errorDetails =
-              err.response.data?.details ||
-              "An error occurred while processing your request";
-            break;
-          default:
-            errorMessage = err.response?.data?.error || err.message;
-            errorDetails = err.response?.data?.details || "";
-        }
-      }
-
       Alert.alert(
-        errorMessage,
-        errorDetails,
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              if (shouldRefresh) {
-                fetchNotifications();
-              }
-            },
-          },
-        ],
-        { cancelable: false }
+        "Error",
+        "Failed to mark notification as read. Please try again."
       );
     }
   };
@@ -275,32 +231,54 @@ export default function PushNotificationsList({
     try {
       // Mark as read if not already read
       if (!notification.read) {
-        await markAsRead(notification.id);
+        await markAsRead(notification);
       }
 
-      // // Handle navigation based on notification type and data
-      // if (notification.data?.screen) {
-      //   const screen = notification.data.screen as string;
-
-      //   // Ensure the screen path starts with a slash and validate it
-      //   const normalizedScreen = screen.startsWith("/") ? screen : `/${screen}`;
-
-      //   console.log("[Navigation] Navigating to screen:", normalizedScreen);
-
-      //   try {
-      //     // Cast to RelativePathString since we know it's a valid internal path
-      //     router.push(normalizedScreen as RelativePathString);
-      //   } catch (navError) {
-      //     console.error("[Navigation] Error:", navError);
-      //     Alert.alert(
-      //       "Navigation Error",
-      //       "Could not navigate to the specified screen. The screen may not exist."
-      //     );
-      //   }
-      // }
+      // Only navigate if there's a screen to navigate to
+      if (notification.data?.screen) {
+        const screen = notification.data.screen as string;
+        const normalizedScreen = screen.startsWith("/") ? screen : `/${screen}`;
+        router.push(normalizedScreen as RelativePathString);
+      }
+      // Don't do anything if there's no screen to navigate to
     } catch (error) {
       console.error("[Notification] Error handling notification press:", error);
       Alert.alert("Error", "Failed to process notification. Please try again.");
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      if (!user?.id) {
+        throw new Error("User not authenticated");
+      }
+
+      const unreadNotifications = notifications.filter(n => !n.read);
+      if (unreadNotifications.length === 0) return;
+
+      // Optimistically update the UI
+      setNotifications(prev =>
+        prev.map(n => ({ ...n, read: true }))
+      );
+      setUnreadCount(0);
+
+      // Save read status to AsyncStorage
+      await saveReadStatusBulk(unreadNotifications);
+
+      // Call the parent's onMarkAllAsRead if provided
+      onMarkAllAsRead?.();
+    } catch (err) {
+      console.error("[Notification] Error marking all as read:", err);
+
+      // Revert optimistic update on error
+      setNotifications(prev =>
+        prev.map(n => ({ ...n, read: false }))
+      );
+      
+      Alert.alert(
+        "Error",
+        "Failed to mark all notifications as read. Please try again."
+      );
     }
   };
 
@@ -423,15 +401,32 @@ export default function PushNotificationsList({
   );
 
   const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case "task":
-        return "clipboard-check-outline";
-      case "reminder":
-        return "clock-outline";
-      case "general":
-        return "information-outline";
+    switch (type.toLowerCase()) {
+      // Employee notification icons
+      case 'task-assignment':
+        return 'clipboard-list-outline';
+      case 'leave-status':
+        return 'calendar-clock';
+      case 'expense-status':
+        return 'receipt';
+      
+      // Group Admin notification icons
+      case 'group':
+        return 'account-group-outline';
+      case 'announcement':
+        return 'bullhorn-outline';
+      
+      // Management notification icons
+      case 'role':
+        return 'shield-account-outline';
+      case 'user':
+        return 'account-outline';
+      
+      // Common notification icons
+      case 'general':
+        return 'information-outline';
       default:
-        return "bell-outline";
+        return 'bell-outline';
     }
   };
 
@@ -471,26 +466,35 @@ export default function PushNotificationsList({
   return (
     <View className="flex-1">
       {showSendButton && onSendNotification && (
-        <Pressable
-          onPress={onSendNotification}
-          className={`m-4 p-4 rounded-lg flex-row justify-center items-center ${
-            isDark ? "bg-blue-600" : "bg-blue-500"
-          }`}
-        >
-          <MaterialCommunityIcons
-            name="send"
-            size={20}
-            color="white"
-            style={{ marginRight: 8 }}
-          />
-          <Text className="text-white font-medium">Send New Notification</Text>
-        </Pressable>
+        <View className="flex-row justify-between items-center mx-4 mb-4">
+          <Pressable
+            onPress={onSendNotification}
+            className={`flex-1 p-4 rounded-lg flex-row justify-center items-center ${
+              isDark ? "bg-blue-600" : "bg-blue-500"
+            }`}
+          >
+            <MaterialCommunityIcons
+              name="send"
+              size={20}
+              color="white"
+              style={{ marginRight: 8 }}
+            />
+            <Text className="text-white font-medium">Send New Notification</Text>
+          </Pressable>
+        </View>
       )}
 
       <FlatList
         data={notifications}
         renderItem={renderNotification}
         keyExtractor={(item) => item.uniqueId || item.id.toString()}
+        contentContainerStyle={{ 
+          flexGrow: 1,
+          paddingBottom: 16,
+          ...(notifications.length === 0 && {
+            justifyContent: 'center',
+          })
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -500,7 +504,7 @@ export default function PushNotificationsList({
           />
         }
         ListEmptyComponent={
-          <View className="flex-1 justify-center items-center p-8">
+          <View className="items-center px-4">
             <MaterialCommunityIcons
               name="bell-off-outline"
               size={48}
@@ -518,4 +522,6 @@ export default function PushNotificationsList({
       />
     </View>
   );
-}
+});
+
+export default PushNotificationsList;

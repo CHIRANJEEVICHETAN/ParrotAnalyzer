@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert, StatusBar } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
 import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
@@ -15,6 +16,7 @@ interface EmployeeFormData {
   department: string;
   designation: string;
   can_submit_expenses_anytime: boolean;
+  gender: string;
 }
 
 interface ValidationErrors {
@@ -28,6 +30,8 @@ interface Field {
   keyboardType?: string;
   prefix?: string;
   secure?: boolean;
+  isDropdown?: boolean;
+  options?: { label: string; value: string }[];
 }
 
 export default function CreateEmployee() {
@@ -45,6 +49,7 @@ export default function CreateEmployee() {
     department: '',
     designation: '',
     can_submit_expenses_anytime: false,
+    gender: '',
   });
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,6 +79,11 @@ export default function CreateEmployee() {
       errors.password = 'Password must be at least 8 characters';
     } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
       errors.password = 'Password must contain uppercase, lowercase and numbers';
+    }
+
+    // Gender validation
+    if (!formData.gender) {
+      errors.gender = 'Please select a gender';
     }
 
     // Phone validation
@@ -120,22 +130,31 @@ export default function CreateEmployee() {
         );
       }
     } catch (error: any) {
-      console.error('Error creating employee:', error.response?.data || error.message);
-      
+      setIsSubmitting(false);
       if (error.response?.status === 409) {
-        setValidationErrors({ email: 'Email already exists' });
+        Alert.alert(
+          'Error',
+          'An employee with this email or employee number already exists.'
+        );
       } else if (error.response?.status === 400) {
-        const serverErrors = error.response.data.errors;
-        if (serverErrors) {
-          setValidationErrors(serverErrors);
+        if (error.response.data.error === 'User limit reached') {
+          const details = error.response.data.details;
+          Alert.alert(
+            'User Limit Reached',
+            `Unable to create employee. Your company has reached its user limit.\n\nCurrent Users: ${details.currentCount}\nUser Limit: ${details.userLimit}\n\nPlease contact your management to increase the user limit.`,
+            [{ text: 'OK' }]
+          );
         } else {
-          setApiError(error.response.data.error || 'Invalid input data');
+          // Handle other validation errors
+          const errors = error.response.data.errors;
+          setValidationErrors(errors || {});
         }
       } else {
-        setApiError('Failed to create employee. Please try again.');
+        Alert.alert(
+          'Error',
+          'An error occurred while creating the employee. Please try again.'
+        );
       }
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -193,6 +212,18 @@ export default function CreateEmployee() {
             },
             { key: 'department', label: 'Department', placeholder: 'Enter department' },
             { key: 'designation', label: 'Designation', placeholder: 'Enter designation' },
+            { 
+              key: 'gender', 
+              label: 'Gender', 
+              placeholder: 'Select gender',
+              isDropdown: true,
+              options: [
+                { label: 'Select Gender', value: '' },
+                { label: 'Male', value: 'male' },
+                { label: 'Female', value: 'female' },
+                { label: 'Other', value: 'other' }
+              ]
+            },
             { key: 'password', label: 'Password', placeholder: 'Enter password', secure: true }
           ].map((field) => (
             <View key={field.key} className="mb-4">
@@ -226,6 +257,45 @@ export default function CreateEmployee() {
                     keyboardType="phone-pad"
                     maxLength={10}
                   />
+                </View>
+              ) : field.isDropdown ? (
+                <View style={[
+                  styles.input,
+                  { 
+                    backgroundColor: isDark ? '#374151' : '#F9FAFB',
+                    padding: 0,
+                    overflow: 'hidden',
+                    borderRadius: 8
+                  }
+                ]}>
+                  <Picker
+                    selectedValue={formData[field.key as keyof EmployeeFormData]}
+                    onValueChange={(value) => {
+                      setFormData(prev => ({ ...prev, [field.key]: value }));
+                      if (validationErrors[field.key]) {
+                        setValidationErrors(prev => ({ ...prev, [field.key]: '' }));
+                      }
+                    }}
+                    style={{ 
+                      color: isDark ? '#F9FAFB' : '#111827',
+                      height: 48,
+                      paddingLeft: 12
+                    }}
+                    dropdownIconColor={isDark ? '#9CA3AF' : '#6B7280'}
+                  >
+                    {field.options?.map(option => (
+                      <Picker.Item 
+                        key={option.value} 
+                        label={option.label} 
+                        value={option.value}
+                        color={option.value === '' ? (isDark ? '#9CA3AF' : '#6B7280') : undefined}
+                        style={{ 
+                          color: isDark ? '#F9FAFB' : '#111827',
+                          paddingLeft: 12
+                        }}
+                      />
+                    ))}
+                  </Picker>
                 </View>
               ) : (
                 <TextInput

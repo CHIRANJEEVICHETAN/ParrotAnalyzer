@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import axios from "axios";
 import { LinearGradient } from 'expo-linear-gradient';
 import { managementNavItems } from "./utils/navigationItems";
 import BottomNav from "../../components/BottomNav";
+import { useNotifications, Notification } from "../../context/NotificationContext";
 
 type NotificationType = "all" | "role" | "user" | "announcement" | "general";
 type NotificationMode = "role" | "user";
@@ -54,6 +55,8 @@ export default function ManagementNotifications() {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const scrollX = useRef(new Animated.Value(0)).current;
   const { width: SCREEN_WIDTH } = Dimensions.get("window");
+  const { unreadCount, notifications } = useNotifications();
+  const listRef = useRef<any>(null);
   const [notificationData, setNotificationData] = useState<NotificationData>({
     title: "",
     message: "",
@@ -87,18 +90,21 @@ export default function ManagementNotifications() {
     };
   }, []);
 
-  const filterTypes = [
-    { id: "all", label: "All", icon: "bell-outline", count: 15 },
-    { id: "role", label: "Role", icon: "account-group-outline", count: 6 },
-    { id: "user", label: "User", icon: "account-outline", count: 4 },
-    {
-      id: "announcement",
-      label: "Announcements",
-      icon: "bullhorn-outline",
-      count: 3,
-    },
-    { id: "general", label: "General", icon: "information-outline", count: 2 },
-  ];
+  const filterTypes = useMemo(() => {
+    // Get counts for each category
+    const roleCount = notifications?.filter((n: Notification) => n.type === 'role' && !n.read).length || 0;
+    const userCount = notifications?.filter((n: Notification) => n.type === 'user' && !n.read).length || 0;
+    const announcementCount = notifications?.filter((n: Notification) => n.type === 'announcement' && !n.read).length || 0;
+    const generalCount = notifications?.filter((n: Notification) => n.type === 'general' && !n.read).length || 0;
+
+    return [
+      { id: "all", label: "All", icon: "bell-outline", count: unreadCount },
+      { id: "role", label: "Role", icon: "shield-account-outline", count: roleCount },
+      { id: "user", label: "User", icon: "account-outline", count: userCount },
+      { id: "announcement", label: "Announcements", icon: "bullhorn-outline", count: announcementCount },
+      { id: "general", label: "General", icon: "information-outline", count: generalCount },
+    ];
+  }, [unreadCount, notifications]);
 
   const roles = [
     { id: "employee", label: "Employees" },
@@ -244,9 +250,8 @@ export default function ManagementNotifications() {
             >
               <View className="flex-row justify-between items-center px-4 py-3 border-b border-gray-200/10">
                 <Text
-                  className={`text-xl font-semibold ${
-                    isDark ? "text-white" : "text-gray-900"
-                  }`}
+                  className={`text-xl font-semibold ${isDark ? "text-white" : "text-gray-900"
+                    }`}
                 >
                   Send Notification
                 </Text>
@@ -279,44 +284,40 @@ export default function ManagementNotifications() {
                   <View className="flex-row mb-4 bg-gray-100/5 p-1 rounded-lg">
                     <Pressable
                       onPress={() => setNotificationMode("role")}
-                      className={`flex-1 py-2.5 rounded-md ${
-                        notificationMode === "role"
+                      className={`flex-1 py-2.5 rounded-md ${notificationMode === "role"
                           ? isDark
                             ? "bg-blue-600"
                             : "bg-blue-500"
                           : "bg-transparent"
-                      }`}
+                        }`}
                     >
                       <Text
-                        className={`text-center font-medium ${
-                          notificationMode === "role"
+                        className={`text-center font-medium ${notificationMode === "role"
                             ? "text-white"
                             : isDark
-                            ? "text-gray-300"
-                            : "text-gray-600"
-                        }`}
+                              ? "text-gray-300"
+                              : "text-gray-600"
+                          }`}
                       >
                         By Role
                       </Text>
                     </Pressable>
                     <Pressable
                       onPress={() => setNotificationMode("user")}
-                      className={`flex-1 py-2.5 rounded-md ${
-                        notificationMode === "user"
+                      className={`flex-1 py-2.5 rounded-md ${notificationMode === "user"
                           ? isDark
                             ? "bg-blue-600"
                             : "bg-blue-500"
                           : "bg-transparent"
-                      }`}
+                        }`}
                     >
                       <Text
-                        className={`text-center font-medium ${
-                          notificationMode === "user"
+                        className={`text-center font-medium ${notificationMode === "user"
                             ? "text-white"
                             : isDark
-                            ? "text-gray-300"
-                            : "text-gray-600"
-                        }`}
+                              ? "text-gray-300"
+                              : "text-gray-600"
+                          }`}
                       >
                         By User
                       </Text>
@@ -327,16 +328,14 @@ export default function ManagementNotifications() {
                   {notificationMode === "role" && (
                     <View className="mb-4">
                       <Text
-                        className={`text-sm font-medium mb-2 ${
-                          isDark ? "text-gray-300" : "text-gray-700"
-                        }`}
+                        className={`text-sm font-medium mb-2 ${isDark ? "text-gray-300" : "text-gray-700"
+                          }`}
                       >
                         Select Role
                       </Text>
                       <View
-                        className={`rounded-lg overflow-hidden ${
-                          isDark ? "bg-gray-800" : "bg-gray-100"
-                        }`}
+                        className={`rounded-lg overflow-hidden ${isDark ? "bg-gray-800" : "bg-gray-100"
+                          }`}
                       >
                         <Picker
                           selectedValue={notificationData.targetRole}
@@ -368,9 +367,8 @@ export default function ManagementNotifications() {
                   {/* Title Input */}
                   <View className="mb-4">
                     <Text
-                      className={`text-sm font-medium mb-2 ${
-                        isDark ? "text-gray-300" : "text-gray-700"
-                      }`}
+                      className={`text-sm font-medium mb-2 ${isDark ? "text-gray-300" : "text-gray-700"
+                        }`}
                     >
                       Title
                     </Text>
@@ -384,11 +382,10 @@ export default function ManagementNotifications() {
                       }
                       placeholder="Notification title"
                       placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                      className={`p-3 rounded-lg ${
-                        isDark
+                      className={`p-3 rounded-lg ${isDark
                           ? "bg-gray-800 text-white"
                           : "bg-gray-100 text-gray-900"
-                      }`}
+                        }`}
                       style={{ height: 50 }}
                       returnKeyType="next"
                       autoCapitalize="sentences"
@@ -398,9 +395,8 @@ export default function ManagementNotifications() {
                   {/* Message Input */}
                   <View className="mb-4">
                     <Text
-                      className={`text-sm font-medium mb-2 ${
-                        isDark ? "text-gray-300" : "text-gray-700"
-                      }`}
+                      className={`text-sm font-medium mb-2 ${isDark ? "text-gray-300" : "text-gray-700"
+                        }`}
                     >
                       Message
                     </Text>
@@ -416,11 +412,10 @@ export default function ManagementNotifications() {
                       placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
                       multiline
                       numberOfLines={4}
-                      className={`p-3 rounded-lg ${
-                        isDark
+                      className={`p-3 rounded-lg ${isDark
                           ? "bg-gray-800 text-white"
                           : "bg-gray-100 text-gray-900"
-                      }`}
+                        }`}
                       style={{
                         height: 100,
                         textAlignVertical: "top",
@@ -432,16 +427,14 @@ export default function ManagementNotifications() {
                   {/* Priority Selection */}
                   <View className="mb-6">
                     <Text
-                      className={`text-sm font-medium mb-2 ${
-                        isDark ? "text-gray-300" : "text-gray-700"
-                      }`}
+                      className={`text-sm font-medium mb-2 ${isDark ? "text-gray-300" : "text-gray-700"
+                        }`}
                     >
                       Priority
                     </Text>
                     <View
-                      className={`rounded-lg overflow-hidden ${
-                        isDark ? "bg-gray-800" : "bg-gray-100"
-                      }`}
+                      className={`rounded-lg overflow-hidden ${isDark ? "bg-gray-800" : "bg-gray-100"
+                        }`}
                     >
                       <Picker
                         selectedValue={notificationData.priority}
@@ -469,15 +462,14 @@ export default function ManagementNotifications() {
                     <Pressable
                       onPress={sendNotification}
                       disabled={isSending}
-                      className={`py-3.5 px-4 rounded-lg flex-row justify-center items-center ${
-                        isDark
+                      className={`py-3.5 px-4 rounded-lg flex-row justify-center items-center ${isDark
                           ? isSending
                             ? "bg-blue-600/70"
                             : "bg-blue-600"
                           : isSending
-                          ? "bg-blue-500/70"
-                          : "bg-blue-500"
-                      } ${isSending ? "opacity-80" : ""}`}
+                            ? "bg-blue-500/70"
+                            : "bg-blue-500"
+                        } ${isSending ? "opacity-80" : ""}`}
                     >
                       {isSending ? (
                         <>
@@ -532,39 +524,73 @@ export default function ManagementNotifications() {
               Platform.OS === "ios"
                 ? 60
                 : StatusBar.currentHeight
-                ? StatusBar.currentHeight + 20
-                : 40,
+                  ? StatusBar.currentHeight + 20
+                  : 40,
           }}
         >
           <View className="px-6 mb-6">
             <View className="flex-row items-center mb-1">
               <TouchableOpacity
                 onPress={() => router.back()}
-                className={`w-8 h-8 rounded-full items-center justify-center mr-3 ${
-                  isDark ? "bg-gray-800/80" : "bg-gray-100"
-                }`}
+                className={`w-12 h-12 rounded-full items-center justify-center ${isDark ? "bg-gray-800/80" : "bg-gray-100"}`}
               >
                 <MaterialCommunityIcons
                   name="arrow-left"
-                  size={20}
+                  size={28}
                   color={isDark ? "#E5E7EB" : "#374151"}
                 />
               </TouchableOpacity>
-              <Text
-                className={`text-2xl font-bold ${
-                  isDark ? "text-white" : "text-gray-900"
-                }`}
-              >
-                Notifications
-              </Text>
+              <View className="flex-1 flex-row justify-between items-center">
+                <View>
+                  <Text
+                    className={`text-2xl font-bold ${isDark ? "text-white" : "text-gray-900"
+                      }`}
+                  >
+                    Notifications {unreadCount > 0 && (
+                      <Text className={`text-sm ${isDark ? "text-blue-400" : "text-blue-500"}`}>
+                        ({unreadCount})
+                      </Text>
+                    )}
+                  </Text>
+                  <Text
+                    className={`text-sm mt-1 ${isDark ? "text-gray-400" : "text-gray-600"
+                      }`}
+                  >
+                    Stay updated with your activities
+                  </Text>
+                </View>
+                {unreadCount > 0 && (
+                  <Pressable
+                    onPress={() => {
+                      if (unreadCount > 0) {
+                        Alert.alert(
+                          "Mark All as Read",
+                          "Are you sure you want to mark all notifications as read?",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Mark All",
+                              onPress: () => {
+                                if (listRef.current) {
+                                  listRef.current.markAllAsRead();
+                                }
+                              },
+                            },
+                          ]
+                        );
+                      }
+                    }}
+                    className={`py-2 px-4 rounded-lg ${isDark ? "bg-blue-600" : "bg-blue-500"
+                      }`}
+                    style={styles.markAllButton}
+                  >
+                    <Text className="text-white font-medium text-sm">
+                      Mark all as read
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
-            <Text
-              className={`text-sm mt-1 ${
-                isDark ? "text-gray-400" : "text-gray-600"
-              } ml-11`}
-            >
-              Manage system notifications
-            </Text>
           </View>
 
           {/* Tabs integrated in header */}
@@ -579,15 +605,14 @@ export default function ManagementNotifications() {
               <Pressable
                 key={type.id}
                 onPress={() => handleTypeChange(type.id as NotificationType)}
-                className={`py-2.5 px-4 rounded-2xl flex-row items-center ${
-                  selectedType === type.id
+                className={`py-2.5 px-4 rounded-2xl flex-row items-center ${selectedType === type.id
                     ? isDark
                       ? "bg-blue-500/90 border border-blue-400/30"
                       : "bg-blue-500 border border-blue-600/20"
                     : isDark
-                    ? "bg-gray-800/40 border border-gray-700"
-                    : "bg-gray-50 border border-gray-200"
-                }`}
+                      ? "bg-gray-800/40 border border-gray-700"
+                      : "bg-gray-50 border border-gray-200"
+                  }`}
                 style={[
                   styles.tabButton,
                   selectedType === type.id && styles.activeTabButton,
@@ -597,6 +622,7 @@ export default function ManagementNotifications() {
                         scale: selectedType === type.id ? 1 : 0.98,
                       },
                     ],
+                    marginRight: index === filterTypes.length - 1 ? 10 : 0,
                   },
                 ]}
               >
@@ -607,40 +633,37 @@ export default function ManagementNotifications() {
                     selectedType === type.id
                       ? "#FFFFFF"
                       : isDark
-                      ? "#94A3B8"
-                      : "#64748B"
+                        ? "#94A3B8"
+                        : "#64748B"
                   }
                   style={{ marginRight: 8 }}
                 />
                 <Text
-                  className={`text-sm font-medium ${
-                    selectedType === type.id
+                  className={`text-sm font-medium ${selectedType === type.id
                       ? "text-white"
                       : isDark
-                      ? "text-gray-300"
-                      : "text-gray-700"
-                  }`}
+                        ? "text-gray-300"
+                        : "text-gray-700"
+                    }`}
                 >
                   {type.label}
                 </Text>
                 {type.count > 0 && (
                   <View
-                    className={`ml-2 px-2 py-0.5 rounded-full ${
-                      selectedType === type.id
+                    className={`ml-2 px-2 py-0.5 rounded-full ${selectedType === type.id
                         ? "bg-white/20 border border-white/10"
                         : isDark
-                        ? "bg-gray-900/60 border border-gray-700"
-                        : "bg-white border border-gray-200"
-                    }`}
+                          ? "bg-gray-900/60 border border-gray-700"
+                          : "bg-white border border-gray-200"
+                      }`}
                   >
                     <Text
-                      className={`text-xs font-medium ${
-                        selectedType === type.id
+                      className={`text-xs font-medium ${selectedType === type.id
                           ? "text-white/90"
                           : isDark
-                          ? "text-gray-300"
-                          : "text-gray-600"
-                      }`}
+                            ? "text-gray-300"
+                            : "text-gray-600"
+                        }`}
                     >
                       {type.count}
                     </Text>
@@ -675,16 +698,20 @@ export default function ManagementNotifications() {
                 color={isDark ? "#60A5FA" : "#3B82F6"}
               />
               <Text
-                className={`mt-4 text-sm ${
-                  isDark ? "text-gray-400" : "text-gray-600"
-                }`}
+                className={`mt-4 text-sm ${isDark ? "text-gray-400" : "text-gray-600"
+                  }`}
               >
                 Loading notifications...
               </Text>
             </View>
           ) : (
             <PushNotificationsList
+              ref={listRef}
               filterType={selectedType === "all" ? undefined : selectedType}
+              unreadCount={unreadCount}
+              onMarkAllAsRead={() => {
+                handleTypeChange(selectedType);
+              }}
               showSendButton={true}
               onSendNotification={() => setShowSendModal(true)}
             />
@@ -728,4 +755,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
+  markAllButton: {
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
+  }
 });

@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { Alert } from 'react-native';
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import { Alert } from "react-native";
 import PushNotificationService from "../utils/pushNotificationService";
 
 type UserRole = "employee" | "group-admin" | "management" | "super-admin";
@@ -132,23 +132,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(userData);
 
       // Register device for push notifications
-      try {
-        const notificationResponse =
-          await PushNotificationService.registerForPushNotifications();
-        if (notificationResponse.success && notificationResponse.token) {
-          await PushNotificationService.registerDeviceWithBackend(
-            userData.id.toString(),
-            notificationResponse.token,
-            newToken,
-            userData.role
+      if (userData.role !== "super-admin") {
+        try {
+          const notificationResponse =
+            await PushNotificationService.registerForPushNotifications();
+          if (notificationResponse.success && notificationResponse.token) {
+            await PushNotificationService.registerDeviceWithBackend(
+              userData.id.toString(),
+              notificationResponse.token,
+              newToken,
+              userData.role
+            );
+          }
+        } catch (notificationError) {
+          console.error(
+            "Error registering for push notifications:",
+            notificationError
           );
+          // Don't block login if push notification registration fails
         }
-      } catch (notificationError) {
-        console.error(
-          "Error registering for push notifications:",
-          notificationError
-        );
-        // Don't block login if push notification registration fails
       }
 
       // Navigate based on user role
@@ -199,25 +201,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      // Get the current device token
-      const deviceToken = await PushNotificationService.getCurrentToken();
+      if (user?.role !== "super-admin") {
+        // Get the current device token
+        const deviceToken = await PushNotificationService.getCurrentToken();
 
-      if (deviceToken) {
-        // Deactivate the device token
-        try {
-          const baseUrl = process.env.EXPO_PUBLIC_API_URL;
-          const endpoint = `${baseUrl}/api/${
-            user?.role || "employee"
-          }-notifications/unregister-device`;
+        if (deviceToken) {
+          // Deactivate the device token
+          try {
+            const baseUrl = process.env.EXPO_PUBLIC_API_URL;
+            const endpoint = `${baseUrl}/api/${
+              user?.role || "employee"
+            }-notifications/unregister-device`;
 
-          await axios.delete(endpoint, {
-            data: { token: deviceToken },
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-        } catch (error) {
-          console.error("Error deactivating device token:", error);
+            await axios.delete(endpoint, {
+              data: { token: deviceToken },
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+          } catch (error) {
+            console.error("Error deactivating device token:", error);
+          }
         }
       }
 
@@ -322,7 +326,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 }

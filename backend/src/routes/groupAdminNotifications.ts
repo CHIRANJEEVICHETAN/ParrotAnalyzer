@@ -281,46 +281,6 @@ router.post("/test", async (req: CustomRequest, res: Response) => {
   }
 });
 
-// Send notification for expense approval/rejection
-router.post("/notify-expense-status", async (req: CustomRequest, res: Response) => {
-  try {
-    const { employeeId, status, expenseDetails, reason } = req.body;
-
-    if (!employeeId || !status || !expenseDetails) {
-      return res.status(400).json({ error: "Missing required parameters" });
-    }
-
-    const title = `💰 Expense Report ${status === 'approved' ? 'Approved' : 'Rejected'}`;
-    const message = `Your expense report has been ${status}.\n\n` +
-      `📊 Details:\n` +
-      `💵 Amount: ₹${expenseDetails.amount}\n` +
-      `🗓️ Date: ${expenseDetails.date}\n` +
-      `🚗 Travel: ${expenseDetails.kilometers}km\n` +
-      `📍 Route: ${expenseDetails.route}\n` +
-      (reason ? `\n📝 Reason: ${reason}` : '');
-
-    await NotificationService.sendPushNotification(
-      {
-        id: 0,
-        user_id: employeeId.toString(),
-        title,
-        message,
-        type: "expense-status",
-        priority: "high",
-        data: { screen: "/(dashboard)/employee/expenses" },
-      },
-      [employeeId.toString()]
-    );
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Error sending expense status notification:", error);
-    res.status(500).json({
-      error: "Failed to send notification",
-      details: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
 
 // Send notification for task assignment
 router.post("/notify-task-assignment", async (req: CustomRequest, res: Response) => {
@@ -331,12 +291,20 @@ router.post("/notify-task-assignment", async (req: CustomRequest, res: Response)
       return res.status(400).json({ error: "Missing required parameters" });
     }
 
-    const title = `📋 New Task Assigned`;
-    const message = `You have been assigned a new task.\n\n` +
+    // Determine if this is a reassignment
+    const isReassignment = taskDetails.isReassignment;
+    const titlePrefix = isReassignment ? '🔄 Task Reassigned' : '📋 New Task Assigned';
+    
+    // Use formatted due date if provided, otherwise format it
+    const dueDateDisplay = taskDetails.formattedDueDate || 
+      (taskDetails.dueDate ? new Date(taskDetails.dueDate).toLocaleDateString() : 'Not set');
+    
+    const title = titlePrefix;
+    const message = `${isReassignment ? 'You have been reassigned a task' : 'You have been assigned a new task'}.\n\n` +
       `📌 Task: ${taskDetails.title}\n` +
       `📝 Description: ${taskDetails.description}\n` +
       `⚡ Priority: ${taskDetails.priority.toUpperCase()}\n` +
-      `📅 Due Date: ${taskDetails.due_date ? new Date(taskDetails.due_date).toLocaleDateString() : 'Not set'}\n` +
+      `📅 Due Date: ${dueDateDisplay}\n` +
       `\n🔔 Please review and start working on this task.`;
 
     await NotificationService.sendPushNotification(
@@ -347,7 +315,11 @@ router.post("/notify-task-assignment", async (req: CustomRequest, res: Response)
         message,
         type: "task-assignment",
         priority: "high",
-        data: { screen: "/(dashboard)/employee/tasks" },
+        data: { 
+          screen: "/(dashboard)/employee/employee",
+          isReassignment,
+          taskId: taskDetails.taskId
+        },
       },
       [employeeId.toString()]
     );

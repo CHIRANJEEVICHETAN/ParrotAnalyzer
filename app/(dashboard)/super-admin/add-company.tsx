@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, StyleSheet, Platform, StatusBar as RNStatusBar, Image } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,6 +20,7 @@ interface CompanyFormData {
   managementEmail: string;
   managementPhone: string;
   managementPassword: string;
+  managementGender: string;
   userLimit: string;
 }
 
@@ -32,6 +34,8 @@ interface FormField {
   secure?: boolean;
   isImage?: boolean;
   prefix?: string;
+  isDropdown?: boolean;
+  options?: { label: string; value: string }[];
 }
 
 const formatPhoneNumber = (phone: string) => {
@@ -56,6 +60,7 @@ export default function AddCompany() {
     managementEmail: '',
     managementPhone: '',
     managementPassword: '',
+    managementGender: '',
     userLimit: '',
   });
 
@@ -119,6 +124,9 @@ export default function AddCompany() {
     }
     if (!formData.managementPassword || formData.managementPassword.length < 8) {
       newErrors.managementPassword = 'Password must be at least 8 characters';
+    }
+    if (!formData.managementGender) {
+      newErrors.managementGender = 'Please select a gender';
     }
     if (!formData.userLimit) newErrors.userLimit = 'User limit is required';
 
@@ -298,6 +306,20 @@ export default function AddCompany() {
           placeholder: 'management@example.com'
         },
         {
+          key: 'managementGender',
+          label: 'Management Gender',
+          icon: 'person',
+          keyboardType: 'default',
+          placeholder: 'Select gender',
+          isDropdown: true,
+          options: [
+            { label: 'Select Gender', value: '' },
+            { label: 'Male', value: 'male' },
+            { label: 'Female', value: 'female' },
+            { label: 'Other', value: 'other' }
+          ]
+        },
+        {
           key: 'managementPhone',
           label: 'Management Phone',
           icon: 'call',
@@ -310,7 +332,7 @@ export default function AddCompany() {
           label: 'Management Password',
           icon: 'lock-closed',
           keyboardType: 'default',
-          secure: true,
+          secure: false,
           placeholder: 'Enter password'
         }
       ]
@@ -392,6 +414,97 @@ export default function AddCompany() {
                           />
                         )}
                       </TouchableOpacity>
+                    ) : field.key === 'managementGender' ? (
+                      <View className={`rounded-lg ${errors[field.key] ? 'border-2 border-red-500' : 'border border-gray-200'}`} 
+                        style={[
+                          styles.inputContainer,
+                          styles.dropdownContainer,
+                          { backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF' }
+                        ]}
+                      >
+                        <View className="flex-row items-center flex-1">
+                          <View className="absolute left-4 z-10 h-full justify-center">
+                            <Ionicons
+                              name={field.icon as keyof typeof Ionicons.glyphMap}
+                              size={20}
+                              color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                            />
+                          </View>
+                          
+                          <View className="absolute right-4 z-10 h-full justify-center">
+                            {Platform.OS === 'ios' && (
+                              <Ionicons
+                                name="chevron-down-outline"
+                                size={20}
+                                color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                              />
+                            )}
+                          </View>
+                         
+                          <Picker
+                            selectedValue={formData[field.key]}
+                            onValueChange={(value) => setFormData(prev => ({ ...prev, [field.key]: value }))}
+                            style={[
+                              styles.picker,
+                              {
+                                color: theme === 'dark' ? '#FFFFFF' : '#000000',
+                              },
+                              Platform.OS === 'android' && { marginRight: 0 }
+                            ]}
+                            dropdownIconColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                          >
+                            <Picker.Item 
+                              label="Select Gender" 
+                              value="" 
+                              color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                            />
+                            <Picker.Item 
+                              label="Male" 
+                              value="male" 
+                              color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                            />
+                            <Picker.Item 
+                              label="Female" 
+                              value="female" 
+                              color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                            />
+                            <Picker.Item 
+                              label="Other" 
+                              value="other" 
+                              color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                            />
+                          </Picker>
+                        </View>
+                      </View>
+                    ) : field.prefix ? (
+                      <View className="relative">
+                        <View className="absolute left-4 top-4 z-10">
+                          <Ionicons
+                            name={field.icon as keyof typeof Ionicons.glyphMap}
+                            size={20}
+                            color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                          />
+                        </View>
+                        <View className="flex-row items-center flex-1">
+                          <Text className={`absolute left-12 z-10 ${
+                            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                          }`}>
+                            {field.prefix}
+                          </Text>
+                          <TextInput
+                            value={formData[field.key as keyof CompanyFormData]?.replace(/^\+91/, '')}
+                            onChangeText={(text) => handlePhoneChange(text, field.key)}
+                            className={`w-full pl-20 p-4 rounded-lg ${
+                              theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+                            } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
+                            style={[styles.inputContainer, { flex: 1 }]}
+                            placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                            placeholder={field.placeholder}
+                            keyboardType="phone-pad"
+                            maxLength={10}
+                          />
+                        </View>
+                      </View>
                     ) : (
                       <View className="relative">
                         <View className="absolute left-4 top-4 z-10">
@@ -401,45 +514,23 @@ export default function AddCompany() {
                             color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
                           />
                         </View>
-                        {field.prefix ? (
-                          <View className="flex-row items-center flex-1">
-                            <Text className={`absolute left-12 z-10 ${
-                              theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                            }`}>
-                              {field.prefix}
-                            </Text>
-                            <TextInput
-                              value={formData[field.key as keyof CompanyFormData]?.replace(/^\+91/, '')}
-                              onChangeText={(text) => handlePhoneChange(text, field.key)}
-                              className={`w-full pl-20 p-4 rounded-lg ${
-                                theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-                              } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
-                              style={[styles.inputContainer, { flex: 1 }]}
-                              placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                              placeholder={field.placeholder}
-                              keyboardType="phone-pad"
-                              maxLength={10}
-                            />
-                          </View>
-                        ) : (
-                          <TextInput
-                            value={formData[field.key as keyof CompanyFormData]}
-                            onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
-                            className={`pl-12 p-4 rounded-lg ${
-                              theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
-                            } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
-                            style={[
-                              styles.inputContainer,
-                              field.multiline && { height: 100, textAlignVertical: 'top' }
-                            ]}
-                            placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                            placeholder={field.placeholder}
-                            secureTextEntry={field.secure}
-                            keyboardType={field.keyboardType as any}
-                            multiline={field.multiline}
-                            numberOfLines={field.multiline ? 4 : 1}
-                          />
-                        )}
+                        <TextInput
+                          value={formData[field.key as keyof CompanyFormData]}
+                          onChangeText={(text) => setFormData(prev => ({ ...prev, [field.key]: text }))}
+                          className={`pl-12 p-4 rounded-lg ${
+                            theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+                          } ${errors[field.key as keyof CompanyFormData] ? 'border-2 border-red-500' : 'border border-gray-200'}`}
+                          style={[
+                            styles.inputContainer,
+                            field.multiline && { height: 100, textAlignVertical: 'top' }
+                          ]}
+                          placeholderTextColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                          placeholder={field.placeholder}
+                          secureTextEntry={field.secure}
+                          keyboardType={field.keyboardType as any}
+                          multiline={field.multiline}
+                          numberOfLines={field.multiline ? 4 : 1}
+                        />
                       </View>
                     )}
                     {errors[field.key as keyof CompanyFormData] && (
@@ -484,6 +575,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 1,
+  },
+  dropdownContainer: {
+    height: 50,
+    justifyContent: 'center',
+  },
+  picker: {
+    flex: 1,
+    height: 50,
+    marginLeft: 40,
+    marginRight: 40,
   },
   submitButton: {
     shadowColor: '#3B82F6',

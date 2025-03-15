@@ -7,6 +7,11 @@ import multer from 'multer';
 import { parse } from 'csv-parse/sync';
 import { format } from 'date-fns';
 
+type ParsedCSV = string[][];
+interface CSVHeaders {
+  [key: string]: number;
+}
+
 const upload = multer();
 const router = express.Router();
 
@@ -65,12 +70,13 @@ router.post('/employees', verifyToken, async (req: CustomRequest, res: Response)
       phone, 
       password, 
       department, 
-      designation, 
+      designation,
+      gender,
       can_submit_expenses_anytime 
     } = req.body;
 
     // Validate required fields
-    if (!name || !email || !password || !employeeNumber || !department) {
+    if (!name || !email || !password || !employeeNumber || !department || !gender) {
       return res.status(400).json({ 
         error: 'Missing required fields',
         errors: {
@@ -78,14 +84,26 @@ router.post('/employees', verifyToken, async (req: CustomRequest, res: Response)
           employeeNumber: !employeeNumber ? 'Employee number is required' : null,
           email: !email ? 'Email is required' : null,
           password: !password ? 'Password is required' : null,
-          department: !department ? 'Department is required' : null
+          department: !department ? 'Department is required' : null,
+          gender: !gender ? 'Gender is required' : null
+        }
+      });
+    }
+
+    // Validate gender value
+    const validGenders = ['male', 'female', 'other'];
+    if (!validGenders.includes(gender.toLowerCase())) {
+      return res.status(400).json({
+        error: 'Invalid gender value',
+        errors: {
+          gender: 'Gender must be male, female, or other'
         }
       });
     }
 
     await client.query('BEGIN');
 
-    // Get group admin's company_id
+    // Get group admin's company_id and management_id
     const groupAdminResult = await client.query(
       'SELECT company_id FROM users WHERE id = $1',
       [req.user.id]
@@ -96,6 +114,32 @@ router.post('/employees', verifyToken, async (req: CustomRequest, res: Response)
     }
 
     const company_id = groupAdminResult.rows[0].company_id;
+
+    // Check user limit before proceeding
+    const userLimitCheck = await checkUserLimit(client, company_id);
+    if (!userLimitCheck.canAddUsers) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'User limit reached',
+        details: {
+          message: `Cannot create new employee. Your company has reached its user limit.`,
+          currentCount: userLimitCheck.currentUserCount,
+          userLimit: userLimitCheck.userLimit
+        }
+      });
+    }
+
+    // Get management_id for the company
+    const managementResult = await client.query(
+      'SELECT id FROM users WHERE company_id = $1 AND role = $2',
+      [company_id, 'management']
+    );
+
+    if (!managementResult.rows.length) {
+      throw new Error('Management user not found for company');
+    }
+
+    const management_id = managementResult.rows[0].id;
 
     // Check if email or employee number exists
     const existingUser = await client.query(
@@ -125,11 +169,13 @@ router.post('/employees', verifyToken, async (req: CustomRequest, res: Response)
         role, 
         department,
         designation,
+        gender,
         group_admin_id,
-        company_id, 
+        company_id,
+        management_id,
         can_submit_expenses_anytime
-      ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9, $10)
-      RETURNING id, name, employee_number, email, phone, department, designation, created_at, can_submit_expenses_anytime`,
+      ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id, name, employee_number, email, phone, department, designation, gender, created_at, can_submit_expenses_anytime`,
       [
         name,
         employeeNumber,
@@ -138,8 +184,10 @@ router.post('/employees', verifyToken, async (req: CustomRequest, res: Response)
         hashedPassword,
         department,
         designation || null,
+        gender.toLowerCase(),
         req.user.id,
         company_id,
+        management_id,
         can_submit_expenses_anytime || false
       ]
     );
@@ -175,60 +223,125 @@ router.post('/employees/bulk', verifyToken, upload.single('file'), async (req: C
       [req.user.id]
     );
 
+    if (!groupAdminResult.rows.length || !groupAdminResult.rows[0].company_id) {
+      throw new Error('Group admin company not found');
+    }
+
     const company_id = groupAdminResult.rows[0].company_id;
 
-    // Parse CSV
+    // Get management_id for the company
+    const managementResult = await client.query(
+      'SELECT id FROM users WHERE company_id = $1 AND role = $2',
+      [company_id, 'management']
+    );
+
+    if (!managementResult.rows.length) {
+      throw new Error('Management user not found for company');
+    }
+
+    const management_id = managementResult.rows[0].id;
+
     const fileContent = req.file.buffer.toString();
-    const parsedRows = parse(fileContent, {
+    const parsedRows: ParsedCSV = parse(fileContent, {
       skip_empty_lines: true,
       trim: true
     });
 
-    const headers: { [key: string]: number } = {};
-    parsedRows[0].forEach((header: string, index: number) => {
+    if (parsedRows.length < 2) {
+      return res.status(400).json({ error: 'File is empty or missing headers' });
+    }
+
+    // Check user limit before processing CSV
+    const validRowCount = parsedRows.length - 1; // Subtract header row
+    const userLimitCheck = await checkUserLimit(client, company_id, validRowCount);
+    if (!userLimitCheck.canAddUsers) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'User limit exceeded',
+        details: {
+          message: `Cannot create new employees. Your company has reached its user limit.`,
+          currentCount: userLimitCheck.currentUserCount,
+          userLimit: userLimitCheck.userLimit,
+          remainingSlots: userLimitCheck.remainingSlots,
+          attemptedToAdd: validRowCount
+        }
+      });
+    }
+
+    const headerRow = parsedRows[0];
+    const headers: CSVHeaders = {};
+    headerRow.forEach((header: string, index: number) => {
       headers[header.toLowerCase()] = index;
     });
 
+    // Validate required headers
+    const requiredHeaders = ['name', 'employee_number', 'email', 'password', 'department', 'gender'];
+    const missingHeaders = requiredHeaders.filter(header => !headers.hasOwnProperty(header));
+    if (missingHeaders.length > 0) {
+      return res.status(400).json({
+        error: 'Missing required columns',
+        details: `Missing columns: ${missingHeaders.join(', ')}`
+      });
+    }
+
     const results = [];
     const errors = [];
+    const validGenders = ['male', 'female', 'other'];
 
-    // Process each row (skip header)
     for (let i = 1; i < parsedRows.length; i++) {
       const row = parsedRows[i];
       try {
         const employee = {
           name: row[headers['name']]?.trim(),
+          employee_number: row[headers['employee_number']]?.trim(),
           email: row[headers['email']]?.trim(),
           phone: row[headers['phone']]?.trim(),
           password: row[headers['password']]?.trim(),
-          employee_number: row[headers['employee_number']]?.trim(),
           department: row[headers['department']]?.trim(),
           designation: row[headers['designation']]?.trim(),
-          can_submit_expenses_anytime: row[headers['can_submit_expenses_anytime']]?.trim().toLowerCase() === 'true'
+          gender: row[headers['gender']]?.trim().toLowerCase(),
+          can_submit_expenses_anytime: row[headers['can_submit_expenses_anytime']]?.toLowerCase() === 'true'
         };
 
         // Validate required fields
-        if (!employee.name || !employee.email || !employee.password || !employee.employee_number || !employee.department) {
-          errors.push({ row: i + 1, error: 'Missing required fields' });
+        if (!employee.name || !employee.employee_number || !employee.email || 
+            !employee.password || !employee.department || !employee.gender) {
+          errors.push({ 
+            row: i + 1, 
+            error: 'Missing required fields',
+            email: employee.email
+          });
           continue;
         }
 
-        // Check if email or employee number exists
+        // Validate gender
+        if (!validGenders.includes(employee.gender)) {
+          errors.push({ 
+            row: i + 1, 
+            error: 'Invalid gender value. Must be male, female, or other',
+            email: employee.email
+          });
+          continue;
+        }
+
+        // Check for duplicate email or employee number
         const existingUser = await client.query(
           'SELECT id FROM users WHERE email = $1 OR employee_number = $2',
           [employee.email, employee.employee_number]
         );
 
         if (existingUser.rows.length > 0) {
-          errors.push({ row: i + 1, error: 'Email or Employee Number already exists' });
+          errors.push({ 
+            row: i + 1, 
+            error: 'Email or Employee Number already exists',
+            email: employee.email
+          });
           continue;
         }
 
-        // Hash password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(employee.password, salt);
 
-        // Create employee
         const result = await client.query(
           `INSERT INTO users (
             name, 
@@ -239,33 +352,53 @@ router.post('/employees/bulk', verifyToken, upload.single('file'), async (req: C
             role, 
             department,
             designation,
+            gender,
             group_admin_id,
-            company_id, 
+            company_id,
+            management_id,
             can_submit_expenses_anytime
-          ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9, $10)
-          RETURNING id, name, employee_number, email, phone, department, designation`,
+          ) VALUES ($1, $2, $3, $4, $5, 'employee', $6, $7, $8, $9, $10, $11, $12)
+          RETURNING id, name, employee_number, email`,
           [
             employee.name,
             employee.employee_number,
             employee.email,
-            employee.phone,
+            employee.phone || null,
             hashedPassword,
             employee.department,
-            employee.designation,
+            employee.designation || null,
+            employee.gender,
             req.user.id,
             company_id,
+            management_id,
             employee.can_submit_expenses_anytime
           ]
         );
 
         results.push(result.rows[0]);
       } catch (error) {
-        errors.push({ row: i + 1, error: 'Failed to create employee' });
+        console.error(`Error processing row ${i + 1}:`, error);
+        errors.push({ 
+          row: i + 1, 
+          error: 'Failed to create employee',
+          email: row[headers['email']]?.trim()
+        });
       }
     }
 
-    await client.query('COMMIT');
-    res.status(201).json({ success: results, errors });
+    if (results.length > 0) {
+      await client.query('COMMIT');
+      res.status(201).json({ 
+        success: results, 
+        errors: errors.length > 0 ? errors : undefined 
+      });
+    } else {
+      await client.query('ROLLBACK');
+      res.status(400).json({ 
+        error: 'No employees were created',
+        errors 
+      });
+    }
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error in bulk create:', error);
@@ -752,5 +885,38 @@ router.get('/shifts/recent', verifyToken, async (req: CustomRequest, res: Respon
     client.release();
   }
 });
+
+// Helper function to check user limit
+async function checkUserLimit(client: any, companyId: number, newUsersCount: number = 1) {
+  // Get company details including user limit
+  const companyResult = await client.query(
+    `SELECT name, user_limit FROM companies WHERE id = $1`,
+    [companyId]
+  );
+
+  if (!companyResult.rows.length) {
+    throw new Error('Company not found');
+  }
+
+  const company = companyResult.rows[0];
+
+  // Get current user count for the company (excluding management users)
+  const userCountResult = await client.query(
+    `SELECT COUNT(*) as count FROM users 
+     WHERE company_id = $1 AND role IN ('group-admin', 'employee')`,
+    [companyId]
+  );
+
+  const currentUserCount = parseInt(userCountResult.rows[0].count);
+  const userLimit = parseInt(company.user_limit);
+
+  return {
+    canAddUsers: currentUserCount + newUsersCount <= userLimit,
+    currentUserCount,
+    userLimit,
+    companyName: company.name,
+    remainingSlots: userLimit - currentUserCount
+  };
+}
 
 export default router; 

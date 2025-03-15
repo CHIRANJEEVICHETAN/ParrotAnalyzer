@@ -155,7 +155,7 @@ export default function CreateUser() {
                                     color={theme === 'dark' ? '#9CA3AF' : '#6B7280'} 
                                 />
                                 <TextInput
-                                    value={formData[field.key]}
+                                    value={formData[field.key as keyof typeof formData]}
                                     onChangeText={(text) => {
                                         setFormData({ ...formData, [field.key]: text });
                                         if (errors[field.key]) {

@@ -78,7 +78,7 @@ const createNotification = async (
         type: "expense-status",
         priority: "high",
         data: {
-          screen: "/(dashboard)/employee/expenses",
+          screen: "/(dashboard)/employee/myExpenses",
           expenseId: expenseDetails.id,
           status: type === "approval" ? "approved" : "rejected",
           amount: expenseDetails.total_amount,
