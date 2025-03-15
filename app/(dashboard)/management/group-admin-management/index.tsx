@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TextInput, StyleSheet, Alert, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TextInput, StyleSheet, Alert, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
 import { Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,6 +21,7 @@ export default function GroupAdminsList() {
 
   const [groupAdmins, setGroupAdmins] = useState<GroupAdmin[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -39,6 +40,15 @@ export default function GroupAdminsList() {
       Alert.alert('Error', 'Unable to fetch group admins');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchGroupAdmins();
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -100,6 +110,15 @@ export default function GroupAdminsList() {
       <ScrollView 
         className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme === 'dark' ? '#60A5FA' : '#3B82F6'}
+            colors={[theme === 'dark' ? '#60A5FA' : '#3B82F6']}
+            progressBackgroundColor={theme === 'dark' ? '#374151' : '#F3F4F6'}
+          />
+        }
       >
         <View className="p-6">
           <View className="mt-4">

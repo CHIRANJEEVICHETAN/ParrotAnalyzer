@@ -10,15 +10,18 @@ import {
   Platform,
   StatusBar,
   StyleSheet,
+  Alert,
+  TouchableOpacity,
 } from "react-native";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import ThemeContext from "../../context/ThemeContext";
 import PushNotificationsList from "./../../components/PushNotificationsList";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useMemo } from "react";
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNotifications, Notification } from "../../context/NotificationContext";
 
-type NotificationType = "all" | "general" | "task" | "reminder";
+type NotificationType = "all" | "task-assignment" | "leave-status" | "expense-status" | "general";
 
 export default function EmployeeNotifications() {
   const { theme } = ThemeContext.useTheme();
@@ -28,17 +31,28 @@ export default function EmployeeNotifications() {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const scrollX = useRef(new Animated.Value(0)).current;
   const { width: SCREEN_WIDTH } = Dimensions.get('window');
+  const { unreadCount, notifications } = useNotifications();
+  const listRef = useRef<any>(null);
+  const router = useRouter();
+  const filterTypes = useMemo(() => {
+    // Get counts for each category
+    const taskCount = notifications?.filter((n: Notification) => n.type === 'task-assignment' && !n.read).length || 0;
+    const leaveCount = notifications?.filter((n: Notification) => n.type === 'leave-status' && !n.read).length || 0;
+    const expenseCount = notifications?.filter((n: Notification) => n.type === 'expense-status' && !n.read).length || 0;
+    const generalCount = notifications?.filter((n: Notification) => n.type === 'general' && !n.read).length || 0;
 
-  const filterTypes = useMemo(() => [
-    { id: "all", label: "All", icon: "bell-outline", count: 12 },
-    { id: "general", label: "General", icon: "information-outline", count: 5 },
-    { id: "task", label: "Tasks", icon: "clipboard-list-outline", count: 4 },
-    { id: "reminder", label: "Reminders", icon: "clock-outline", count: 3 },
-  ], []);
+    return [
+      { id: "all", label: "All", icon: "bell-outline", count: unreadCount },
+      { id: "task-assignment", label: "Tasks", icon: "clipboard-list-outline", count: taskCount },
+      { id: "leave-status", label: "Leave Status", icon: "calendar-clock", count: leaveCount },
+      { id: "expense-status", label: "Expense Status", icon: "receipt", count: expenseCount },
+      { id: "general", label: "General", icon: "information-outline", count: generalCount },
+    ];
+  }, [unreadCount, notifications]);
 
   const handleTypeChange = useCallback(async (type: NotificationType) => {
     setIsLoading(true);
-    
+
     // Parallel animations for smoother transition
     Animated.parallel([
       Animated.sequence([
@@ -94,25 +108,70 @@ export default function EmployeeNotifications() {
               Platform.OS === "ios"
                 ? 60
                 : StatusBar.currentHeight
-                ? StatusBar.currentHeight + 20
-                : 40,
+                  ? StatusBar.currentHeight + 20
+                  : 40,
           }}
         >
           <View className="px-6 mb-6">
-            <Text
-              className={`text-2xl font-bold ${
-                isDark ? "text-white" : "text-gray-900"
-              }`}
-            >
-              Notifications
-            </Text>
-            <Text
-              className={`text-sm mt-1 ${
-                isDark ? "text-gray-400" : "text-gray-600"
-              }`}
-            >
-              Stay updated with your activities
-            </Text>
+            <View className="flex-row items-center">
+              <TouchableOpacity
+                onPress={() => router.back()}
+                className={`w-12 h-12 rounded-full items-center justify-center ${isDark ? "bg-gray-800/80" : "bg-gray-100"}`}
+              >
+                <MaterialCommunityIcons
+                  name="arrow-left"
+                  size={28}
+                  color={isDark ? "#E5E7EB" : "#374151"}
+                />
+              </TouchableOpacity>
+              <View className="flex-1 flex-row justify-between items-center ml-3">
+                <View>
+                  <Text
+                    className={`text-2xl font-bold ${isDark ? "text-white" : "text-gray-900"}`}
+                  >
+                    Notifications {unreadCount > 0 && (
+                      <Text className={`text-sm ${isDark ? "text-blue-400" : "text-blue-500"}`}>
+                        ({unreadCount})
+                      </Text>
+                    )}
+                  </Text>
+                  <Text
+                    className={`text-sm mt-1 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+                  >
+                    Stay updated with your activities
+                  </Text>
+                </View>
+                {unreadCount > 0 && (
+                  <Pressable
+                    onPress={() => {
+                      if (unreadCount > 0) {
+                        Alert.alert(
+                          "Mark All as Read",
+                          "Are you sure you want to mark all notifications as read?",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Mark All",
+                              onPress: () => {
+                                if (listRef.current) {
+                                  listRef.current.markAllAsRead();
+                                }
+                              },
+                            },
+                          ]
+                        );
+                      }
+                    }}
+                    className={`py-2 px-4 rounded-lg ${isDark ? "bg-blue-600" : "bg-blue-500"}`}
+                    style={styles.markAllButton}
+                  >
+                    <Text className="text-white font-medium text-sm">
+                      Mark all as read
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
           </View>
 
           {/* Tabs integrated in header */}
@@ -127,15 +186,14 @@ export default function EmployeeNotifications() {
               <Pressable
                 key={type.id}
                 onPress={() => handleTypeChange(type.id as NotificationType)}
-                className={`py-2.5 px-4 rounded-2xl flex-row items-center ${
-                  selectedType === type.id
+                className={`py-2.5 px-4 rounded-2xl flex-row items-center ${selectedType === type.id
                     ? isDark
                       ? "bg-blue-500/90 border border-blue-400/30"
                       : "bg-blue-500 border border-blue-600/20"
                     : isDark
-                    ? "bg-gray-800/40 border border-gray-700"
-                    : "bg-gray-50 border border-gray-200"
-                }`}
+                      ? "bg-gray-800/40 border border-gray-700"
+                      : "bg-gray-50 border border-gray-200"
+                  }`}
                 style={[
                   styles.tabButton,
                   selectedType === type.id && styles.activeTabButton,
@@ -156,40 +214,37 @@ export default function EmployeeNotifications() {
                     selectedType === type.id
                       ? "#FFFFFF"
                       : isDark
-                      ? "#94A3B8"
-                      : "#64748B"
+                        ? "#94A3B8"
+                        : "#64748B"
                   }
                   style={{ marginRight: 8 }}
                 />
                 <Text
-                  className={`text-sm font-medium ${
-                    selectedType === type.id
+                  className={`text-sm font-medium ${selectedType === type.id
                       ? "text-white"
                       : isDark
-                      ? "text-gray-300"
-                      : "text-gray-700"
-                  }`}
+                        ? "text-gray-300"
+                        : "text-gray-700"
+                    }`}
                 >
                   {type.label}
                 </Text>
                 {type.count > 0 && (
                   <View
-                    className={`ml-2 px-2 py-0.5 rounded-full ${
-                      selectedType === type.id
+                    className={`ml-2 px-2 py-0.5 rounded-full ${selectedType === type.id
                         ? "bg-white/20 border border-white/10"
                         : isDark
-                        ? "bg-gray-900/60 border border-gray-700"
-                        : "bg-white border border-gray-200"
-                    }`}
+                          ? "bg-gray-900/60 border border-gray-700"
+                          : "bg-white border border-gray-200"
+                      }`}
                   >
                     <Text
-                      className={`text-xs font-medium ${
-                        selectedType === type.id
+                      className={`text-xs font-medium ${selectedType === type.id
                           ? "text-white/90"
                           : isDark
-                          ? "text-gray-300"
-                          : "text-gray-600"
-                      }`}
+                            ? "text-gray-300"
+                            : "text-gray-600"
+                        }`}
                     >
                       {type.count}
                     </Text>
@@ -224,16 +279,20 @@ export default function EmployeeNotifications() {
                 color={isDark ? "#60A5FA" : "#3B82F6"}
               />
               <Text
-                className={`mt-4 text-sm ${
-                  isDark ? "text-gray-400" : "text-gray-600"
-                }`}
+                className={`mt-4 text-sm ${isDark ? "text-gray-400" : "text-gray-600"
+                  }`}
               >
                 Loading notifications...
               </Text>
             </View>
           ) : (
             <PushNotificationsList
+              ref={listRef}
               filterType={selectedType === "all" ? undefined : selectedType}
+              unreadCount={unreadCount}
+              onMarkAllAsRead={() => {
+                handleTypeChange(selectedType);
+              }}
             />
           )}
         </Animated.View>
@@ -272,4 +331,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
+  markAllButton: {
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
+  }
 });

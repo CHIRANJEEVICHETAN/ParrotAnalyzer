@@ -9,7 +9,7 @@ export const employeeNavItems: NavItem[] = [
   {
     icon: "time-outline",
     label: "Shift Tracker",
-    href: "/(dashboard)/employee/employeeShiftTracker",
+    href: "/(dashboard)/shared/shiftTracker",
   },
   // {
   //   icon: "notifications-outline",

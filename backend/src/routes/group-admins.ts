@@ -42,6 +42,38 @@ router.get('/', verifyToken, async (req: CustomRequest, res: Response) => {
   }
 });
 
+// Helper function to check user limit
+async function checkUserLimit(client: any, companyId: number) {
+  // Get company details including user limit
+  const companyResult = await client.query(
+    `SELECT name, user_limit FROM companies WHERE id = $1`,
+    [companyId]
+  );
+
+  if (!companyResult.rows.length) {
+    throw new Error('Company not found');
+  }
+
+  const company = companyResult.rows[0];
+
+  // Get current user count for the company (excluding management users)
+  const userCountResult = await client.query(
+    `SELECT COUNT(*) as count FROM users 
+     WHERE company_id = $1 AND role IN ('group-admin', 'employee')`,
+    [companyId]
+  );
+
+  const currentUserCount = parseInt(userCountResult.rows[0].count);
+  const userLimit = parseInt(company.user_limit);
+
+  return {
+    canAddUser: currentUserCount < userLimit,
+    currentUserCount,
+    userLimit,
+    companyName: company.name
+  };
+}
+
 // Create single group admin
 router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
@@ -50,11 +82,19 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { name, email, phone, password } = req.body;
+    const { name, email, phone, password, gender } = req.body;
 
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !gender) {
       return res.status(400).json({ 
         error: 'Missing required fields'
+      });
+    }
+
+    // Validate gender value
+    const validGenders = ['male', 'female', 'other'];
+    if (!validGenders.includes(gender.toLowerCase())) {
+      return res.status(400).json({
+        error: 'Invalid gender value'
       });
     }
 
@@ -74,6 +114,21 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
       companyId = userResult.rows[0].company_id;
     }
 
+    // Check user limit before creating
+    const { canAddUser, currentUserCount, userLimit, companyName } = await checkUserLimit(client, companyId);
+    
+    if (!canAddUser) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'User limit reached',
+        details: {
+          message: `Unable to create group admin. Your company (${companyName}) has reached its user limit.`,
+          currentCount: currentUserCount,
+          limit: userLimit
+        }
+      });
+    }
+
     const companyResult = await client.query(
       'SELECT status FROM companies WHERE id = $1',
       [companyId]
@@ -88,10 +143,10 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const result = await client.query(
-      `INSERT INTO users (name, email, phone, password, role, company_id)
-       VALUES ($1, $2, $3, $4, 'group-admin', $5)
+      `INSERT INTO users (name, email, phone, password, role, company_id, gender, management_id)
+       VALUES ($1, $2, $3, $4, 'group-admin', $5, $6, $7)
        RETURNING id, name, email, phone, created_at`,
-      [name, email, phone || null, hashedPassword, companyId]
+      [name, email, phone || null, hashedPassword, companyId, gender.toLowerCase(), req.user?.id]
     );
 
     await client.query('COMMIT');
@@ -143,6 +198,24 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
       return res.status(400).json({ error: 'File is empty or missing headers' });
     }
 
+    // Check user limit before processing bulk creation
+    const { canAddUser, currentUserCount, userLimit, companyName } = await checkUserLimit(client, companyId);
+    const newUsersCount = parsedRows.length - 1; // Subtract 1 for header row
+
+    if (currentUserCount + newUsersCount > userLimit) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'User limit exceeded',
+        details: {
+          message: `Unable to create ${newUsersCount} group admins. Your company (${companyName}) would exceed its user limit.`,
+          currentCount: currentUserCount,
+          limit: userLimit,
+          remainingSlots: userLimit - currentUserCount,
+          attemptedToAdd: newUsersCount
+        }
+      });
+    }
+
     const headerRow = parsedRows[0];
     const headers: CSVHeaders = {};
     headerRow.forEach((header: string, index: number) => {
@@ -159,11 +232,19 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
           name: row[headers['name']]?.trim(),
           email: row[headers['email']]?.trim(),
           phone: row[headers['phone']]?.trim(),
-          password: row[headers['password']]?.trim()
+          password: row[headers['password']]?.trim(),
+          gender: row[headers['gender']]?.trim().toLowerCase()
         };
 
-        if (!groupAdmin.name || !groupAdmin.email || !groupAdmin.password) {
+        if (!groupAdmin.name || !groupAdmin.email || !groupAdmin.password || !groupAdmin.gender) {
           errors.push({ row: i + 1, error: 'Missing required fields' });
+          continue;
+        }
+
+        // Validate gender value
+        const validGenders = ['male', 'female', 'other'];
+        if (!validGenders.includes(groupAdmin.gender)) {
+          errors.push({ row: i + 1, error: 'Invalid gender value' });
           continue;
         }
 
@@ -171,15 +252,17 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
         const hashedPassword = await bcrypt.hash(groupAdmin.password, salt);
 
         const result = await client.query(
-          `INSERT INTO users (name, email, phone, password, role, company_id)
-           VALUES ($1, $2, $3, $4, 'group-admin', $5)
+          `INSERT INTO users (name, email, phone, password, role, company_id, gender, management_id)
+           VALUES ($1, $2, $3, $4, 'group-admin', $5, $6, $7)
            RETURNING id, name, email, phone`,
           [
             groupAdmin.name,
             groupAdmin.email,
             groupAdmin.phone,
             hashedPassword,
-            companyId
+            companyId,
+            groupAdmin.gender,
+            req.user?.id
           ]
         );
 

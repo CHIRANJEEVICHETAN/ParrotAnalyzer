@@ -55,10 +55,10 @@ interface LeaveStats {
 // Add new quick actions array
 const newQuickActions = [
   {
-    title: "Shift Tracker",
-    icon: "time-outline",
-    description: "Track attendance and manage shifts",
-    route: "#",
+    title: "Group Admin",
+    icon: "people-outline", 
+    description: "Manage group admins and permissions",
+    route: "/(dashboard)/management/group-admin-management",
     color: "#F59E0B",
   },
   {

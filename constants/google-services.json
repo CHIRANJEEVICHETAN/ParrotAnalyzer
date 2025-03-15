@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "756212697743",
+    "project_id": "parrot-analyzer",
+    "storage_bucket": "parrot-analyzer.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:756212697743:android:fa4b8e4033ba6a00b9befa",
+        "android_client_info": {
+          "package_name": "com.loginware.parrotanalyzer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgDXvjQAGHLY3UkSTYpco2BuF2cZykDSk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

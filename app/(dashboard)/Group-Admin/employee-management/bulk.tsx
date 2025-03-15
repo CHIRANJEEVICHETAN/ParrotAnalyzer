@@ -111,9 +111,33 @@ export default function BulkUpload() {
 
           setError(`Failed to create employees:\n${errorDetails}`);
         }
-      } catch (uploadError: any) {
-        console.error('Upload error:', uploadError.response?.data || uploadError);
-        setError(uploadError.response?.data?.error || 'Failed to upload CSV file');
+      } catch (error: any) {
+        setLoading(false);
+        if (error.response?.status === 400) {
+          if (error.response.data.error === 'User limit exceeded') {
+            const details = error.response.data.details;
+            Alert.alert(
+              'User Limit Exceeded',
+              `Unable to create employees. Your company has reached its user limit.\n\n` +
+              `Current Users: ${details.currentCount}\n` +
+              `User Limit: ${details.userLimit}\n` +
+              `Remaining Slots: ${details.remainingSlots}\n` +
+              `Attempted to Add: ${details.attemptedToAdd}\n\n` +
+              `Please contact your management to increase the user limit or reduce the number of employees in your CSV file.`,
+              [{ text: 'OK' }]
+            );
+          } else {
+            Alert.alert(
+              'Error',
+              error.response.data.error || 'Invalid file or data'
+            );
+          }
+        } else {
+          Alert.alert(
+            'Error',
+            'An error occurred while processing the file. Please try again.'
+          );
+        }
       }
     } catch (error: any) {
       console.error('Document picker error:', error);
@@ -179,6 +203,7 @@ export default function BulkUpload() {
                 'password - Initial password',
                 'department - Department name',
                 'designation - Job designation (optional)',
+                'gender - Gender (male/female/other)',
                 'can_submit_expenses_anytime - true/false (optional)'
               ].map((item, index) => (
                 <Text 
@@ -193,8 +218,8 @@ export default function BulkUpload() {
               isDark ? 'text-blue-300' : 'text-blue-600'
             }`}>
               Example:{'\n'}
-              name,employee_number,email,phone,password,department,designation,can_submit_expenses_anytime{'\n'}
-              John Doe,EMP001,john@example.com,+1234567890,Pass123!,IT,Developer,true
+              name,employee_number,email,phone,password,department,designation,gender,can_submit_expenses_anytime{'\n'}
+              John Doe,EMP001,john@example.com,+1234567890,Pass123!,IT,Developer,male,true
             </Text>
           </View>
 

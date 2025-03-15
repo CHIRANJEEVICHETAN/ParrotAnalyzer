@@ -374,18 +374,6 @@ export const initDB = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, leave_type_id, year)
       );
-
-      -- Leave balance audit table for tracking changes
-      CREATE TABLE IF NOT EXISTS leave_balance_audit (
-        id SERIAL PRIMARY KEY,
-        balance_id INTEGER REFERENCES leave_balances(id) ON DELETE CASCADE,
-        request_id INTEGER REFERENCES leave_requests(id) ON DELETE SET NULL,
-        previous_balance INTEGER NOT NULL,
-        new_balance INTEGER NOT NULL,
-        change_type VARCHAR(20) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_by INTEGER REFERENCES users(id)
-      );
     `);
 
     // Add leave_documents table
@@ -405,49 +393,6 @@ export const initDB = async () => {
       ALTER TABLE leave_requests 
       DROP COLUMN IF EXISTS documentation_url,
       ADD COLUMN IF NOT EXISTS has_documentation BOOLEAN DEFAULT false;
-    `);
-
-    // Add group admin leave audit table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS group_admin_leave_audit (
-        id SERIAL PRIMARY KEY,
-        request_id INTEGER REFERENCES leave_requests(id) ON DELETE CASCADE,
-        group_admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        action VARCHAR(20) NOT NULL CHECK (action IN ('approve', 'reject', 'escalate')),
-        reason TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        previous_status VARCHAR(20) NOT NULL,
-        new_status VARCHAR(20) NOT NULL
-      );
-
-      -- Create a function for the trigger
-      CREATE OR REPLACE FUNCTION check_group_admin_role()
-      RETURNS TRIGGER AS $$
-      BEGIN
-          IF NOT EXISTS (
-              SELECT 1 FROM users 
-              WHERE id = NEW.group_admin_id 
-              AND role = 'group-admin'
-          ) THEN
-              RAISE EXCEPTION 'User % is not a group admin', NEW.group_admin_id;
-          END IF;
-          RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-
-      -- Create the trigger
-      DROP TRIGGER IF EXISTS ensure_group_admin_role ON group_admin_leave_audit;
-      CREATE TRIGGER ensure_group_admin_role
-          BEFORE INSERT OR UPDATE ON group_admin_leave_audit
-          FOR EACH ROW
-          EXECUTE FUNCTION check_group_admin_role();
-
-      -- Create indexes for better performance
-      CREATE INDEX IF NOT EXISTS idx_group_admin_leave_audit_request 
-      ON group_admin_leave_audit(request_id);
-      
-      CREATE INDEX IF NOT EXISTS idx_group_admin_leave_audit_admin 
-      ON group_admin_leave_audit(group_admin_id);
     `);
 
     // Add these lines after other table creation
@@ -531,22 +476,6 @@ export const initEmployeeShiftsTable = async () => {
         total_kilometers DECIMAL DEFAULT 0,
         total_expenses DECIMAL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Then create the employee_shifts_daily table
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS employee_shifts_daily (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        date DATE NOT NULL,
-        shifts JSONB DEFAULT '[]',
-        total_hours DECIMAL DEFAULT 0,
-        total_distance DECIMAL DEFAULT 0,
-        total_expenses DECIMAL DEFAULT 0,
-        shift_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, date)
       )
     `);
 

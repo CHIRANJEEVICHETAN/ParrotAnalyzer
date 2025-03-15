@@ -87,6 +87,7 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.12",
     "@types/jsonwebtoken": "^9.0.7",
+    "@types/lodash.debounce": "^4.0.9",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "@types/react": "~18.3.12",
@@ -120,5 +121,8 @@
       }
     }
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  }
 }

@@ -111,7 +111,16 @@ export default function BulkUpload() {
         }
       } catch (uploadError: any) {
         console.error('Upload error:', uploadError.response?.data || uploadError);
-        setError(uploadError.response?.data?.error || 'Failed to upload CSV file');
+        if (uploadError.response?.data?.error === 'User limit exceeded') {
+          const details = uploadError.response.data.details;
+          Alert.alert(
+            'User Limit Exceeded',
+            `${details.message}\n\nCurrent Users: ${details.currentCount}\nUser Limit: ${details.limit}\nRemaining Slots: ${details.remainingSlots}\nAttempted to Add: ${details.attemptedToAdd}\n\nPlease contact your super admin to increase the user limit or reduce the number of users in your CSV file.`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          setError(uploadError.response?.data?.error || 'Failed to upload CSV file');
+        }
       }
     } catch (error: any) {
       console.error('Document picker error:', error);
@@ -133,10 +142,10 @@ export default function BulkUpload() {
             CSV File Format
           </Text>
           <Text style={[styles.infoText, { color: theme === 'dark' ? '#BFDBFE' : '#1E40AF' }]}>
-            Required columns: name, email, phone, password
+            Required columns: name, email, phone, password, gender
           </Text>
           <Text style={[styles.infoExample, { color: theme === 'dark' ? '#93C5FD' : '#1D4ED8' }]}>
-            Example: John Doe,john@example.com,+1234567890,password123
+            Example: John Doe,john@example.com,+916748363636,password123,male
           </Text>
         </View>
 
