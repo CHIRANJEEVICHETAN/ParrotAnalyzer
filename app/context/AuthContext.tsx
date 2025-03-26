@@ -220,8 +220,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshTokenSilently = async (refreshToken: string): Promise<string | null> => {
     try {
+      // Remove any existing authorization header for refresh requests
+      delete axios.defaults.headers.common["Authorization"];
+
+      // Get the actual refresh token from storage since the parameter might be the access token
+      const storedRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+      if (!storedRefreshToken) {
+        throw new Error("No refresh token available");
+      }
+
       const response = await axios.post(`${API_URL}/auth/refresh`, {
-        refreshToken
+        refreshToken: storedRefreshToken  // Use the stored refresh token instead
       });
 
       const { accessToken, user: userData } = response.data;
@@ -236,12 +245,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(accessToken);
       setUser(userData);
 
-      // Update axios default header
+      // Update axios default header with new access token
       axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
 
       return accessToken;
     } catch (error) {
       console.error("Silent refresh failed:", error);
+      // Clear storage and state on refresh failure
+      await Promise.all([
+        AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+        AsyncStorage.removeItem(USER_DATA_KEY),
+        AsyncStorage.removeItem(REFRESH_TOKEN_KEY)
+      ]);
+      setToken(null);
+      setUser(null);
       return null;
     }
   };

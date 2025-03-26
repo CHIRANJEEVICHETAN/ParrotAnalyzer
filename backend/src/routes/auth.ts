@@ -232,14 +232,37 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
+      console.log('No refresh token provided');
       return res.status(400).json({ error: 'Refresh token required' });
     }
 
     try {
       const decoded = jwt.verify(refreshToken, JWT_SECRET) as JwtPayload;
 
+      // Log decoded token for debugging
+      console.log('Decoded refresh token:', {
+        ...decoded,
+        exp: new Date(decoded.exp! * 1000).toISOString(),
+        iat: new Date(decoded.iat! * 1000).toISOString()
+      });
+
+      // Validate token type first
       if (decoded.type !== 'refresh') {
-        return res.status(401).json({ error: 'Invalid token type' });
+        console.log('Invalid token type:', decoded.type);
+        return res.status(401).json({ 
+          error: 'Invalid token type',
+          details: 'Expected refresh token but received ' + decoded.type
+        });
+      }
+
+      // Check token expiration explicitly
+      const now = Math.floor(Date.now() / 1000);
+      if (decoded.exp && decoded.exp < now) {
+        console.log('Token expired:', {
+          expiry: new Date(decoded.exp * 1000).toISOString(),
+          now: new Date(now * 1000).toISOString()
+        });
+        return res.status(401).json({ error: 'Refresh token expired' });
       }
 
       const result = await client.query(
@@ -251,6 +274,10 @@ router.post('/refresh', async (req: Request, res: Response) => {
       );
 
       if (result.rows.length === 0) {
+        console.log('No user found or token version mismatch:', {
+          userId: decoded.id,
+          tokenVersion: decoded.token_version
+        });
         return res.status(401).json({ error: 'Invalid refresh token' });
       }
 
@@ -292,7 +319,12 @@ router.post('/refresh', async (req: Request, res: Response) => {
       });
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {
+        console.log('Refresh token expired');
         return res.status(401).json({ error: 'Refresh token expired' });
+      }
+      if (error instanceof jwt.JsonWebTokenError) {
+        console.log('Invalid refresh token:', error.message);
+        return res.status(401).json({ error: 'Invalid refresh token' });
       }
       throw error;
     }
