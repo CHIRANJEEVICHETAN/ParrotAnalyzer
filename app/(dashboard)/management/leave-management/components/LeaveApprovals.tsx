@@ -155,6 +155,91 @@ export default function LeaveApprovals() {
       );
 
       if (response.status === 200) {
+        // Send notification based on whether it's an escalated request or not
+        if (isEscalated) {
+          // For escalated requests, notify the employee
+          const employeeNotificationTitle = `${action === 'approve' ? '✅' : '❌'} Leave Request ${action === 'approve' ? 'Approved' : 'Rejected'} by Management`;
+          const employeeNotificationMessage = 
+            `Your escalated leave request has been ${action === 'approve' ? 'approved' : 'rejected'} by management.\n\n` +
+            `📅 Period: ${format(new Date(selectedRequest.start_date), 'MMM dd, yyyy')} to ${format(new Date(selectedRequest.end_date), 'MMM dd, yyyy')}\n` +
+            `📝 Leave Type: ${selectedRequest.leave_type_name}\n` +
+            `⏱️ Duration: ${selectedRequest.days_requested} day(s)\n` +
+            `\n📋 ${action === 'approve' ? 'Resolution' : 'Rejection'} Notes: ${action === 'approve' ? resolutionNotes : rejectionReason}`;
+
+          // Send notification to employee
+          await axios.post(
+            `${process.env.EXPO_PUBLIC_API_URL}/api/management-notifications/send-users`,
+            {
+              title: employeeNotificationTitle,
+              message: employeeNotificationMessage,
+              userIds: [selectedRequest.user_id],
+              type: "leave-request-resolution",
+              priority: "high",
+              data: { 
+                screen: "/(dashboard)/employee/leave-insights",
+                action,
+                leaveId: selectedRequest.id
+              }
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          // Also notify the group admin who escalated the request
+          if (selectedRequest.escalation_details?.escalated_by) {
+            const groupAdminNotificationTitle = `${action === 'approve' ? '✅' : '❌'} Escalated Leave Request ${action === 'approve' ? 'Approved' : 'Rejected'}`;
+            const groupAdminNotificationMessage = 
+              `An escalated leave request you forwarded has been ${action === 'approve' ? 'approved' : 'rejected'} by management.\n\n` +
+              `👤 Employee: ${selectedRequest.user_name} (${selectedRequest.employee_number})\n` +
+              `📅 Period: ${format(new Date(selectedRequest.start_date), 'MMM dd, yyyy')} to ${format(new Date(selectedRequest.end_date), 'MMM dd, yyyy')}\n` +
+              `📝 Leave Type: ${selectedRequest.leave_type_name}\n` +
+              `⏱️ Duration: ${selectedRequest.days_requested} day(s)\n` +
+              `\n📋 ${action === 'approve' ? 'Resolution' : 'Rejection'} Notes: ${action === 'approve' ? resolutionNotes : rejectionReason}`;
+
+            await axios.post(
+              `${process.env.EXPO_PUBLIC_API_URL}/api/management-notifications/send-users`,
+              {
+                title: groupAdminNotificationTitle,
+                message: groupAdminNotificationMessage,
+                userIds: [selectedRequest.escalation_details.escalated_by],
+                type: "leave-request-resolution",
+                priority: "high",
+                data: { 
+                  screen: "/(dashboard)/Group-Admin/leave-management",
+                  action,
+                  leaveId: selectedRequest.id
+                }
+              },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+          }
+        } else {
+          // For direct leave requests, notify the group admin
+          const notificationTitle = `${action === 'approve' ? '✅' : '❌'} Leave Request ${action === 'approve' ? 'Approved' : 'Rejected'} by Management`;
+          const notificationMessage = 
+            `Your leave request has been ${action === 'approve' ? 'approved' : 'rejected'} by management.\n\n` +
+            `📅 Period: ${format(new Date(selectedRequest.start_date), 'MMM dd, yyyy')} to ${format(new Date(selectedRequest.end_date), 'MMM dd, yyyy')}\n` +
+            `📝 Leave Type: ${selectedRequest.leave_type_name}\n` +
+            `⏱️ Duration: ${selectedRequest.days_requested} day(s)` +
+            (action === 'reject' ? `\n\n📋 Rejection Reason: ${rejectionReason}` : '');
+
+          await axios.post(
+            `${process.env.EXPO_PUBLIC_API_URL}/api/management-notifications/send-users`,
+            {
+              title: notificationTitle,
+              message: notificationMessage,
+              userIds: [selectedRequest.user_id],
+              type: "leave-request-resolution",
+              priority: "high",
+              data: { 
+                screen: "/(dashboard)/Group-Admin/leave-management",
+                action,
+                leaveId: selectedRequest.id
+              }
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
+
         // Set success message before closing modals
         const actionText = action === 'approve' ? 'approved' : 'rejected';
         setSuccessMessage(`Leave request has been ${actionText} successfully`);
@@ -851,4 +936,4 @@ export default function LeaveApprovals() {
       </Modal> */}
     </View>
   );
-} 
+}

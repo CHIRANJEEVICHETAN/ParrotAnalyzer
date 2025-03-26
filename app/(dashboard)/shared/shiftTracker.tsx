@@ -756,7 +756,7 @@ export default function EmployeeShiftTracker() {
               message: `👤 ${user?.name} has started their shift at ${format(
                 now,
                 "hh:mm a"
-              )} ⏰ expected duration: ${
+              )} \n⏰ expected duration: ${
                 timerDuration ? `${timerDuration} hours` : `8 hours`
               }`,
               type: "shift-start",

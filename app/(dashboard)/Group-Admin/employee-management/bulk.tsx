@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, StatusBar } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, StatusBar, Animated } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import ThemeContext from '../../../context/ThemeContext';
@@ -26,10 +26,33 @@ export default function BulkUpload() {
   const { token } = AuthContext.useAuth();
   const router = useRouter();
   const isDark = theme === 'dark';
+  const successScale = useRef(new Animated.Value(0)).current;
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  const showSuccessAnimation = (message: string) => {
+    setSuccessMessage(message);
+    setShowSuccess(true);
+    Animated.sequence([
+      Animated.spring(successScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 15,
+        stiffness: 200,
+      }),
+    ]).start();
+
+    // Auto hide after 2 seconds and navigate back
+    setTimeout(() => {
+      setShowSuccess(false);
+      successScale.setValue(0);
+      router.back();
+    }, 2000);
+  };
 
   const handleBulkUpload = async () => {
     try {
@@ -95,14 +118,7 @@ export default function BulkUpload() {
               }]
             );
           } else {
-            Alert.alert(
-              'Success',
-              successMessage,
-              [{ 
-                text: 'OK',
-                onPress: () => router.back()
-              }]
-            );
+            showSuccessAnimation(successMessage);
           }
         } else if (response.data.errors && response.data.errors.length > 0) {
           const errorDetails = response.data.errors
@@ -269,6 +285,61 @@ export default function BulkUpload() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Success Modal */}
+      {showSuccess && (
+        <Animated.View 
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: isDark ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 50,
+            },
+            {
+              transform: [{ scale: successScale }],
+            }
+          ]}
+        >
+          <View style={{ alignItems: 'center', padding: 24 }}>
+            <View style={{ 
+              width: 80, 
+              height: 80, 
+              borderRadius: 40, 
+              backgroundColor: isDark ? 'rgba(74, 222, 128, 0.2)' : 'rgba(74, 222, 128, 0.1)',
+              justifyContent: 'center', 
+              alignItems: 'center',
+              marginBottom: 16
+            }}>
+              <MaterialCommunityIcons
+                name="check-circle"
+                size={40}
+                color={isDark ? "#4ADE80" : "#22C55E"}
+              />
+            </View>
+            <Text style={{ 
+              fontSize: 24, 
+              fontWeight: '600',
+              marginBottom: 8,
+              color: isDark ? '#FFFFFF' : '#111827'
+            }}>
+              Success!
+            </Text>
+            <Text style={{ 
+              fontSize: 16,
+              textAlign: 'center',
+              color: isDark ? '#9CA3AF' : '#4B5563'
+            }}>
+              {successMessage}
+            </Text>
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 }

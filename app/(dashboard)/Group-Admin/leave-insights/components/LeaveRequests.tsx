@@ -328,6 +328,7 @@ export default function LeaveRequests() {
       );
 
       if (response.data) {
+        // Show success message and reset form immediately after successful submission
         setErrorModal({
           visible: true,
           title: 'Success',
@@ -337,6 +338,33 @@ export default function LeaveRequests() {
         resetForm();
         setShowRequestModal(false);
         fetchRequests();
+
+        // Send notification to management about the new leave request
+        // This is in a separate try-catch because notification failure shouldn't affect the user experience
+        try {
+          const notificationTitle = '📅 New Leave Request';
+          const notificationMessage = `A new leave request has been submitted.\n\n` +
+            `📌 Leave Type: ${selectedLeaveType?.name}\n` +
+            `📅 Period: ${format(formData.start_date, 'MMM dd, yyyy')} to ${format(formData.end_date, 'MMM dd, yyyy')}\n` +
+            `⏱️ Duration: ${calculateWorkingDays(formData.start_date, formData.end_date)} days\n` +
+            `📝 Reason: ${formData.reason}\n` +
+            `📞 Contact: ${formData.contact_number}`;
+
+          await axios.post(
+            `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications/notify-admin`,
+            {
+              title: notificationTitle,
+              message: notificationMessage,
+              type: 'leave-request'
+            },
+            {
+              headers: { Authorization: `Bearer ${token}` }
+            }
+          );
+        } catch (notificationError) {
+          // Just log the error without showing it to the user
+          console.error('Error sending notification:', notificationError);
+        }
       }
     } catch (error: any) {
       console.error('Error submitting leave request:', error);

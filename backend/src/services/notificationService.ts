@@ -102,67 +102,105 @@ class NotificationService {
   async sendPushNotification(
     notification: PushNotification,
     userIds?: string[]
-  ): Promise<(ExpoPushSuccessTicket | ExpoPushErrorReceipt)[]> {
+  ): Promise<any> {
     const client = await pool.connect();
     try {
+      console.log('[PUSH] Starting sendPushNotification:', {
+        notificationId: notification.id,
+        title: notification.title.substring(0, 20),
+        recipientCount: userIds?.length || 1
+      });
+      
+      if (!userIds || userIds.length === 0) {
+        userIds = [notification.user_id];
+      }
+
       // Get active device tokens
       const tokenQuery = userIds
         ? "SELECT token FROM device_tokens WHERE user_id = ANY($1) AND is_active = true"
         : "SELECT token FROM device_tokens WHERE is_active = true";
       const tokenParams = userIds ? [userIds] : [];
 
-      const tokens = await client.query(tokenQuery, tokenParams);
-      const messages: ExpoPushMessage[] = [];
+      const tokenResult = await client.query(tokenQuery, tokenParams);
+      const tokens = tokenResult.rows.map(row => row.token);
+      
+      console.log(`[PUSH] Retrieved ${tokens.length} tokens for ${userIds.length} recipients`);
+      
+      if (!tokens.length) {
+        console.log('[PUSH] No tokens found for recipients');
+        return { success: false, message: 'No registered devices found' };
+      }
 
-      // Create messages for each token
-      for (const { token } of tokens.rows) {
+      // Format the notification for Expo push service
+      const messages = [];
+      for (const token of tokens) {
         if (!Expo.isExpoPushToken(token)) {
-          console.error(`Invalid Expo push token: ${token}`);
+          console.error(`[PUSH] Invalid Expo push token: ${token}`);
           continue;
         }
 
         messages.push({
           to: token,
-          sound: "default",
+          sound: 'default',
           title: notification.title,
           body: notification.message,
           data: notification.data || {},
           priority: notification.priority as "default" | "normal" | "high",
           categoryId: notification.category,
+          badge: 1, // Set badge count
+          channelId: 'default', // Android channel ID
+          // Add these fields for better delivery rates
+          _displayInForeground: true, // Force display in foreground 
         });
       }
 
-      // Send notifications in chunks
+      if (messages.length === 0) {
+        console.log('[PUSH] No valid tokens to send notifications');
+        return { success: false, message: 'No valid tokens' };
+      }
+
+      console.log(`[PUSH] Prepared ${messages.length} messages for sending`);
+      
+      // Send to Expo push notification service
       const chunks = this.expo.chunkPushNotifications(messages);
       const tickets = [];
-
-      for (const chunk of chunks) {
+      
+      // Send chunks to Expo
+      for (let chunk of chunks) {
         try {
+          console.log(`[PUSH] Sending chunk of ${chunk.length} messages...`);
           const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
+          console.log(`[PUSH] Received ${ticketChunk.length} tickets in response`);
+          
+          // Log any errors in the response
+          ticketChunk.forEach((ticket, i) => {
+            if (ticket.status === 'error') {
+              console.error(`[PUSH] Error in ticket ${i}:`, ticket.message);
+            }
+          });
+          
           tickets.push(...ticketChunk);
         } catch (error) {
-          console.error("Error sending notification chunk:", error);
+          console.error('[PUSH] Error sending notification chunk:', error);
         }
       }
 
-      // Store notification in database
+      // Check if we have any successful tickets
+      const successTickets = tickets.filter(ticket => ticket.status === 'ok');
+      console.log(`[PUSH] Successfully sent ${successTickets.length}/${tickets.length} notifications`);
+      
+      // Update notification as sent in the database
       await client.query(
-        `INSERT INTO push_notifications 
-         (user_id, title, message, data, type, priority, category, action_url, sent, sent_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, CURRENT_TIMESTAMP)`,
-        [
-          notification.user_id,
-          notification.title,
-          notification.message,
-          notification.data,
-          notification.type,
-          notification.priority,
-          notification.category,
-          notification.action_url,
-        ]
+        `UPDATE push_notifications
+         SET sent = true, sent_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [notification.id]
       );
-
-      return tickets;
+      
+      return { success: successTickets.length > 0, tickets };
+    } catch (error: any) {
+      console.error('[PUSH] Fatal error in sendPushNotification:', error);
+      return { success: false, error: error.message };
     } finally {
       client.release();
     }

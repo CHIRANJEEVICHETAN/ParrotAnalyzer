@@ -24,6 +24,7 @@ import axios from 'axios';
 import TaskList from './components/TaskList';
 import BottomNav from '../../components/BottomNav';
 import { employeeNavItems } from './utils/navigationItems';
+// import PushNotificationService from '../../utils/pushNotificationService';
 
 // Add Task interface
 interface Task {
@@ -323,7 +324,7 @@ export default function EmployeeDashboard() {
                   ? format(new Date(updatedTask.due_date), "dd MMM yyyy")
                   : "Not set"
               }\n` +
-              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
             type: "task-update",
           },
           {
@@ -733,6 +734,9 @@ export default function EmployeeDashboard() {
 
           {/* Task Progress Bar */}
           <TaskProgressBar />
+          {/* <TouchableOpacity onPress={() => router.push('/(testing)/notification-test')} className="flex justify-center items-center bg-blue-500 p-3 w-1/2 mb-5 rounded-md text-center mx-auto">
+            <Text className="text-white">Send Test Notification</Text>
+          </TouchableOpacity> */}
         </ScrollView>
 
         {/* Bottom Navigation */}

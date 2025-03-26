@@ -15,7 +15,7 @@ export const managementNavItems: NavItem[] = [
   // {
   //   icon: "notifications-outline",
   //   label: "Test Notifications",
-  //   href: "/(dashboard)/test-notifications",
+  //   href: "/(testing)/test-notifications",
   // },
   {
     icon: "calendar-outline",

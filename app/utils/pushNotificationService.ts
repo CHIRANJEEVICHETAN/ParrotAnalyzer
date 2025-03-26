@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import AuthContext from "../context/AuthContext";
+import EventEmitter from "../utils/EventEmitter";
 
 export interface PushNotificationState {
   expoPushToken?: string;
@@ -22,7 +23,7 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
   }),
 });
 
@@ -79,23 +80,21 @@ class PushNotificationService {
     userId: string,
     deviceToken: string,
     authToken?: string,
-    userRole:
-      | "employee"
-      | "group-admin"
-      | "management"
-      | "super-admin" = "employee"
+    userRole: "employee" | "group-admin" | "management" | "super-admin" = "employee"
   ): Promise<void> {
     try {
-      console.log("[PushNotification] Registering with backend");
-      console.log("[PushNotification] User ID:", userId);
-      console.log("[PushNotification] Device type:", Platform.OS);
-      console.log("[PushNotification] User Role:", userRole);
+      console.log("[PushService] Registering device with backend");
+      console.log("[PushService] Device token:", deviceToken);
+      
+      // Validate token before sending to backend
+      if (!deviceToken || !deviceToken.startsWith('ExponentPushToken[')) {
+        console.error("[PushService] Invalid token format, aborting registration");
+        return;
+      }
 
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL;
-      const deviceInfo = {
-        token: deviceToken,
+      const device = {
         deviceType: Platform.OS,
-        deviceName: `${Platform.OS} Device`,
+        deviceName: Platform.OS + '-' + Platform.Version,
       };
 
       // Try to get auth token from parameter or AsyncStorage
@@ -126,97 +125,179 @@ class PushNotificationService {
         );
       }
 
-      // Determine the correct endpoint based on user role
-      let endpoint;
-      switch (userRole) {
-        case "group-admin":
-          endpoint = `${baseUrl}/api/group-admin-notifications/register-device`;
-          break;
-        case "management":
-          endpoint = `${baseUrl}/api/management-notifications/register-device`;
-          break;
-        case "super-admin":
-          endpoint = `${baseUrl}/api/management-notifications/register-device`; // Super admin uses management endpoint
-          break;
-        default:
-          endpoint = `${baseUrl}/api/employee-notifications/register-device`;
-      }
+      const apiUrl = `${process.env.EXPO_PUBLIC_API_URL}/api/${userRole}-notifications/register-device`;
+      
+      console.log("[PushService] Sending registration to:", apiUrl);
 
-      console.log("[PushNotification] Sending request to:", endpoint);
-      const response = await axios.post(endpoint, deviceInfo, {
-        headers: {
-          Authorization: `Bearer ${finalAuthToken}`,
-          "Content-Type": "application/json",
+      const response = await axios.post(
+        apiUrl,
+        {
+          token: deviceToken,
+          deviceType: device.deviceType,
+          deviceName: device.deviceName,
         },
-      });
-
-      console.log(
-        "[PushNotification] Backend registration response:",
-        response.data
+        {
+          headers: {
+            Authorization: `Bearer ${finalAuthToken}`,
+            "Content-Type": "application/json",
+          },
+        }
       );
-    } catch (error) {
-      console.error("[PushNotification] Backend registration error:", error);
-      if (axios.isAxiosError(error)) {
-        console.error(
-          "[PushNotification] Response data:",
-          error.response?.data
-        );
+
+      console.log("[PushService] Backend registration successful:", response.data);
+
+      if (response.status === 200) {
+        console.log("[PushService] Backend registration successful:", response.data);
+        
+        // Save the token locally for reuse
+        this.currentToken = deviceToken;
+        await AsyncStorage.setItem("expoPushToken", deviceToken);
+        
+        // Record successful registration time
+        await AsyncStorage.setItem("pushTokenLastRegistered", new Date().toISOString());
       }
+    } catch (error) {
+      console.error("[PushService] Backend registration error:", error);
+      
+      // If axios error, log more details
+      if (axios.isAxiosError(error)) {
+        console.error("[PushService] Status:", error.response?.status);
+        console.error("[PushService] Response data:", error.response?.data);
+        
+        // Handle token expiration
+        if (error.response?.status === 401 && error.response?.data?.error === "Token expired") {
+          // Notify the app about token expiration
+          this.handleTokenExpiration();
+          throw new Error("AUTH_TOKEN_EXPIRED");
+        }
+      }
+      
       throw error;
+    }
+  }
+
+  private handleTokenExpiration() {
+    // Emit an event that the app can listen to
+    EventEmitter.emit("AUTH_TOKEN_EXPIRED");
+    
+    // Clear stored tokens
+    AsyncStorage.removeItem("auth_token");
+    AsyncStorage.removeItem("expoPushToken");
+    
+    // Clear current token
+    this.currentToken = null;
+  }
+
+  public async checkTokenValidity(): Promise<boolean> {
+    try {
+      const lastRegistered = await AsyncStorage.getItem("pushTokenLastRegistered");
+      if (!lastRegistered) return false;
+
+      const lastRegisteredDate = new Date(lastRegistered);
+      const now = new Date();
+      const daysSinceRegistration = (now.getTime() - lastRegisteredDate.getTime()) / (1000 * 60 * 60 * 24);
+
+      // If token is older than 25 days, consider it invalid
+      if (daysSinceRegistration > 25) {
+        console.log("[PushService] Token is old, needs refresh");
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("[PushService] Error checking token validity:", error);
+      return false;
     }
   }
 
   public async registerForPushNotifications(): Promise<NotificationResponse> {
     try {
-      console.log("[PushNotification] Starting registration process");
-
-      // Simple simulator check
+      console.log("[PushService] Starting push notification registration");
+      
+      // Check if simulation environment
       if (this.isSimulator()) {
-        console.warn(
-          "[PushNotification] Running in simulator/emulator - limited functionality"
-        );
+        console.log("[PushService] Running in simulator, skipping push registration");
+        return {
+          success: false,
+          message: "Push notifications are not supported in simulators",
+        };
       }
 
-      // Check/request permissions
-      console.log("[PushNotification] Checking permissions");
-      const { status: existingStatus } =
-        await Notifications.getPermissionsAsync();
+      // Request permission to send notifications
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
 
+      console.log("[PushService] Current notification permission status:", existingStatus);
+
       if (existingStatus !== "granted") {
-        console.log("[PushNotification] Requesting permissions");
+        console.log("[PushService] Requesting notification permissions");
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
       }
 
       if (finalStatus !== "granted") {
-        console.warn("[PushNotification] Permission denied:", finalStatus);
+        console.log("[PushService] Permission not granted for notifications");
         return {
           success: false,
-          message: "Permission to receive push notifications was denied",
+          message: "Permission not granted for notifications",
+        };
+      }
+      
+      // Create notification channel for Android
+      await this.createDefaultNotificationChannel();
+
+      // Get Expo push token with retry
+      let pushToken = null;
+      let attempts = 0;
+      const maxAttempts = 3;
+      
+      while (!pushToken && attempts < maxAttempts) {
+        try {
+          attempts++;
+          console.log(`[PushService] Getting push token (attempt ${attempts}/${maxAttempts})`);
+          pushToken = await this.getExpoPushToken();
+          
+          // Validate token
+          if (!pushToken || !pushToken.startsWith('ExponentPushToken[')) {
+            console.log(`[PushService] Invalid token format: ${pushToken}`);
+            pushToken = null;
+            
+            if (attempts < maxAttempts) {
+              console.log(`[PushService] Waiting before retry...`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+        } catch (error) {
+          console.error(`[PushService] Error getting token (attempt ${attempts})`, error);
+          
+          if (attempts < maxAttempts) {
+            console.log(`[PushService] Waiting before retry...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+      }
+
+      if (!pushToken) {
+        console.log("[PushService] Failed to get valid push token after multiple attempts");
+        return {
+          success: false,
+          message: "Failed to get push notification token",
         };
       }
 
-      // Create Android notification channel
-      if (Platform.OS === "android") {
-        console.log("[PushNotification] Creating Android notification channel");
-        await this.createDefaultNotificationChannel();
-      }
-
-      // Get Expo push token
-      console.log("[PushNotification] Getting push token");
-      const expoPushToken = await this.getExpoPushToken();
+      console.log("[PushService] Successfully got Expo push token:", pushToken);
+      this.currentToken = pushToken;
 
       return {
         success: true,
-        message: "Successfully registered for push notifications",
-        token: expoPushToken,
+        message: "Push notification registered successfully",
+        token: pushToken,
       };
     } catch (error) {
-      console.error("[PushNotification] Registration error:", error);
+      console.error("[PushService] Error registering for push notifications:", error);
       return {
         success: false,
-        message: "Failed to register for push notifications",
+        message: "Error registering for push notifications",
         error,
       };
     }
@@ -237,21 +318,45 @@ class PushNotificationService {
       response: Notifications.NotificationResponse
     ) => void
   ) {
+    console.log("[PushService] Setting up notification listeners");
+    
+    // Remove any existing listeners first to prevent duplicates
+    this.removeNotificationListeners();
+    
     this.notificationListener =
-      Notifications.addNotificationReceivedListener(onNotification);
+      Notifications.addNotificationReceivedListener((notification) => {
+        console.log("[PushService] NOTIFICATION RECEIVED:", {
+          title: notification.request.content.title,
+          body: notification.request.content.body,
+          data: notification.request.content.data,
+        });
+        onNotification(notification);
+      });
+      
     this.responseListener =
-      Notifications.addNotificationResponseReceivedListener(
-        onNotificationResponse
-      );
+      Notifications.addNotificationResponseReceivedListener((response) => {
+        console.log("[PushService] NOTIFICATION TAPPED:", {
+          title: response.notification.request.content.title,
+          body: response.notification.request.content.body,
+          data: response.notification.request.content.data,
+        });
+        onNotificationResponse(response);
+      });
 
-    return () => {
-      if (this.notificationListener) {
-        Notifications.removeNotificationSubscription(this.notificationListener);
-      }
-      if (this.responseListener) {
-        Notifications.removeNotificationSubscription(this.responseListener);
-      }
-    };
+    return () => this.removeNotificationListeners();
+  }
+  
+  private removeNotificationListeners() {
+    if (this.notificationListener) {
+      console.log("[PushService] Removing existing notification listener");
+      Notifications.removeNotificationSubscription(this.notificationListener);
+      this.notificationListener = undefined;
+    }
+    if (this.responseListener) {
+      console.log("[PushService] Removing existing response listener");
+      Notifications.removeNotificationSubscription(this.responseListener);
+      this.responseListener = undefined;
+    }
   }
 
   public async scheduleLocalNotification(
@@ -291,6 +396,95 @@ class PushNotificationService {
 
   public async setBadgeCount(count: number) {
     await Notifications.setBadgeCountAsync(count);
+  }
+
+  // Utility function to test notifications
+  public async sendTestNotification(title: string = "Test Notification", body: string = "This is a test notification"): Promise<boolean> {
+    try {
+      console.log("[PushService] Sending test local notification");
+      
+      // Schedule a local notification
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          data: { test: true, time: new Date().toISOString() },
+          badge: 1,
+        },
+        trigger: null, // Show immediately
+      });
+      
+      console.log("[PushService] Test notification sent successfully");
+      return true;
+    } catch (error) {
+      console.error("[PushService] Error sending test notification:", error);
+      return false;
+    }
+  }
+
+  // Check for missed notifications using receipt API
+  public async checkForMissedNotifications(receiptIds: string[]): Promise<void> {
+    if (!receiptIds.length) return;
+    
+    try {
+      console.log('[PushService] Checking for missed notifications:', receiptIds);
+      
+      const response = await axios.post('https://exp.host/--/api/v2/push/getReceipts', {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        data: { ids: receiptIds },
+      });
+      
+      const data = response.data;
+      console.log('[PushService] Receipt check response:', data);
+      
+      // If we have any successful receipts, but didn't get the notification,
+      // create a local notification to mimic it
+      if (data.data && Object.keys(data.data).length) {
+        for (const [id, receipt] of Object.entries(data.data)) {
+          const receiptData = receipt as any;
+          if (receiptData.status === 'ok') {
+            console.log('[PushService] Receipt was delivered but notification may have been missed:', id);
+            // Create a local notification to ensure the user sees it
+            await this.sendTestNotification(
+              'Recovered Notification', 
+              'This notification was sent earlier but may not have been displayed'
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[PushService] Error checking receipts:', error);
+    }
+  }
+  
+  // Starts a periodic check for notification delivery
+  public startMonitoringNotifications(): () => void {
+    console.log('[PushService] Starting notification monitoring');
+    
+    // Store recently received receipts
+    const receiptIds: string[] = [];
+    
+    // Check for missed notifications periodically
+    const checkMissedNotifications = async () => {
+      try {
+        if (receiptIds.length > 0) {
+          await this.checkForMissedNotifications(receiptIds);
+          // Clear checked receipts
+          receiptIds.length = 0;
+        }
+      } catch (error) {
+        console.error('[PushService] Error checking missed notifications:', error);
+      }
+    };
+    
+    // Set up periodic checks
+    const intervalId = setInterval(checkMissedNotifications, 5 * 60 * 1000); // Check every 5 minutes
+    
+    // Return cleanup function
+    return () => clearInterval(intervalId);
   }
 }
 

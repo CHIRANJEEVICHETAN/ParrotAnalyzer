@@ -2,7 +2,7 @@
   "expo": {
     "name": "Parrot Analyzer",
     "slug": "parraotanalyzer",
-    "version": "1.0.2",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
@@ -48,6 +48,14 @@
         "expo-image-picker",
         {
           "photosPermission": "The app needs access to your photos to let you set a profile picture."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#ffffff",
+          "sound": "default"
         }
       ],
       "expo-font"

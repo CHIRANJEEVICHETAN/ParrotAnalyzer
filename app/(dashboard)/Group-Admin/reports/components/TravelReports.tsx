@@ -129,6 +129,8 @@ export default function TravelReports({ section, isDark }: { section: ReportSect
             data={locationData}
             width={width}
             height={220}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               ...commonConfig,
               barPercentage: 0.7,
@@ -155,6 +157,8 @@ export default function TravelReports({ section, isDark }: { section: ReportSect
             data={transportData}
             width={width}
             height={220}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               ...commonConfig,
               barPercentage: 0.7,

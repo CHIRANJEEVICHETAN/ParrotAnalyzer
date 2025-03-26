@@ -11,6 +11,9 @@ cursorUpdates/
 
 miscellaneous/
 
+pacOld.json
+pacNew.json
+
 # Expo
 .expo/
 dist/

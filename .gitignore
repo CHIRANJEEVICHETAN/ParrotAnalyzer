@@ -8,12 +8,20 @@ backend/node_modules/
 backend/.env
 
 miscellaneous/
-constants/
+# constants/
 
-# cursorUpdates/
+cursorUpdates/
+
+Testing.md
 
 .cursor/
 .cursorrules
+
+yarn.lock
+package-lock.json
+
+pacOld.json
+pacNew.json
 
 # Expo
 .expo/

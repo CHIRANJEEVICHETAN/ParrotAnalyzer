@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ThemeContext from '../../../context/ThemeContext';
-
+import axios from 'axios';
 interface PasswordRequirement {
     label: string;
     check: (password: string) => boolean;
@@ -83,21 +83,23 @@ export default function ChangePasswordSettings() {
                 throw new Error('No authentication token found');
             }
 
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/super-admin/change-password`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
+            const response = await axios.post(
+                `${process.env.EXPO_PUBLIC_API_URL}/api/super-admin/change-password`,
+                {  // request body
                     currentPassword,
                     newPassword
-                })
-            });
+                },
+                {  // config object
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
 
-            const data = await response.json();
+            const data = response.data;
 
-            if (!response.ok) {
+            if (!response.status || response.status >= 400) {
                 throw new Error(data.error || 'Failed to change password');
             }
 

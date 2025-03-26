@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ThemeContext from '../../../context/ThemeContext';
+import axios from 'axios';
 
 interface User {
     id: string;
@@ -45,17 +46,17 @@ export default function UsersSettings() {
                 throw new Error('No authentication token found');
             }
 
-            const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/super-admin/users`, {
+            const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/super-admin/users`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
             
-            if (!response.ok) {
+            if (!response.status || response.status >= 400) {
                 throw new Error('Failed to fetch users');
             }
 
-            const data = await response.json();
+            const data = response.data;
             setUsers(data);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch users');
@@ -84,17 +85,17 @@ export default function UsersSettings() {
                                 throw new Error('No authentication token found');
                             }
 
-                            const response = await fetch(
+                            const response = await axios.patch(
                                 `${process.env.EXPO_PUBLIC_API_URL}/api/super-admin/users/${userId}/toggle-status`,
+                                {},
                                 {
-                                    method: 'PATCH',
                                     headers: {
                                         'Authorization': `Bearer ${token}`
                                     }
                                 }
                             );
 
-                            if (!response.ok) {
+                            if (!response.status || response.status >= 400) {
                                 throw new Error('Failed to update user status');
                             }
 

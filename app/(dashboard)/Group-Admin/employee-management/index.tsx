@@ -253,13 +253,14 @@ export default function EmployeeManagement() {
                     </Text>
                   )}
                 </View>
-
+                {/*  
                 <TouchableOpacity
                   onPress={() => handleDeleteEmployee(employee.id)}
                   className="p-2 rounded-lg bg-red-500"
                 >
                   <Ionicons name="trash" size={20} color="white" />
                 </TouchableOpacity>
+                */}
               </View>
             </View>
           ))

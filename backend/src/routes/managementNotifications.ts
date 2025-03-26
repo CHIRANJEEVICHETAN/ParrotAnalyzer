@@ -315,22 +315,35 @@ router.post("/test", async (req: CustomRequest, res: Response) => {
   }
 });
 
-// Get all users except current user
+// Get all group-admins and employees under the current management user's company
 router.get("/users", async (req: CustomRequest, res: Response) => {
   try {
     const currentUserId = req.user!.id;
     const client = await pool.connect();
 
     try {
-      const result = await client.query(
-        `SELECT id, name, email, role 
-         FROM users 
-         WHERE id != $1 
-         ORDER BY role, name`,
+      // First get the company_id of the current management user
+      const companyResult = await client.query(
+        `SELECT company_id FROM users WHERE id = $1`,
         [currentUserId]
       );
 
-      console.log(result.rows);
+      if (!companyResult.rows[0]?.company_id) {
+        throw new Error("Company ID not found for current user");
+      }
+
+      const companyId = companyResult.rows[0].company_id;
+
+      // Get all group-admins and employees from the same company
+      const result = await client.query(
+        `SELECT id, name, email, role, employee_number 
+         FROM users 
+         WHERE company_id = $1 
+         AND role != 'management'
+         AND id != $2
+         ORDER BY role, name`,
+        [companyId, currentUserId]
+      );
 
       // Group users by role for easier frontend handling
       const groupedUsers = result.rows.reduce((acc: any, user) => {
@@ -342,6 +355,7 @@ router.get("/users", async (req: CustomRequest, res: Response) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          employee_number: user.employee_number
         });
         return acc;
       }, {});

@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { pool } from '../config/database';
@@ -78,22 +78,47 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
+      // Increment failed login attempts
+      await client.query(
+        'UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = $1',
+        [user.id]
+      );
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign(
+    // Reset failed login attempts and update last login
+    await client.query(
+      'UPDATE users SET failed_login_attempts = 0, last_login = CURRENT_TIMESTAMP WHERE id = $1',
+      [user.id]
+    );
+
+    // Generate access token (24h expiry)
+    const accessToken = jwt.sign(
       { 
         id: user.id,
         role: user.role,
         company_id: user.company_id,
-        token_version: user.token_version 
+        token_version: user.token_version,
+        type: 'access'
       },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
 
+    // Generate refresh token (7 days expiry)
+    const refreshToken = jwt.sign(
+      { 
+        id: user.id,
+        token_version: user.token_version,
+        type: 'refresh'
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
     res.json({
-      token,
+      accessToken,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -201,62 +226,81 @@ router.post('/reset-password', async (req: ResetPasswordRequest, res: Response) 
   }
 });
 
-router.post('/refresh', verifyToken, async (req: CustomRequest, res: Response) => {
+router.post('/refresh', async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'User not found' });
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token required' });
     }
 
-    const userResult = await pool.query(
-      `SELECT u.id, u.name, u.email, u.phone, u.role, u.company_id, 
-              u.token_version, c.status as company_status
-       FROM users u
-       LEFT JOIN companies c ON u.company_id = c.id 
-       WHERE u.id = $1`,
-      [req.user.id]
-    );
+    try {
+      const decoded = jwt.verify(refreshToken, JWT_SECRET) as JwtPayload;
 
-    if (userResult.rows.length === 0) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    const user = userResult.rows[0];
-
-    // Check company status for non-super-admin users
-    if (user.role !== 'super-admin' && 
-        user.company_id && 
-        user.company_status === 'disabled') {
-      return res.status(403).json({ 
-        error: 'Company access disabled. Please contact administrator.',
-        code: 'COMPANY_DISABLED'
-      });
-    }
-
-    const newToken = jwt.sign(
-      { 
-        id: user.id,
-        role: user.role,
-        company_id: user.company_id,
-        token_version: user.token_version 
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.json({ 
-      token: newToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        company_id: user.company_id
+      if (decoded.type !== 'refresh') {
+        return res.status(401).json({ error: 'Invalid token type' });
       }
-    });
+
+      const result = await client.query(
+        `SELECT u.*, c.status as company_status 
+         FROM users u 
+         LEFT JOIN companies c ON u.company_id = c.id 
+         WHERE u.id = $1 AND u.token_version = $2`,
+        [decoded.id, decoded.token_version]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(401).json({ error: 'Invalid refresh token' });
+      }
+
+      const user = result.rows[0];
+
+      // Check company status
+      if (user.role !== 'super-admin' && 
+          user.company_id && 
+          user.company_status === 'disabled') {
+        return res.status(403).json({ 
+          error: 'Company access disabled, please contact administrator',
+          code: 'COMPANY_DISABLED'
+        });
+      }
+
+      // Generate new access token
+      const newAccessToken = jwt.sign(
+        { 
+          id: user.id,
+          role: user.role,
+          company_id: user.company_id,
+          token_version: user.token_version,
+          type: 'access'
+        },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      res.json({
+        accessToken: newAccessToken,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          company_id: user.company_id
+        }
+      });
+    } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        return res.status(401).json({ error: 'Refresh token expired' });
+      }
+      throw error;
+    }
   } catch (error) {
     console.error('Token refresh error:', error);
     res.status(500).json({ error: 'Failed to refresh token' });
+  } finally {
+    client.release();
   }
 });
 

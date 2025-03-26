@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { Alert } from "react-native";
 import PushNotificationService from "../utils/pushNotificationService";
+import EventEmitter from '../utils/EventEmitter';
 
 type UserRole = "employee" | "group-admin" | "management" | "super-admin";
 
@@ -32,6 +33,32 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
+// Storage keys
+const AUTH_TOKEN_KEY = 'auth_token';
+const REFRESH_TOKEN_KEY = 'refresh_token';
+const USER_DATA_KEY = 'user_data';
+
+const handleLoginError = (error: any) => {
+  if (error.response?.data?.code === "COMPANY_DISABLED") {
+    return {
+      error: "Your company account has been disabled. Please contact the administrator.",
+      errorType: "COMPANY_DISABLED",
+    };
+  }
+
+  if (error.response?.status === 401) {
+    return {
+      error: "Invalid credentials. Please check your email/phone and password.",
+      errorType: "INVALID_CREDENTIALS",
+    };
+  }
+
+  return {
+    error: "An error occurred while logging in. Please try again.",
+    errorType: "UNKNOWN",
+  };
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -46,21 +73,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initializeAuth = async () => {
       try {
         setIsLoading(true);
-        const [storedToken, storedUser] = await Promise.all([
-          AsyncStorage.getItem("auth_token"),
-          AsyncStorage.getItem("user_data"),
+        const [accessToken, refreshToken, storedUser] = await Promise.all([
+          AsyncStorage.getItem(AUTH_TOKEN_KEY),
+          AsyncStorage.getItem(REFRESH_TOKEN_KEY),
+          AsyncStorage.getItem(USER_DATA_KEY),
         ]);
 
-        if (storedToken && storedUser) {
+        if (accessToken && refreshToken && storedUser) {
           // Set the token in axios defaults
-          axios.defaults.headers.common[
-            "Authorization"
-          ] = `Bearer ${storedToken}`;
+          axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
 
           // Parse and set the stored user data
           const userData = JSON.parse(storedUser);
           setUser(userData);
-          setToken(storedToken);
+          setToken(accessToken);
 
           // Verify token validity
           try {
@@ -84,20 +110,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 throw new Error("Invalid user role");
             }
           } catch (error) {
-            // If token is invalid, clear storage
-            await AsyncStorage.multiRemove(["auth_token", "user_data"]);
-            setUser(null);
-            setToken(null);
-            delete axios.defaults.headers.common["Authorization"];
+            // If token is invalid, try to refresh
+            const newToken = await refreshTokenSilently(refreshToken);
+            if (!newToken) {
+              // If refresh fails, clear storage and logout
+              await clearAuthData();
+            }
           }
         }
       } catch (error) {
         console.error("Auth initialization error:", error);
-        // Clear any potentially corrupted data
-        await AsyncStorage.multiRemove(["auth_token", "user_data"]);
-        setUser(null);
-        setToken(null);
-        delete axios.defaults.headers.common["Authorization"];
+        await clearAuthData();
       } finally {
         setIsLoading(false);
       }
@@ -105,6 +128,134 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initializeAuth();
   }, []);
+
+  useEffect(() => {
+    // Listen for token expiration events
+    const unsubscribe = EventEmitter.on('AUTH_TOKEN_EXPIRED', async () => {
+      Alert.alert(
+        "Session Expired",
+        "Your session has expired. Please login again to continue.",
+        [
+          {
+            text: "OK",
+            onPress: async () => {
+              // Clear auth state
+              setUser(null);
+              setToken(null);
+              setIsLoading(false);
+
+              if (user?.role !== "super-admin") {
+                // Get the current device token
+                const deviceToken = await PushNotificationService.getCurrentToken();
+        
+                if (deviceToken) {
+                  // Deactivate the device token
+                  try {
+                    const baseUrl = process.env.EXPO_PUBLIC_API_URL;
+                    const endpoint = `${baseUrl}/api/${
+                      user?.role || "employee"
+                    }-notifications/unregister-device`;
+        
+                    await axios.delete(endpoint, {
+                      data: { token: deviceToken },
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                      },
+                    });
+                  } catch (error) {
+                    console.error("Error deactivating device token:", error);
+                  }
+                }
+              }
+              // Navigate to login
+              router.replace("/(auth)/signin");
+            }
+          }
+        ]
+      );
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Add axios interceptor for token refresh
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+
+        // If the error is 401 and we haven't tried to refresh yet
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          originalRequest._retry = true;
+
+          try {
+            const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+            if (!refreshToken) throw new Error("No refresh token available");
+
+            const newToken = await refreshTokenSilently(refreshToken);
+            if (!newToken) throw new Error("Token refresh failed");
+
+            // Update the authorization header
+            originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
+            return axios(originalRequest);
+          } catch (refreshError) {
+            // If refresh fails, clear auth and redirect to login
+            await clearAuthData();
+            router.replace("/(auth)/signin");
+            return Promise.reject(refreshError);
+          }
+        }
+
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+    };
+  }, []);
+
+  const refreshTokenSilently = async (refreshToken: string): Promise<string | null> => {
+    try {
+      const response = await axios.post(`${API_URL}/auth/refresh`, {
+        refreshToken
+      });
+
+      const { accessToken, user: userData } = response.data;
+
+      // Update storage
+      await Promise.all([
+        AsyncStorage.setItem(AUTH_TOKEN_KEY, accessToken),
+        AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(userData))
+      ]);
+
+      // Update state
+      setToken(accessToken);
+      setUser(userData);
+
+      // Update axios default header
+      axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
+
+      return accessToken;
+    } catch (error) {
+      console.error("Silent refresh failed:", error);
+      return null;
+    }
+  };
+
+  const clearAuthData = async () => {
+    await Promise.all([
+      AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+      AsyncStorage.removeItem(REFRESH_TOKEN_KEY),
+      AsyncStorage.removeItem(USER_DATA_KEY),
+    ]);
+    delete axios.defaults.headers.common["Authorization"];
+    setToken(null);
+    setUser(null);
+  };
 
   const login = async (
     identifier: string,
@@ -117,18 +268,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password,
       });
 
-      const { token: newToken, user: userData } = response.data;
+      const { accessToken, refreshToken, user: userData } = response.data;
 
-      // Store both token and user data
+      // Store tokens and user data
       await Promise.all([
-        AsyncStorage.setItem("auth_token", newToken),
-        AsyncStorage.setItem("user_data", JSON.stringify(userData)),
+        AsyncStorage.setItem(AUTH_TOKEN_KEY, accessToken),
+        AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken),
+        AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(userData)),
       ]);
 
       // Set axios default header
-      axios.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
+      axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
 
-      setToken(newToken);
+      setToken(accessToken);
       setUser(userData);
 
       // Register device for push notifications
@@ -140,16 +292,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await PushNotificationService.registerDeviceWithBackend(
               userData.id.toString(),
               notificationResponse.token,
-              newToken,
+              accessToken,
               userData.role
             );
           }
         } catch (notificationError) {
-          console.error(
-            "Error registering for push notifications:",
-            notificationError
-          );
-          // Don't block login if push notification registration fails
+          console.error("Error registering for push notifications:", notificationError);
         }
       }
 
@@ -173,27 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {};
     } catch (error: any) {
       console.error("Login error:", error);
-
-      if (error.response?.data?.code === "COMPANY_DISABLED") {
-        return {
-          error:
-            "Your company account has been disabled. Please contact the administrator.",
-          errorType: "COMPANY_DISABLED",
-        };
-      }
-
-      if (error.response?.status === 401) {
-        return {
-          error:
-            "Invalid credentials. Please check your email/phone and password.",
-          errorType: "INVALID_CREDENTIALS",
-        };
-      }
-
-      return {
-        error: "An error occurred while logging in. Please try again.",
-        errorType: "UNKNOWN",
-      };
+      return handleLoginError(error);
     } finally {
       setIsLoading(false);
     }
@@ -202,109 +330,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       if (user?.role !== "super-admin") {
-        // Get the current device token
+        // Unregister device token
         const deviceToken = await PushNotificationService.getCurrentToken();
-
         if (deviceToken) {
-          // Deactivate the device token
           try {
-            const baseUrl = process.env.EXPO_PUBLIC_API_URL;
-            const endpoint = `${baseUrl}/api/${
-              user?.role || "employee"
-            }-notifications/unregister-device`;
-
+            const endpoint = `${API_URL}/api/${user?.role || "employee"}-notifications/unregister-device`;
             await axios.delete(endpoint, {
               data: { token: deviceToken },
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
+              headers: { Authorization: `Bearer ${token}` },
             });
           } catch (error) {
-            console.error("Error deactivating device token:", error);
+            console.error("Error unregistering device:", error);
           }
         }
       }
-
-      // Clear all storage
-      await Promise.all([
-        AsyncStorage.removeItem("auth_token"),
-        AsyncStorage.removeItem("user_data"),
-      ]);
-
-      delete axios.defaults.headers.common["Authorization"];
-      setToken(null);
-      setUser(null);
+      await clearAuthData();
     } catch (error) {
       console.error("Logout error:", error);
     }
   };
-
-  // Add a function to refresh token
-  const refreshToken = async () => {
-    try {
-      const storedToken = await AsyncStorage.getItem("auth_token");
-      if (!storedToken) {
-        return null;
-      }
-
-      try {
-        const response = await axios.post(`${API_URL}/auth/refresh`, null, {
-          headers: {
-            Authorization: `Bearer ${storedToken}`,
-          },
-        });
-
-        const { token: newToken, user } = response.data;
-        await AsyncStorage.setItem("auth_token", newToken);
-        setToken(newToken);
-        setUser(user);
-
-        axios.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
-        return newToken;
-      } catch (error: any) {
-        // Handle company disabled error during token refresh
-        if (error.response?.data?.code === "COMPANY_DISABLED") {
-          await logout(); // Force logout
-          Alert.alert(
-            "Access Denied",
-            "Your company account has been disabled. Please contact the administrator."
-          );
-          return null;
-        }
-
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
-          await logout();
-        }
-        throw error;
-      }
-    } catch (error) {
-      console.error("Token refresh failed:", error);
-      await logout();
-      return null;
-    }
-  };
-
-  // Add an axios interceptor to handle company disabled responses globally
-  useEffect(() => {
-    const interceptor = axios.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        if (error.response?.data?.code === "COMPANY_DISABLED") {
-          await logout();
-          Alert.alert(
-            "Access Denied",
-            "Your company account has been disabled. Please contact the administrator."
-          );
-          return Promise.reject(error);
-        }
-        return Promise.reject(error);
-      }
-    );
-
-    return () => {
-      axios.interceptors.response.eject(interceptor);
-    };
-  }, []);
 
   return (
     <AuthContext.Provider
@@ -313,7 +357,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         login,
         logout,
-        refreshToken,
+        refreshToken: () => refreshTokenSilently(token || ""),
         isLoading,
         updateUser,
       }}

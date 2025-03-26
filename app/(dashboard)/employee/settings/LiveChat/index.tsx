@@ -202,21 +202,20 @@ export default function LiveChat() {
     setMessages(prev => [...prev, userMessageObj, typingIndicator]);
 
     try {
-      const response = await fetch(
+      const response = await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/chat/send-message`,
+        { message: userMessage },
         {
-          method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ message: userMessage })
+          }
         }
       );
 
-      const data = await response.json();
+      const data = response.data;
       
-      if (!response.ok) {
+      if (!response.status || response.status >= 400) {
         throw new Error(data.error || 'Failed to send message');
       }
 
