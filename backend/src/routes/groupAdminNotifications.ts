@@ -15,8 +15,16 @@ const ensureGroupAdmin = (
   res: Response,
   next: Function
 ) => {
-  if (!req.user?.id || req.user.role !== "group-admin") {
-    return res.status(403).json({ error: "Access restricted to group admins" });
+  if (!req.user?.id) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  if (req.user.role !== "group-admin") {
+    console.log(`Access denied: User role ${req.user.role} attempted to access group-admin endpoint`);
+    return res.status(403).json({ 
+      error: "Access restricted to group admins",
+      details: `Your role (${req.user.role}) does not have permission to access this resource`
+    });
   }
   next();
 };
