@@ -135,12 +135,11 @@ export default function AttendanceReports({ section, isDark }: { section: Report
             data={barData}
             width={width}
             height={220}
+            yAxisLabel=""
             chartConfig={{
               ...commonConfig,
-              count: 6, // Number of Y-axis labels (including 0)
-              formatYLabel: (value) => Math.round(value).toString(),
-              yAxisInterval: yAxisMax / 5, // Evenly distribute labels
-              yLabelsOffset: -10,
+              count: 6,
+              formatYLabel: (value) => Math.round(Number(value)).toString(),
               propsForLabels: {
                 fontSize: 12
               }
@@ -189,6 +188,9 @@ export default function AttendanceReports({ section, isDark }: { section: Report
             numDays={7}
             width={width}
             height={220}
+            tooltipDataAttrs={() => ({
+              fill: 'transparent'
+            })}
             chartConfig={commonConfig}
             style={{
               borderRadius: 16,

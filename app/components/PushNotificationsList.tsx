@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
+import React, { useCallback, useEffect, useState, forwardRef, useImperativeHandle, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Pressable,
   FlatList,
   Alert,
+  StyleSheet,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import ThemeContext from "../context/ThemeContext";
@@ -41,7 +42,12 @@ interface PushNotificationsListProps {
   filterType?: string;
   onMarkAllAsRead?: () => void;
   unreadCount?: number;
+  onEndReached?: () => void; // New prop for pagination
+  onAllDataLoaded?: () => void; // New prop for when all data is loaded
 }
+
+// Constants for pagination
+const PAGE_SIZE = 15;
 
 const PushNotificationsList = forwardRef(({
   onSendNotification,
@@ -49,6 +55,8 @@ const PushNotificationsList = forwardRef(({
   filterType,
   onMarkAllAsRead,
   unreadCount,
+  onEndReached,
+  onAllDataLoaded,
 }: PushNotificationsListProps, ref) => {
   const { user, token } = useAuth();
   const { theme } = ThemeContext.useTheme();
@@ -58,8 +66,52 @@ const PushNotificationsList = forwardRef(({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreData, setHasMoreData] = useState(true);
+  
+  // Cache using useRef
+  const pageRef = useRef(0);
+  const notificationCacheRef = useRef<Map<string, Notification[]>>(new Map());
+  const filterKeyRef = useRef<string>(filterType || 'all');
+  
   const { decrementUnreadCount, incrementUnreadCount, setUnreadCount } = useNotifications();
+
+  // Reset pagination when filter changes
+  useEffect(() => {
+    if (filterKeyRef.current !== (filterType || 'all')) {
+      filterKeyRef.current = filterType || 'all';
+      pageRef.current = 0;
+      setNotifications([]);
+      setHasMoreData(true);
+    }
+  }, [filterType]);
+
+  // Initial load of unread counts from AsyncStorage
+  useEffect(() => {
+    const loadInitialUnreadCount = async () => {
+      try {
+        if (!user?.id) return;
+        
+        const readStatusKey = `${user.id}_read_notifications`;
+        const storedReadStatus = await AsyncStorage.getItem(readStatusKey);
+        const readNotifications = storedReadStatus ? JSON.parse(storedReadStatus) : {};
+        
+        // Get cached notifications if available
+        const cachedKey = `${filterType || 'all'}_0`;
+        const cachedData = notificationCacheRef.current.get(cachedKey);
+        
+        if (cachedData) {
+          // Calculate unread count from cache
+          const currentUnreadCount = cachedData.filter(n => !readNotifications[n.uniqueId || n.id]).length;
+          setUnreadCount(currentUnreadCount);
+        }
+      } catch (error) {
+        console.error('[Notifications] Error loading initial unread count:', error);
+      }
+    };
+    
+    loadInitialUnreadCount();
+  }, [user?.id, filterType, setUnreadCount]);
 
   // Expose markAllAsRead to parent components
   useImperativeHandle(ref, () => ({
@@ -68,13 +120,20 @@ const PushNotificationsList = forwardRef(({
 
   const loadReadStatus = useCallback(async (notifs: Notification[]) => {
     try {
-      const readStatusKey = `${user?.id}_read_notifications`;
+      if (!user?.id) return notifs;
+      
+      const readStatusKey = `${user.id}_read_notifications`;
       const storedReadStatus = await AsyncStorage.getItem(readStatusKey);
       const readNotifications = storedReadStatus ? JSON.parse(storedReadStatus) : {};
 
       // Update unread count based on stored read status
-      const unreadCount = notifs.filter(n => !readNotifications[n.uniqueId || n.id]).length;
-      setUnreadCount(unreadCount);
+      const unreadNotifications = notifs.filter(n => !readNotifications[n.uniqueId || n.id]);
+      const currentUnreadCount = unreadNotifications.length;
+      
+      // Don't update if count is 0 and there are no notifications (prevents flickering)
+      if (notifs.length > 0 || currentUnreadCount > 0) {
+        setUnreadCount(currentUnreadCount);
+      }
 
       return notifs.map(notification => ({
         ...notification,
@@ -133,9 +192,32 @@ const PushNotificationsList = forwardRef(({
     }
   }, [user?.role]);
 
-  const fetchNotifications = useCallback(async () => {
+  const fetchNotifications = useCallback(async (page = 0, append = false) => {
     try {
+      // Use cached data if available and not refreshing
+      const cacheKey = `${filterType || 'all'}_${page}`;
+      const cachedData = notificationCacheRef.current.get(cacheKey);
+      
+      if (cachedData && !refreshing && !append) {
+        console.log(`[Notifications] Using cached data for ${cacheKey}`);
+        setNotifications(cachedData);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      
+      if (page === 0) {
+        if (!append) setLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      // Calculate limit and offset for pagination
+      const limit = PAGE_SIZE;
+      const offset = page * PAGE_SIZE;
+
       const { data } = await axios.get(getNotificationsEndpoint(), {
+        params: { limit, offset },
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -170,32 +252,85 @@ const PushNotificationsList = forwardRef(({
         ? allNotifications.filter((n: Notification) => n.type === filterType)
         : allNotifications;
 
+      // Ensure created_at is a valid date
+      const validFilteredData = filteredData.map(notification => ({
+        ...notification,
+        created_at: new Date(notification.created_at).toString() === 'Invalid Date' 
+          ? new Date().toISOString() 
+          : notification.created_at
+      }));
+
       // Sort by created_at date, most recent first
-      const sortedData = filteredData.sort(
+      const sortedData = validFilteredData.sort(
         (a, b) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
 
       // Load read status from AsyncStorage and update notifications
       const notificationsWithReadStatus = await loadReadStatus(sortedData);
-      setNotifications(notificationsWithReadStatus);
+      
+      // Update the cache
+      notificationCacheRef.current.set(cacheKey, notificationsWithReadStatus);
+      
+      // Check if we've reached the end of available data
+      if (notificationsWithReadStatus.length < PAGE_SIZE) {
+        setHasMoreData(false);
+        onAllDataLoaded?.(); // Call the parent's onAllDataLoaded callback
+      }
+
+      // Update state based on whether we're appending or replacing
+      if (append) {
+        setNotifications(prevNotifications => {
+          // Create a new set to avoid duplicates based on uniqueId or id
+          const existingIds = new Set(prevNotifications.map(n => n.uniqueId || n.id.toString()));
+          const newNotifications = notificationsWithReadStatus.filter(
+            n => !existingIds.has(n.uniqueId || n.id.toString())
+          );
+          
+          // Combine and re-sort all notifications to ensure correct date order
+          const combined = [...prevNotifications, ...newNotifications];
+          return combined.sort((a, b) => 
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+        });
+      } else {
+        setNotifications(notificationsWithReadStatus);
+      }
+
       setError(null);
     } catch (err) {
+      console.error("[Notifications] Error fetching:", err);
       setError(err instanceof Error ? err.message : "An error occurred");
+      onAllDataLoaded?.(); // Also call onAllDataLoaded on error to prevent infinite loading
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setIsLoadingMore(false);
     }
-  }, [filterType, getNotificationsEndpoint, token, loadReadStatus]);
+  }, [filterType, getNotificationsEndpoint, token, loadReadStatus, refreshing, onAllDataLoaded]);
+
+  // Load initial data
+  useEffect(() => {
+    fetchNotifications(0, false);
+  }, [fetchNotifications]);
 
   const onRefresh = useCallback(() => {
+    // Reset pagination on refresh
+    pageRef.current = 0;
     setRefreshing(true);
-    fetchNotifications();
+    setHasMoreData(true);
+    fetchNotifications(0, false);
   }, [fetchNotifications]);
 
-  useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
+  const loadMoreNotifications = useCallback(() => {
+    if (isLoadingMore || !hasMoreData || loading || refreshing) return;
+    
+    const nextPage = pageRef.current + 1;
+    pageRef.current = nextPage;
+    
+    onEndReached?.(); // Call the parent's onEndReached callback
+    fetchNotifications(nextPage, true);
+  }, [fetchNotifications, isLoadingMore, hasMoreData, loading, refreshing, onEndReached]);
 
   const markAsRead = async (notification: Notification) => {
     try {
@@ -265,6 +400,9 @@ const PushNotificationsList = forwardRef(({
       // Save read status to AsyncStorage
       await saveReadStatusBulk(unreadNotifications);
 
+      // Clear cache since read status changed
+      notificationCacheRef.current.clear();
+
       // Call the parent's onMarkAllAsRead if provided
       onMarkAllAsRead?.();
     } catch (err) {
@@ -282,125 +420,131 @@ const PushNotificationsList = forwardRef(({
     }
   };
 
-  const renderNotification = ({ item }: { item: Notification }) => (
-    <Pressable
-      onPress={() => handleNotificationPress(item)}
-      className={`mx-4 mb-3 rounded-xl overflow-hidden ${
-        isDark ? "bg-gray-800" : "bg-white"
-      }`}
-      style={[
-        Platform.select({
-          ios: {
-            shadowColor: isDark ? "#000" : "#2563EB",
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.15,
-            shadowRadius: 6,
-          },
-          android: {
-            elevation: 3,
-          },
-        }),
-      ]}
-    >
-      {/* Priority Indicator Bar */}
-      <View className="flex-row">
-        <View
-          className={`w-1.5 h-full absolute left-0 ${
-            item.priority === "high"
-              ? "bg-red-500"
-              : item.priority === "medium"
-              ? "bg-yellow-500"
-              : "bg-blue-500"
-          }`}
-        />
+  // Memoize the notification renderer for better performance
+  const renderNotification = useCallback(({ item }: { item: Notification }) => (
+    <View style={localStyles.notificationCard}>
+      <Pressable
+        onPress={() => handleNotificationPress(item)}
+        className={`rounded-xl overflow-hidden ${
+          isDark ? "bg-gray-800/90" : "bg-white"
+        }`}
+        style={[
+          localStyles.notificationContent,
+          Platform.select({
+            ios: {
+              shadowColor: isDark ? "#000" : "#2563EB",
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.1,
+              shadowRadius: 3,
+            },
+            android: {
+              elevation: 2,
+              backgroundColor: isDark ? 'rgba(31, 41, 55, 0.9)' : '#FFFFFF',
+            },
+          }),
+        ]}
+      >
+        {/* Priority Indicator Bar */}
+        <View className="flex-row">
+          <View
+            className={`w-1.5 h-full absolute left-0 ${
+              item.priority === "high"
+                ? "bg-red-500"
+                : item.priority === "medium"
+                ? "bg-yellow-500"
+                : "bg-blue-500"
+            }`}
+          />
 
-        <View className="flex-1 pl-4 pr-3 py-4">
-          {/* Header Section */}
-          <View className="flex-row justify-between items-start mb-2">
-            <View className="flex-row items-center flex-1">
-              <View
-                className={`p-2 rounded-full ${
-                  item.priority === "high"
-                    ? isDark
-                      ? "bg-red-900/30"
-                      : "bg-red-100"
-                    : item.priority === "medium"
-                    ? isDark
-                      ? "bg-yellow-900/30"
-                      : "bg-yellow-100"
-                    : isDark
-                    ? "bg-blue-900/30"
-                    : "bg-blue-100"
-                }`}
-              >
-                <MaterialCommunityIcons
-                  name={getNotificationIcon(item.type)}
-                  size={20}
-                  color={
-                    isDark
-                      ? item.priority === "high"
-                        ? "#FCA5A5"
-                        : item.priority === "medium"
-                        ? "#FCD34D"
-                        : "#93C5FD"
-                      : item.priority === "high"
-                      ? "#DC2626"
+          <View className="flex-1 pl-4 pr-3 py-5">
+            {/* Header Section */}
+            <View className="flex-row justify-between items-start mb-3">
+              <View className="flex-row items-center flex-1">
+                <View
+                  className={`p-2.5 rounded-full ${
+                    item.priority === "high"
+                      ? isDark
+                        ? "bg-red-900/30"
+                        : "bg-red-100"
                       : item.priority === "medium"
-                      ? "#D97706"
-                      : "#2563EB"
-                  }
-                />
-              </View>
-              <View className="flex-1 ml-3">
-                <Text
-                  className={`font-semibold text-base ${
-                    isDark ? "text-white" : "text-gray-900"
-                  } ${!item.read ? "font-bold" : ""}`}
-                >
-                  {item.title}
-                </Text>
-                <Text
-                  className={`text-xs mt-1 ${
-                    isDark ? "text-gray-400" : "text-gray-500"
+                      ? isDark
+                        ? "bg-yellow-900/30"
+                        : "bg-yellow-100"
+                      : isDark
+                      ? "bg-blue-900/30"
+                      : "bg-blue-100"
                   }`}
                 >
-                  {format(new Date(item.created_at), "MMM d, yyyy • h:mm a")}
-                </Text>
+                  <MaterialCommunityIcons
+                    name={getNotificationIcon(item.type)}
+                    size={22}
+                    color={
+                      isDark
+                        ? item.priority === "high"
+                          ? "#FCA5A5"
+                          : item.priority === "medium"
+                          ? "#FCD34D"
+                          : "#93C5FD"
+                        : item.priority === "high"
+                        ? "#DC2626"
+                        : item.priority === "medium"
+                        ? "#D97706"
+                        : "#2563EB"
+                    }
+                  />
+                </View>
+                <View className="flex-1 ml-3.5">
+                  <Text
+                    className={`font-semibold text-base leading-5 ${
+                      isDark ? "text-white" : "text-gray-900"
+                    } ${!item.read ? "font-bold" : ""}`}
+                  >
+                    {item.title}
+                  </Text>
+                  <Text
+                    className={`text-xs mt-1.5 ${
+                      isDark ? "text-gray-400" : "text-gray-500"
+                    }`}
+                  >
+                    {format(new Date(item.created_at), "MMM d, yyyy • h:mm a")}
+                  </Text>
+                </View>
               </View>
+
+              {/* Read/Unread Indicator */}
+              {!item.read && (
+                <View
+                  className={`px-2.5 py-1.5 rounded-full ${
+                    isDark ? "bg-blue-900/30" : "bg-blue-100"
+                  }`}
+                >
+                  <Text
+                    className={`text-xs font-medium ${
+                      isDark ? "text-blue-400" : "text-blue-600"
+                    }`}
+                  >
+                    New
+                  </Text>
+                </View>
+              )}
             </View>
 
-            {/* Read/Unread Indicator */}
-            {!item.read && (
-              <View
-                className={`px-2 py-1 rounded-full ${
-                  isDark ? "bg-blue-900/30" : "bg-blue-100"
-                }`}
-              >
-                <Text
-                  className={`text-xs font-medium ${
-                    isDark ? "text-blue-400" : "text-blue-600"
-                  }`}
-                >
-                  New
-                </Text>
-              </View>
-            )}
+            {/* Message Content */}
+            <Text
+              className={`text-sm pl-2 leading-5 ${
+                isDark ? "text-gray-300" : "text-gray-600"
+              } ${!item.read ? "font-medium" : ""}`}
+            >
+              {item.message}
+            </Text>
           </View>
-
-          {/* Message Content */}
-          <Text
-            className={`text-sm pl-2 ${
-              isDark ? "text-gray-300" : "text-gray-600"
-            } ${!item.read ? "font-medium" : ""}`}
-          >
-            {item.message}
-          </Text>
         </View>
-      </View>
-    </Pressable>
-  );
+      </Pressable>
+    </View>
+  ), [isDark, handleNotificationPress]);
 
-  const getNotificationIcon = (type: string) => {
+  // Memoize notification icon getter
+  const getNotificationIcon = useCallback((type: string) => {
     switch (type.toLowerCase()) {
       // Employee notification icons
       case 'task-assignment':
@@ -428,7 +572,53 @@ const PushNotificationsList = forwardRef(({
       default:
         return 'bell-outline';
     }
-  };
+  }, []);
+
+  // Memoize empty list component
+  const ListEmptyComponent = useMemo(() => (
+    <View className="items-center px-4 flex-1 justify-center">
+      <MaterialCommunityIcons
+        name="bell-off-outline"
+        size={48}
+        color={isDark ? "#6B7280" : "#9CA3AF"}
+      />
+      <Text
+        className={`text-base mt-4 text-center ${
+          isDark ? "text-gray-400" : "text-gray-500"
+        }`}
+      >
+        No notifications yet
+      </Text>
+    </View>
+  ), [isDark]);
+
+  // Memoize footer loader
+  const ListFooterComponent = useMemo(() => (
+    isLoadingMore ? (
+      <View className="py-4 flex justify-center items-center">
+        <ActivityIndicator
+          size="small"
+          color={isDark ? "#60A5FA" : "#2563EB"}
+        />
+        <Text className={`text-sm mt-2 ${isDark ? "text-gray-400" : "text-gray-600"}`}>
+          Loading more...
+        </Text>
+      </View>
+    ) : hasMoreData ? (
+      <View style={{ height: 20 }} />
+    ) : notifications.length > 10 ? (
+      <View className="py-4 flex justify-center items-center">
+        <Text className={`text-sm ${isDark ? "text-gray-400" : "text-gray-600"}`}>
+          No more notifications
+        </Text>
+      </View>
+    ) : null
+  ), [isLoadingMore, hasMoreData, notifications.length, isDark]);
+
+  // Extract key extractor to a memoized function
+  const keyExtractor = useCallback((item: Notification) => 
+    `${item.uniqueId || item.id.toString()}_${new Date(item.created_at).getTime()}`, 
+  []);
 
   if (loading) {
     return (
@@ -452,7 +642,7 @@ const PushNotificationsList = forwardRef(({
           {error}
         </Text>
         <Pressable
-          onPress={fetchNotifications}
+          onPress={() => fetchNotifications(0, false)}
           className={`px-4 py-2 rounded-lg ${
             isDark ? "bg-blue-600" : "bg-blue-500"
           }`}
@@ -464,7 +654,7 @@ const PushNotificationsList = forwardRef(({
   }
 
   return (
-    <View className="flex-1">
+    <View className="flex-1" style={localStyles.container}>
       {showSendButton && onSendNotification && (
         <View className="flex-row justify-between items-center mx-4 mb-4">
           <Pressable
@@ -487,7 +677,7 @@ const PushNotificationsList = forwardRef(({
       <FlatList
         data={notifications}
         renderItem={renderNotification}
-        keyExtractor={(item) => item.uniqueId || item.id.toString()}
+        keyExtractor={keyExtractor}
         contentContainerStyle={{ 
           flexGrow: 1,
           paddingBottom: 16,
@@ -503,25 +693,35 @@ const PushNotificationsList = forwardRef(({
             tintColor={isDark ? "#60A5FA" : "#2563EB"}
           />
         }
-        ListEmptyComponent={
-          <View className="items-center px-4">
-            <MaterialCommunityIcons
-              name="bell-off-outline"
-              size={48}
-              color={isDark ? "#6B7280" : "#9CA3AF"}
-            />
-            <Text
-              className={`text-base mt-4 text-center ${
-                isDark ? "text-gray-400" : "text-gray-500"
-              }`}
-            >
-              No notifications yet
-            </Text>
-          </View>
-        }
+        onEndReached={loadMoreNotifications}
+        onEndReachedThreshold={0.3}
+        ListEmptyComponent={ListEmptyComponent}
+        ListFooterComponent={ListFooterComponent}
+        removeClippedSubviews={Platform.OS === 'android'} // Optimize memory usage on Android
+        maxToRenderPerBatch={10} // Optimize rendering performance
+        initialNumToRender={10} // Initial render count
+        windowSize={10} // Render window size
       />
     </View>
   );
+});
+
+// Local styles for fixing alignment issues
+const localStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    width: '100%',
+  },
+  notificationCard: {
+    width: '100%',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  notificationContent: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  }
 });
 
 export default PushNotificationsList;

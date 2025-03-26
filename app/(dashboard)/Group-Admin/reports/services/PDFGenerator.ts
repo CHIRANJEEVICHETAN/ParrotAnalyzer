@@ -11,25 +11,25 @@ import { generateTaskReport } from '../components/pdf-templates/TaskTemplate';
 import { generateTravelReport } from '../components/pdf-templates/TravelTemplate';
 import { generatePerformanceReport } from '../components/pdf-templates/PerformanceTemplate';
 import { generateLeaveReport } from '../components/pdf-templates/LeaveTemplate';
-
+import axios from 'axios';
 export class PDFGenerator {
   private static readonly APP_DOCUMENTS_DIR = 'PDFReports/';
 
   static async generateAndHandlePDF(section: ReportSection, action: 'open' | 'share'): Promise<void> {
     try {
       const token = await AsyncStorage.getItem('auth_token');
-      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/${section.type}`, {
+      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/${section.type}`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
       });
 
-      if (!response.ok) {
+      if (!response.status || response.status >= 400) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = response.data;
       const html = await this.generateHTMLContent(section, data);
 
       // Generate PDF

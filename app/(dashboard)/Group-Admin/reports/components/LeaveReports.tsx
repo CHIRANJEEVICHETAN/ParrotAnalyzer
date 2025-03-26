@@ -164,6 +164,8 @@ export default function LeaveReports({ section, isDark }: { section: ReportSecti
             data={balanceData}
             width={width}
             height={220}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               ...commonConfig,
               color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -14,20 +14,21 @@ import { LinearGradient } from "expo-linear-gradient";
 import AuthContext from "./context/AuthContext";
 import * as Notifications from "expo-notifications";
 import PushNotificationService from "./utils/pushNotificationService";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Configure notification behavior for foreground state
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true, // Show alert when app is in foreground
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true, // Changed from false to true for consistency
   }),
 });
 
 export default function SplashScreen() {
   const router = useRouter();
   const { theme } = ThemeContext.useTheme();
-  const { isLoading, user } = AuthContext.useAuth();
+  const { isLoading, user, token } = AuthContext.useAuth();
   const [notificationPermission, setNotificationPermission] = useState<
     string | null
   >(null);
@@ -116,20 +117,67 @@ export default function SplashScreen() {
   useEffect(() => {
     if (!user || !notificationPermission) return;
 
+    let cleanupMonitoring: (() => void) | undefined;
+
     const initializePushNotifications = async () => {
       try {
+        console.log(`[SplashScreen] Initializing push notifications for user: ${user.id} on ${Platform.OS} (version ${Platform.Version})`);
+        console.log(`[SplashScreen] Notification permission status: ${notificationPermission}`);
+        
+        // Check platform-specific notification settings
+        if (Platform.OS === 'ios') {
+          const settings = await Notifications.getPermissionsAsync();
+          console.log('[SplashScreen] iOS notification settings:', settings);
+        } else if (Platform.OS === 'android') {
+          // Check Android notification channels
+          const channels = await Notifications.getNotificationChannelsAsync();
+          console.log('[SplashScreen] Android channels:', channels.length ? channels.map(c => c.name) : 'None');
+        }
+        
+        // Check if we need to reset the Expo Push Token
+        await checkAndRefreshExpoToken();
+        
         const result =
           await PushNotificationService.registerForPushNotifications();
 
         if (result.success && result.token) {
+          console.log("[SplashScreen] Successfully registered with token:", result.token);
+          
+          // Register token with backend
+          try {
+            await PushNotificationService.registerDeviceWithBackend(
+              user.id.toString(),
+              result.token,
+              token || undefined,
+              user.role as any
+            );
+            console.log("[SplashScreen] Successfully registered token with backend");
+            
+            // Start notification monitoring
+            cleanupMonitoring = PushNotificationService.startMonitoringNotifications();
+            console.log("[SplashScreen] Notification monitoring started");
+            
+            // // Try sending a local test notification to verify functionality
+            // setTimeout(() => {
+            //   PushNotificationService.sendTestNotification(
+            //     "Diagnostic Test", 
+            //     "This notification confirms your device can receive notifications"
+            //   )
+            //     .then(() => console.log("[SplashScreen] Diagnostic test sent"))
+            //     .catch((error: Error) => console.error("[SplashScreen] Diagnostic error:", error));
+            // }, 5000); // Give some time after initialization
+          } catch (registerError) {
+            console.error("[SplashScreen] Failed to register token with backend:", registerError);
+          }
+          
           // Set up notification handlers
           const cleanup = PushNotificationService.setupNotificationListeners(
             (notification) => {
-              console.log("Received notification:", notification);
+              console.log("[SplashScreen] Received notification in foreground:", notification);
               // Handle foreground notification
             },
             (response) => {
-              console.log("Notification response:", response);
+              console.log("[SplashScreen] Notification response (tapped):", response);
               const data = response.notification.request.content.data;
 
               // Handle notification response (e.g., when user taps notification)
@@ -150,9 +198,11 @@ export default function SplashScreen() {
           );
 
           return cleanup;
+        } else {
+          console.warn("[SplashScreen] Push notification registration failed:", result.message);
         }
       } catch (error) {
-        console.error("Error initializing push notifications:", error);
+        console.error("[SplashScreen] Error initializing push notifications:", error);
       }
     };
 
@@ -166,7 +216,12 @@ export default function SplashScreen() {
         );
       }
       if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
+        Notifications.removeNotificationSubscription(
+          responseListener.current
+        );
+      }
+      if (cleanupMonitoring) {
+        cleanupMonitoring();
       }
     };
   }, [user, notificationPermission]);
@@ -244,6 +299,47 @@ export default function SplashScreen() {
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
+
+  // Function to check and refresh Expo Push Token if needed
+  const checkAndRefreshExpoToken = async () => {
+    try {
+      console.log('[Token Check] Verifying Expo push token validity');
+      
+      // Step 1: Check when the token was last successfully registered
+      const lastRegistered = await AsyncStorage.getItem('pushTokenLastRegistered');
+      const currentToken = await AsyncStorage.getItem('expoPushToken');
+      
+      // If we have both a token and registration timestamp
+      if (currentToken && lastRegistered) {
+        const lastRegDate = new Date(lastRegistered);
+        const now = new Date();
+        const daysSinceRegistration = (now.getTime() - lastRegDate.getTime()) / (1000 * 60 * 60 * 24);
+        
+        console.log(`[Token Check] Current token: ${currentToken}`);
+        console.log(`[Token Check] Last registered: ${daysSinceRegistration.toFixed(1)} days ago`);
+        
+        // If token was registered within last 7 days, no need to refresh
+        if (daysSinceRegistration < 7) {
+          console.log('[Token Check] Token is recent, no refresh needed');
+          return;
+        }
+        
+        console.log('[Token Check] Token is older than 7 days, will refresh');
+      } else {
+        console.log('[Token Check] No token or registration timestamp found');
+      }
+      
+      // Step 2: Clear the existing token
+      await AsyncStorage.removeItem('expoPushToken');
+      await AsyncStorage.removeItem('pushTokenLastRegistered');
+      
+      // Step 3: Let regular registration process handle getting a new token
+      console.log('[Token Check] Cleared token cache, new token will be requested');
+      
+    } catch (error) {
+      console.error('[Token Check] Error checking token validity:', error);
+    }
+  };
 
   return (
     <>

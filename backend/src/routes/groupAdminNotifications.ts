@@ -284,6 +284,7 @@ router.post("/test", async (req: CustomRequest, res: Response) => {
 
 // Send notification for task assignment
 router.post("/notify-task-assignment", async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
     const { employeeId, taskDetails } = req.body;
 
@@ -307,35 +308,59 @@ router.post("/notify-task-assignment", async (req: CustomRequest, res: Response)
       `📅 Due Date: ${dueDateDisplay}\n` +
       `\n🔔 Please review and start working on this task.`;
 
+    // Store notification in database first
+    const notificationData = {
+      screen: "/(dashboard)/employee/employee",
+      isReassignment,
+      taskId: taskDetails.taskId
+    };
+
+    const insertResult = await client.query(
+      `INSERT INTO push_notifications 
+       (user_id, title, message, type, priority, data, sent, sent_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING id`,
+      [
+        employeeId,
+        title,
+        message,
+        "task-assignment",
+        "high",
+        JSON.stringify(notificationData)
+      ]
+    );
+
+    // Send push notification with the database ID
     await NotificationService.sendPushNotification(
       {
-        id: 0,
+        id: insertResult.rows[0].id,
         user_id: employeeId.toString(),
         title,
         message,
         type: "task-assignment",
         priority: "high",
-        data: { 
-          screen: "/(dashboard)/employee/employee",
-          isReassignment,
-          taskId: taskDetails.taskId
-        },
+        data: notificationData,
       },
       [employeeId.toString()]
     );
 
-    res.json({ success: true });
+    await client.query('COMMIT');
+    res.json({ success: true, notificationId: insertResult.rows[0].id });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error("Error sending task assignment notification:", error);
     res.status(500).json({
       error: "Failed to send notification",
       details: error instanceof Error ? error.message : "Unknown error",
     });
+  } finally {
+    client.release();
   }
 });
 
 // Send notification for leave request status update
 router.post("/notify-leave-status", async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
     const { employeeId, status, leaveDetails, reason } = req.body;
 
@@ -352,137 +377,262 @@ router.post("/notify-leave-status", async (req: CustomRequest, res: Response) =>
       `⏱️ Duration: ${leaveDetails.days_requested} day(s)\n` +
       (reason ? `\n📋 Reason: ${reason}` : '');
 
+    const notificationData = { 
+      screen: "/(dashboard)/employee/leave-insights",
+      leaveId: leaveDetails.id,
+      status
+    };
+
+    // Store notification in database first
+    const insertResult = await client.query(
+      `INSERT INTO push_notifications 
+       (user_id, title, message, type, priority, data, sent, sent_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING id`,
+      [
+        employeeId,
+        title,
+        message,
+        "leave-status",
+        "high",
+        JSON.stringify(notificationData)
+      ]
+    );
+
+    // Send push notification with the database ID
     await NotificationService.sendPushNotification(
       {
-        id: 0,
+        id: insertResult.rows[0].id,
         user_id: employeeId.toString(),
         title,
         message,
         type: "leave-status",
         priority: "high",
-        data: { screen: "/(dashboard)/employee/leave-insights" },
+        data: notificationData,
       },
       [employeeId.toString()]
     );
 
-    res.json({ success: true });
+    await client.query('COMMIT');
+    res.json({ success: true, notificationId: insertResult.rows[0].id });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error("Error sending leave status notification:", error);
     res.status(500).json({
       error: "Failed to send notification",
       details: error instanceof Error ? error.message : "Unknown error",
     });
+  } finally {
+    client.release();
   }
 });
 
 // Send notification to management
 router.post("/notify-admin", async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
   try {
+    console.log('[GroupAdmin Notification] Starting notification process');
+    console.log('[GroupAdmin Notification] User:', req.user);
+
     if (!req.user?.id) {
+      console.log('[GroupAdmin Notification] Error: No user ID');
       return res.status(401).json({ error: "Authentication required" });
     }
 
+    // Verify the user is a group admin
+    const userCheck = await client.query(
+      "SELECT role, company_id FROM users WHERE id = $1 AND role = 'group-admin'",
+      [req.user.id]
+    );
+
+    if (!userCheck.rows.length) {
+      console.log('[GroupAdmin Notification] Error: User is not a group admin');
+      return res.status(403).json({ error: "Access restricted to group admins" });
+    }
+
     const { title, message, type = "group-admin-update" } = req.body;
+    console.log('[GroupAdmin Notification] Payload:', { title, message, type });
 
     if (!title || !message) {
+      console.log('[GroupAdmin Notification] Error: Missing required parameters');
       return res.status(400).json({ error: "Missing required parameters" });
     }
 
-    // Get the management personnel from the same company
-    const client = await pool.connect();
-    try {
-      // First get the current user's company_id and verify they are a group admin
-      const userResult = await client.query(
-        `SELECT company_id, role FROM users WHERE id = $1`,
-        [req.user.id]
-      );
+    const companyId = userCheck.rows[0].company_id;
 
-      if (!userResult.rows.length || userResult.rows[0].role !== 'group-admin') {
-        return res.status(403).json({ error: "Access restricted to group admins" });
-      }
+    // Get the management user for this company
+    const managementResult = await client.query(
+      "SELECT id, name FROM users WHERE company_id = $1 AND role = 'management'",
+      [companyId]
+    );
 
-      const companyId = userResult.rows[0].company_id;
-      
-      if (!companyId) {
-        return res.status(400).json({ error: "No company associated with this group admin" });
-      }
+    if (!managementResult.rows.length) {
+      console.log('[GroupAdmin Notification] Error: No management user found for company:', companyId);
+      return res.status(400).json({ error: "No management user found" });
+    }
 
-      // Find the management user for this company
-      const managementResult = await client.query(
-        `SELECT id FROM users 
-         WHERE company_id = $1 
-         AND role = 'management' 
-         AND status = 'active' 
-         LIMIT 1`,
-        [companyId]
-      );
+    const managementId = managementResult.rows[0].id;
+    console.log('[GroupAdmin Notification] Found management ID:', managementId);
 
-      if (!managementResult.rows.length) {
-        return res.status(400).json({ error: "No management personnel found for your company" });
-      }
+    // Create push notification with correct schema
+    const pushNotifResult = await client.query(
+      `INSERT INTO push_notifications 
+       (user_id, title, message, type, priority, data, sent, sent_at, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING id`,
+      [
+        managementId,
+        title,
+        message,
+        type,
+        "high",
+        JSON.stringify({
+          screen: "/(dashboard)/management/notifications",
+          groupAdminId: req.user.id,
+          groupAdminName: req.user.name,
+          companyId: companyId
+        }),
+      ]
+    );
 
-      const managementId = managementResult.rows[0].id;
+    console.log('[GroupAdmin Notification] Created push notification:', pushNotifResult.rows[0]);
 
-      // Create push notification with correct schema
-      const pushNotifResult = await client.query(
-        `INSERT INTO push_notifications 
-         (user_id, title, message, type, priority, data, sent, sent_at, created_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-         RETURNING id`,
-        [
-          managementId,
-          title,
-          message,
-          type,
-          "high",
-          JSON.stringify({
-            screen: "/(dashboard)/management/notifications",
-            groupAdminId: req.user.id,
-            groupAdminName: req.user.name,
-            companyId: companyId
-          }),
-        ]
-      );
-
-      // Use the generated ID for sending the push notification
-      await NotificationService.sendPushNotification(
-        {
-          id: pushNotifResult.rows[0].id,
-          user_id: managementId.toString(),
-          title,
-          message,
-          type,
-          priority: "high",
-          data: {
-            screen: "/(dashboard)/management/notifications",
-            groupAdminId: req.user.id,
-            groupAdminName: req.user.name,
-            companyId: companyId
-          },
+    // Send push notification
+    await NotificationService.sendPushNotification(
+      {
+        id: pushNotifResult.rows[0].id,
+        user_id: managementId.toString(),
+        title,
+        message,
+        type,
+        priority: "high",
+        data: {
+          screen: "/(dashboard)/management/notifications",
+          groupAdminId: req.user.id,
+          groupAdminName: req.user.name,
+          companyId: companyId
         },
-        [managementId.toString()]
+      },
+      [managementId.toString()]
+    );
+
+    // Create in-app notification
+    await client.query(
+      `INSERT INTO notifications 
+       (user_id, title, message, type, read, created_at) 
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+      [
+        managementId,
+        title,
+        message,
+        type,
+        false
+      ]
+    );
+
+    console.log('[GroupAdmin Notification] Successfully created notifications');
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('[GroupAdmin Notification] Error:', error);
+    res.status(500).json({
+      error: "Failed to send notification",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Get all employees under the current group-admin
+router.get("/users", async (req: CustomRequest, res: Response) => {
+  try {
+    const currentUserId = req.user!.id;
+    const client = await pool.connect();
+
+    try {
+      // First get the company_id and group_id of the current group-admin
+      const adminResult = await client.query(
+        `SELECT company_id FROM users WHERE id = $1`,
+        [currentUserId]
       );
 
-      // Create in-app notification matching exact schema
-      await client.query(
-        `INSERT INTO notifications 
-         (user_id, title, message, type, read, created_at) 
-         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
-        [
-          managementId,
-          title,
-          message,
-          type,
-          false,
-        ]
+      if (!adminResult.rows[0]?.company_id) {
+        throw new Error("Company ID not found for current user");
+      }
+
+      const { company_id } = adminResult.rows[0];
+
+      // Get all employees from the same group
+      const result = await client.query(
+        `SELECT id, name, email, role, employee_number 
+         FROM users 
+         WHERE company_id = $1 
+         AND group_admin_id = $2
+         AND role = 'employee'
+         AND id != $3
+         ORDER BY name`,
+        [company_id, currentUserId, currentUserId]
       );
 
-      res.json({ success: true });
+      // Group users by role (in this case, only employees)
+      const groupedUsers = {
+        employee: result.rows.map(user => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          employee_number: user.employee_number
+        }))
+      };
+
+      res.json(groupedUsers);
     } finally {
       client.release();
     }
   } catch (error) {
-    console.error("Error sending notification to management:", error);
+    console.error("Error fetching users:", error);
+    res.status(500).json({
+      error: "Failed to fetch users",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// Send notification to specific users
+router.post("/send-users", async (req: CustomRequest, res: Response) => {
+  try {
+    const {
+      title,
+      message,
+      userIds,
+      type = "group-admin",
+      priority = "default",
+      data,
+    } = req.body;
+
+    if (!title || !message || !userIds) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+
+    const notification = {
+      id: 0,
+      user_id: req.user!.id.toString(),
+      title,
+      message,
+      type,
+      priority,
+      data: data || {},
+    };
+
+    await NotificationService.sendPushNotification(
+      notification,
+      userIds.map(String)
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error sending notification:", error);
     res.status(500).json({
       error: "Failed to send notification",
       details: error instanceof Error ? error.message : "Unknown error",

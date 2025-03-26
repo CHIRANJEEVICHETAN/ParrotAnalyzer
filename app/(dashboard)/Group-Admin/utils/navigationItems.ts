@@ -14,7 +14,7 @@ export const groupAdminNavItems: NavItem[] = [
   // {
   //   icon: "notifications-outline",
   //   label: "Test Notifications",
-  //   href: "/(dashboard)/test-notifications",
+  //   href: "/(testing)/test-notifications",
   // },
   {
     icon: "list-outline",

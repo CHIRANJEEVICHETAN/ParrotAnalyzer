@@ -595,17 +595,17 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
         
         const token = await AsyncStorage.getItem('auth_token');
 
-        const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/expense`, {
+        const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/expense`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         });
 
-        if (!response.ok) {
+        if (!response.status || response.status >= 400) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const data = await response.json();
+        const data = response.data;
         
         if (mounted) {
           setOverallData(data.overall);

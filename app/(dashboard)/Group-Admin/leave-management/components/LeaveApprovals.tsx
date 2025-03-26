@@ -178,6 +178,7 @@ export default function LeaveApprovals() {
           { headers: { Authorization: `Bearer ${token}` } }
         );
       } else {
+        // Handle escalation
         response = await axios.post(
           `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/leave-requests/${requestId}/escalate`,
           {
@@ -187,7 +188,7 @@ export default function LeaveApprovals() {
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
-        // Send escalation notification
+        // Send escalation notification to employee
         await axios.post(
           `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications/notify-leave-status`,
           {
@@ -200,6 +201,26 @@ export default function LeaveApprovals() {
               days_requested: request.days_requested,
             },
             reason: escalationReason,
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        // Send notification to management
+        const managementNotificationTitle = `⚠️ Leave Request Escalation Required`;
+        const managementNotificationMessage = 
+          `A leave request has been escalated for your review.\n\n` +
+          `👤 Employee: ${request.user_name} (${request.employee_number})\n` +
+          `📝 Leave Type: ${request.leave_type_name}\n` +
+          `📅 Period: ${new Date(request.start_date).toLocaleDateString()} to ${new Date(request.end_date).toLocaleDateString()}\n` +
+          `⏱️ Duration: ${request.days_requested} day(s)\n` +
+          `\n📋 Escalation Reason: ${escalationReason}`;
+
+        await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications/notify-admin`,
+          {
+            title: managementNotificationTitle,
+            message: managementNotificationMessage,
+            type: "leave-escalation",
           },
           { headers: { Authorization: `Bearer ${token}` } }
         );

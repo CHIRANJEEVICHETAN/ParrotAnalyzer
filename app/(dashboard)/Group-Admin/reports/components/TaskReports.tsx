@@ -177,12 +177,12 @@ export default function TaskReports({ section, isDark }: { section: ReportSectio
             data={barData}
             width={width}
             height={220}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               ...commonConfig,
               count: 6,
-              formatYLabel: (value) => Math.round(value).toString(),
-              yAxisInterval: yAxisMax / 5,
-              yLabelsOffset: -10,
+              formatYLabel: (value) => Math.round(Number(value)).toString(),
               propsForLabels: {
                 fontSize: 12
               }

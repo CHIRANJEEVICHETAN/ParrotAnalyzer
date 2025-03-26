@@ -13,11 +13,12 @@ import {
   Modal,
   FlatList,
   Keyboard,
-  StyleSheet
+  StyleSheet,
+  Animated
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
 import ThemeContext from '../../context/ThemeContext';
@@ -210,6 +211,8 @@ export default function TaskManagement() {
   const { token } = AuthContext.useAuth();
   const router = useRouter();
   const isDark = theme === 'dark';
+  const successScale = useRef(new Animated.Value(0)).current;
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -315,6 +318,24 @@ export default function TaskManagement() {
     });
   }, [employeeFilter, employees]);
 
+  const showSuccessAnimation = () => {
+    setShowSuccess(true);
+    Animated.sequence([
+      Animated.spring(successScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 15,
+        stiffness: 200,
+      }),
+    ]).start();
+
+    // Auto hide after 2 seconds
+    setTimeout(() => {
+      setShowSuccess(false);
+      successScale.setValue(0);
+    }, 2000);
+  };
+
   const createTask = async () => {
     try {
       setIsLoading(true);
@@ -347,7 +368,7 @@ export default function TaskManagement() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      Alert.alert('Success', 'Task created successfully');
+      showSuccessAnimation();
       fetchTasks();
       setNewTask({
         title: '',
@@ -820,6 +841,62 @@ export default function TaskManagement() {
           )}
         </View>
       </ScrollView>
+
+      {/* Success Modal */}
+      {showSuccess && (
+        <Animated.View 
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: isDark ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 50,
+            },
+            {
+              transform: [{ scale: successScale }],
+            }
+          ]}
+        >
+          <View style={{ alignItems: 'center', padding: 24 }}>
+            <View style={{ 
+              width: 80, 
+              height: 80, 
+              borderRadius: 40, 
+              backgroundColor: isDark ? 'rgba(74, 222, 128, 0.2)' : 'rgba(74, 222, 128, 0.1)',
+              justifyContent: 'center', 
+              alignItems: 'center',
+              marginBottom: 16
+            }}>
+              <MaterialCommunityIcons
+                name="check-circle"
+                size={40}
+                color={isDark ? "#4ADE80" : "#22C55E"}
+              />
+            </View>
+            <Text style={{ 
+              fontSize: 24, 
+              fontWeight: '600',
+              marginBottom: 8,
+              color: isDark ? '#FFFFFF' : '#111827'
+            }}>
+              Success!
+            </Text>
+            <Text style={{ 
+              fontSize: 16,
+              textAlign: 'center',
+              color: isDark ? '#9CA3AF' : '#4B5563'
+            }}>
+              Task has been created successfully
+            </Text>
+          </View>
+        </Animated.View>
+      )}
+
       <BottomNav items={groupAdminNavItems} />
       <EmployeePickerModal
         show={showEmployeePicker}
