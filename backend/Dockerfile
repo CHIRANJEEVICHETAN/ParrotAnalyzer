@@ -19,6 +19,9 @@ COPY . .
 # Compile TypeScript to JavaScript (output will be in dist/ directory)
 RUN npm run build
 
+# Copy your config folder (including ca.pem) into the built dist output
+COPY src/config ./dist/src/config
+
 # Expose port 8080 for Azure App Service
 EXPOSE 8080
 
