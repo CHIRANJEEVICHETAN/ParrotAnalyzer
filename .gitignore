@@ -11,6 +11,8 @@ backend/src/config/ca.pem
 
 backend/.env
 
+constants/
+
 miscellaneous/
 constants/env.ts
 
