@@ -16,6 +16,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # ← New: write your CA PEM from a GitHub Secret
+      - name: Write CA certificate
+        run: |
+          mkdir -p backend/src/config
+          printf '%s' "${{ secrets.CA_PEM }}" > backend/src/config/ca.pem
+
       # Step 2: Write Firebase service account key
       - name: Write Firebase service account key
         run: |
