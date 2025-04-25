@@ -119,36 +119,37 @@ app.use(errorHandler);
 
 const PORT = parseInt(process.env.PORT ?? "8080", 10);
 
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
 // Initialize database and start server
 initDB()
   .then(() => initExpensesTable())
   .then(() => {
-    httpServer.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log("Available routes:");
-      console.log("- /auth/*");
-      console.log("- /api/expenses/*");
-      console.log("- /api/companies/*");
-      console.log("- /api/schedule/*");
-      console.log("- /api/group-admin/*");
-      console.log("- /api/users/*");
-      console.log("- /api/employee/*");
-      console.log("- /api/group-admins/*");
-      console.log("- /api/tasks/*");
-      console.log("- /api/notifications/*");
-      console.log("- /api/leave/*");
-      console.log("- /api/reports/*");
-      console.log("- /api/management/*");
-      console.log("- /pdf-reports/*");
-      console.log("- /api/chat/*");
-      console.log("- /api/leave-management/*");
-      console.log("- /api/group-admin-leave/*");
-      console.log("- /api/employee-notifications/*");
-      console.log("- /api/group-admin-notifications/*");
-      console.log("- /api/management-notifications/*");
-      console.log("- /api/employee-tracking/*");
-      console.log("- /api/group-admin-tracking/*");
-    });
+    console.log("Available routes:");
+    console.log("- /auth/*");
+    console.log("- /api/expenses/*");
+    console.log("- /api/companies/*");
+    console.log("- /api/schedule/*");
+    console.log("- /api/group-admin/*");
+    console.log("- /api/users/*");
+    console.log("- /api/employee/*");
+    console.log("- /api/group-admins/*");
+    console.log("- /api/tasks/*");
+    console.log("- /api/notifications/*");
+    console.log("- /api/leave/*");
+    console.log("- /api/reports/*");
+    console.log("- /api/management/*");
+    console.log("- /pdf-reports/*");
+    console.log("- /api/chat/*");
+    console.log("- /api/leave-management/*");
+    console.log("- /api/group-admin-leave/*");
+    console.log("- /api/employee-notifications/*");
+    console.log("- /api/group-admin-notifications/*");
+    console.log("- /api/management-notifications/*");
+    console.log("- /api/employee-tracking/*");
+    console.log("- /api/group-admin-tracking/*");
   })
   .catch((error) => {
     console.error("Failed to initialize:", error);
