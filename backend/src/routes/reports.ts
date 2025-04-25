@@ -1282,15 +1282,26 @@ router.get('/leave-analytics', authMiddleware, adminMiddleware, async (req: Cust
     // Get leave type distribution
     const leaveTypeQuery = `
       SELECT 
-        leave_type,
+        lt.name as leave_type,
+        lt.id as leave_type_id,
+        lp.default_days,
+        lp.max_consecutive_days,
         COUNT(*) as request_count,
-        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_count,
-        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_count,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count
-      FROM leave_requests
-      WHERE group_admin_id = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      GROUP BY leave_type
+        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_count,
+        COUNT(CASE WHEN lr.status = 'rejected' THEN 1 END) as rejected_count,
+        COUNT(CASE WHEN lr.status = 'pending' THEN 1 END) as pending_count,
+        SUM(CASE 
+          WHEN lr.days_requested > 0 THEN lr.days_requested
+          WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
+          ELSE 0
+        END) as total_days
+      FROM leave_requests lr
+      JOIN leave_types lt ON lr.leave_type_id = lt.id
+      LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+      JOIN users u ON lr.user_id = u.id
+      WHERE u.group_admin_id = $1
+      AND lr.created_at >= CURRENT_DATE - INTERVAL '180 days'
+      GROUP BY lt.id, lt.name, lp.default_days, lp.max_consecutive_days
       ORDER BY request_count DESC`;
 
     // Get employee leave stats
@@ -1299,74 +1310,110 @@ router.get('/leave-analytics', authMiddleware, adminMiddleware, async (req: Cust
         SELECT id, name 
         FROM users 
         WHERE group_admin_id = $1 AND role = 'employee'
+      ),
+      employee_leaves AS (
+        SELECT 
+          u.id as employee_id,
+          u.name as employee_name,
+          COUNT(lr.id) as total_requests,
+          COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_requests,
+          SUM(CASE 
+            WHEN lr.days_requested > 0 THEN lr.days_requested
+            WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
+            ELSE 0
+          END) as total_leave_days,
+          STRING_AGG(DISTINCT lt.name, ', ') as leave_types
+        FROM employee_list el
+        LEFT JOIN leave_requests lr ON el.id = lr.user_id
+        LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
+        LEFT JOIN users u ON el.id = u.id
+        WHERE lr.id IS NOT NULL
+        GROUP BY u.id, u.name
+        ORDER BY total_requests DESC
+        LIMIT 10
       )
-      SELECT 
-        u.id as employee_id,
-        u.name as employee_name,
-        COUNT(*) as total_requests,
-        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_requests,
-        SUM(CASE 
-          WHEN lr.status = 'approved' 
-          THEN (lr.end_date - lr.start_date + 1)
-          ELSE 0 
-        END) as total_leave_days,
-        STRING_AGG(DISTINCT lr.leave_type, ', ') as leave_types
-      FROM employee_list u
-      LEFT JOIN leave_requests lr ON lr.user_id = u.id
-        AND lr.created_at >= CURRENT_DATE - INTERVAL '30 days'
-      GROUP BY u.id, u.name
-      ORDER BY total_requests DESC
-      LIMIT 5`;
+      SELECT * FROM employee_leaves`;
 
     // Get leave balances
     const balancesQuery = `
+      WITH employee_count AS (
+        SELECT COUNT(*) as count FROM users WHERE group_admin_id = $1 AND role = 'employee'
+      ),
+      leave_type_balances AS (
+        SELECT 
+          lt.id,
+          lt.name,
+          SUM(lb.total_days) as total_available,
+          SUM(lb.used_days) as total_used,
+          SUM(lb.pending_days) as total_pending
+        FROM leave_balances lb
+        JOIN leave_types lt ON lb.leave_type_id = lt.id
+        JOIN users u ON lb.user_id = u.id
+        WHERE u.group_admin_id = $1
+        AND lb.year = EXTRACT(YEAR FROM CURRENT_DATE)
+        GROUP BY lt.id, lt.name
+      )
       SELECT 
-        casual_leave,
-        sick_leave,
-        annual_leave
-      FROM leave_balances
-      WHERE group_admin_id = $1`;
+        (SELECT SUM(total_available) FROM leave_type_balances) as total_available,
+        (SELECT SUM(total_used) FROM leave_type_balances) as total_used,
+        (SELECT SUM(total_pending) FROM leave_type_balances) as total_pending,
+        (SELECT count FROM employee_count) as employee_count,
+        json_agg(
+          json_build_object(
+            'leave_type', name,
+            'total_available', total_available,
+            'total_used', total_used,
+            'total_pending', total_pending
+          )
+        ) as leave_types_balances
+      FROM leave_type_balances`;
 
     // Get monthly trend
     const trendQuery = `
       SELECT 
-        DATE_TRUNC('day', created_at)::date as date,
+        TO_CHAR(lr.start_date, 'YYYY-MM-DD') as date,
         COUNT(*) as request_count,
-        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_count
-      FROM leave_requests
-      WHERE group_admin_id = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      GROUP BY DATE_TRUNC('day', created_at)::date
-      ORDER BY date`;
+        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_count,
+        SUM(CASE 
+          WHEN lr.days_requested > 0 THEN lr.days_requested
+          WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
+          ELSE 0
+        END) as total_days
+      FROM leave_requests lr
+      JOIN users u ON lr.user_id = u.id
+      WHERE u.group_admin_id = $1
+      AND lr.start_date >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY date
+      ORDER BY date ASC`;
 
     // Get overall metrics
     const metricsQuery = `
-      SELECT 
-        COUNT(DISTINCT user_id) as total_employees_on_leave,
-        COUNT(*) as total_requests,
-        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_requests,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_requests,
-        ROUND(
-          (COUNT(CASE WHEN status = 'approved' THEN 1 END)::float * 100 / 
-          NULLIF(COUNT(*), 0))::numeric, 
-          1
-        ) as approval_rate,
-        SUM(CASE 
-          WHEN status = 'approved' 
-          THEN (end_date - start_date + 1)
-          ELSE 0 
-        END) as total_leave_days
-      FROM leave_requests
-      WHERE group_admin_id = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'`;
+      WITH leave_stats AS (
+        SELECT 
+          COUNT(DISTINCT lr.user_id) as total_employees_on_leave,
+          COUNT(*) as total_requests,
+          COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_requests,
+          COUNT(CASE WHEN lr.status = 'pending' THEN 1 END) as pending_requests,
+          CASE 
+            WHEN COUNT(*) > 0 THEN 
+              ROUND((COUNT(CASE WHEN lr.status = 'approved' THEN 1 END)::float / 
+                    COUNT(*)::float) * 100)
+            ELSE 0
+          END as approval_rate,
+          SUM(CASE 
+            WHEN lr.days_requested > 0 THEN lr.days_requested
+            WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
+            ELSE 0
+          END) as total_leave_days
+        FROM leave_requests lr
+        JOIN users u ON lr.user_id = u.id
+        WHERE u.group_admin_id = $1
+        AND lr.created_at >= CURRENT_DATE - INTERVAL '90 days'
+      )
+      SELECT * FROM leave_stats`;
 
-    const [
-      leaveTypeResult,
-      employeeStatsResult,
-      balancesResult,
-      trendResult,
-      metricsResult
-    ] = await Promise.all([
+    // Execute all queries
+    const [leaveTypeResults, employeeStatsResults, balancesResults, trendResults, metricsResults] = await Promise.all([
       client.query(leaveTypeQuery, [adminId]),
       client.query(employeeStatsQuery, [adminId]),
       client.query(balancesQuery, [adminId]),
@@ -1374,33 +1421,48 @@ router.get('/leave-analytics', authMiddleware, adminMiddleware, async (req: Cust
       client.query(metricsQuery, [adminId])
     ]);
 
-    // Process and format the response
+    // Format response
     const response = {
-      leaveTypes: leaveTypeResult.rows,
-      employeeStats: employeeStatsResult.rows,
-      balances: balancesResult.rows[0] || {
-        casual_leave: 0,
-        sick_leave: 0,
-        annual_leave: 0
+      leaveTypes: leaveTypeResults.rows,
+      employeeStats: employeeStatsResults.rows,
+      balances: {
+        ...balancesResults.rows[0],
+        casual_leave: 0,  // Keeping for backward compatibility
+        sick_leave: 0,    // Keeping for backward compatibility
+        annual_leave: 0   // Keeping for backward compatibility
       },
-      trend: trendResult.rows,
-      metrics: {
-        total_employees_on_leave: Number(metricsResult.rows[0]?.total_employees_on_leave || 0),
-        total_requests: Number(metricsResult.rows[0]?.total_requests || 0),
-        approved_requests: Number(metricsResult.rows[0]?.approved_requests || 0),
-        pending_requests: Number(metricsResult.rows[0]?.pending_requests || 0),
-        approval_rate: Number(metricsResult.rows[0]?.approval_rate || 0),
-        total_leave_days: Number(metricsResult.rows[0]?.total_leave_days || 0)
+      trend: trendResults.rows,
+      metrics: metricsResults.rows[0] || {
+        total_employees_on_leave: 0,
+        total_requests: 0,
+        approved_requests: 0,
+        pending_requests: 0,
+        approval_rate: 0,
+        total_leave_days: 0
       }
     };
 
-    res.json(response);
+    // Extract common leave types for backward compatibility
+    if (balancesResults.rows[0]?.leave_types_balances) {
+      balancesResults.rows[0].leave_types_balances.forEach((ltb: any) => {
+        const type = ltb.leave_type.toLowerCase();
+        if (type.includes('casual') || type.includes('cl')) {
+          response.balances.casual_leave = ltb.total_available || 0;
+        }
+        if (type.includes('sick') || type.includes('sl')) {
+          response.balances.sick_leave = ltb.total_available || 0;
+        }
+        if (type.includes('annual') || type.includes('privilege') || 
+            type.includes('pl') || type.includes('el')) {
+          response.balances.annual_leave = ltb.total_available || 0;
+        }
+      });
+    }
+
+    return res.json(response);
   } catch (error) {
-    console.error('Error in leave analytics:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch leave analytics',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error('Error fetching leave analytics:', error);
+    return res.status(500).json({ error: 'Failed to fetch leave analytics' });
   } finally {
     client.release();
   }

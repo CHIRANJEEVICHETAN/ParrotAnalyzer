@@ -54,45 +54,6 @@ router.get('/details', verifyToken, async (req: CustomRequest, res: Response) =>
   }
 });
 
-// Check expense submission access
-router.get('/check-expense-access', verifyToken, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const result = await client.query(
-      `SELECT 
-        u.can_submit_expenses_anytime,
-        u.shift_status,
-        c.status as company_status
-       FROM users u
-       JOIN companies c ON u.company_id = c.id
-       WHERE u.id = $1`,
-      [req.user.id]
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: 'Employee not found' });
-    }
-
-    const { can_submit_expenses_anytime, shift_status, company_status } = result.rows[0];
-
-    res.json({
-      canSubmit: company_status === 'active' && (can_submit_expenses_anytime || shift_status === 'active'),
-      companyActive: company_status === 'active',
-      shiftActive: shift_status === 'active',
-      canSubmitAnytime: can_submit_expenses_anytime
-    });
-  } catch (error) {
-    console.error('Access check error:', error);
-    res.status(500).json({ error: 'Failed to check access permissions' });
-  } finally {
-    client.release();
-  }
-});
-
 // Add these new endpoints
 router.post('/shift/start', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
@@ -135,7 +96,8 @@ router.post('/shift/end', verifyToken, async (req: CustomRequest, res: Response)
 
     // Get active shift
     const activeShift = await client.query(
-      `SELECT id, start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time 
+      `SELECT id, start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time,
+              total_kilometers, total_expenses
        FROM employee_shifts 
        WHERE user_id = $1 AND status = 'active'`,
       [req.user.id]
@@ -145,32 +107,36 @@ router.post('/shift/end', verifyToken, async (req: CustomRequest, res: Response)
       return res.status(404).json({ error: 'No active shift found' });
     }
 
-    // Get total expenses for this shift period
-    const expenses = await client.query(
-      `SELECT COALESCE(SUM(total_amount), 0) as total_expenses
-       FROM expenses
-       WHERE user_id = $1 
-       AND created_at BETWEEN $2 AND $3`,
-      [req.user.id, activeShift.rows[0].start_time, localEndTime]
-    );
+    // Use the current expense value from the active shift instead of recalculating
+    // This preserves expenses submitted during the shift
+    const currentExpenses = parseFloat(activeShift.rows[0].total_expenses || '0');
+    const currentKilometers = parseFloat(activeShift.rows[0].total_kilometers || '0');
+    
+    console.log('Ending shift with expenses and kilometers:', {
+      shiftId: activeShift.rows[0].id,
+      currentExpenses,
+      currentKilometers
+    });
 
-    // End shift with provided endTime
+    // End shift with provided endTime, preserving the current expenses
     const result = await client.query(
       `UPDATE employee_shifts 
        SET end_time = $1::timestamp,
            duration = $1::timestamp - start_time,
            status = 'completed',
            total_expenses = $2,
+           total_kilometers = $3,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3
+       WHERE id = $4
        RETURNING 
          id, 
          start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time,
          end_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as end_time,
          duration,
          status,
-         total_expenses`,
-      [localEndTime, expenses.rows[0].total_expenses, activeShift.rows[0].id]
+         total_expenses,
+         total_kilometers`,
+      [localEndTime, currentExpenses, currentKilometers, activeShift.rows[0].id]
     );
 
     await client.query('COMMIT');
@@ -333,14 +299,23 @@ router.get('/admin/attendance/:month', verifyToken, async (req: CustomRequest, r
           u.employee_number,
           DATE(es.start_time) as date,
           COUNT(*) as shift_count,
-          SUM(EXTRACT(EPOCH FROM (COALESCE(es.end_time, CURRENT_TIMESTAMP) - es.start_time))/3600) as total_hours,
+          SUM(
+            CASE 
+              WHEN es.end_time IS NULL THEN 0  -- Don't count hours for active shifts
+              ELSE EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600
+            END
+          ) as total_hours,
           SUM(COALESCE(es.total_kilometers, 0)) as total_distance,
           SUM(COALESCE(es.total_expenses, 0)) as total_expenses,
           jsonb_agg(
             jsonb_build_object(
               'shift_start', es.start_time,
               'shift_end', es.end_time,
-              'duration', EXTRACT(EPOCH FROM (COALESCE(es.end_time, CURRENT_TIMESTAMP) - es.start_time))/3600,
+              'duration', CASE 
+                WHEN es.end_time IS NULL THEN NULL  -- NULL duration for active shifts
+                ELSE EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600
+              END,
+              'status', es.status,
               'total_kilometers', COALESCE(es.total_kilometers, 0),
               'total_expenses', COALESCE(es.total_expenses, 0)
             )
@@ -591,6 +566,71 @@ router.get('/check-shift-access', verifyToken, async (req: CustomRequest, res: R
   } catch (error) {
     console.error('Error checking shift access:', error);
     res.status(500).json({ error: 'Failed to check shift access' });
+  } finally {
+    client.release();
+  }
+});
+
+// Add this new endpoint to get user permissions
+router.get('/permissions', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Get basic user permissions from users table
+    const userResult = await client.query(
+      `SELECT 
+        can_submit_expenses_anytime,
+        role
+      FROM users
+      WHERE id = $1`,
+      [req.user.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get geofence-related permissions from user_tracking_permissions table
+    const trackingResult = await client.query(
+      `SELECT 
+        can_override_geofence
+      FROM user_tracking_permissions
+      WHERE user_id = $1`,
+      [req.user.id]
+    );
+
+    // Initialize permissions array
+    const permissions = [];
+
+    // Add basic permissions
+    if (userResult.rows[0].can_submit_expenses_anytime) {
+      permissions.push('can_submit_expenses_anytime');
+    }
+
+    // Add tracking permissions if they exist
+    if (trackingResult.rows.length > 0 && trackingResult.rows[0].can_override_geofence) {
+      permissions.push('can_override_geofence');
+    }
+
+    // Check for role-based permissions (e.g., group-admin and management roles may override geofence by default)
+    const isManagementRole = ['management', 'super-admin', 'group-admin'].includes(userResult.rows[0].role);
+    if (isManagementRole && !permissions.includes('can_override_geofence')) {
+      permissions.push('can_override_geofence');
+    }
+
+    // Return the permissions array
+    res.json({
+      permissions
+    });
+  } catch (error) {
+    console.error('Error fetching user permissions:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch permissions',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   } finally {
     client.release();
   }

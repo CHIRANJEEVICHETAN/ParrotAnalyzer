@@ -180,20 +180,44 @@ export default function ManagementDashboard() {
   };
 
   const fetchLeaveStats = async (useCache = true) => {
-    const cacheKey = "leaveStats";
+    if (!user?.id) {
+      console.warn("No user ID available for fetching leave stats");
+      return;
+    }
+
+    const cacheKey = `leaveStats_${user.id}`; // Make cache key user-specific
     const cacheExpiry = 5 * 60 * 1000; // 5 minutes
 
     try {
-      // Check cache first
+      // Check cache first if useCache is true
       if (useCache) {
-        const cached = await AsyncStorage.getItem(cacheKey);
-        if (cached) {
-          const { data, timestamp } = JSON.parse(cached);
-          if (Date.now() - timestamp < cacheExpiry) {
-            setLeaveStats(data);
-            setStatsLoading(false);
-            return;
+        try {
+          const cached = await AsyncStorage.getItem(cacheKey);
+          if (cached) {
+            const { data, timestamp } = JSON.parse(cached);
+            // Validate cache data structure
+            if (
+              data &&
+              typeof data === "object" &&
+              "pending_requests" in data &&
+              "approved_requests" in data &&
+              "active_leave_types" in data &&
+              Date.now() - timestamp < cacheExpiry
+            ) {
+              setLeaveStats(data);
+              setStatsLoading(false);
+              // Fetch fresh data in background after 5 seconds
+              setTimeout(() => fetchLeaveStats(false), 5000);
+              return;
+            } else {
+              // Invalid or expired cache, remove it
+              await AsyncStorage.removeItem(cacheKey);
+            }
           }
+        } catch (error) {
+          console.error("Error reading cache:", error);
+          // Clear invalid cache
+          await AsyncStorage.removeItem(cacheKey);
         }
       }
 
@@ -206,20 +230,47 @@ export default function ManagementDashboard() {
       );
 
       if (response.data) {
-        setLeaveStats(response.data);
-        // Update cache
-        await AsyncStorage.setItem(
-          cacheKey,
-          JSON.stringify({
-            data: response.data,
-            timestamp: Date.now(),
-          })
-        );
+        // Validate response data
+        const validStats = {
+          pending_requests: parseInt(response.data.pending_requests) || 0,
+          approved_requests: parseInt(response.data.approved_requests) || 0,
+          active_leave_types: parseInt(response.data.active_leave_types) || 0,
+        };
+
+        setLeaveStats(validStats);
+
+        // Update cache only if useCache is true
+        if (useCache) {
+          try {
+            await AsyncStorage.setItem(
+              cacheKey,
+              JSON.stringify({
+                data: validStats,
+                timestamp: Date.now(),
+              })
+            );
+          } catch (error) {
+            console.error("Error updating cache:", error);
+          }
+        }
       }
     } catch (error) {
       console.error("Error fetching leave stats:", error);
+      // Clear cache on error
+      await AsyncStorage.removeItem(cacheKey);
     } finally {
       setStatsLoading(false);
+    }
+  };
+
+  // Add a function to clear stats cache
+  const clearStatsCache = async () => {
+    if (user?.id) {
+      try {
+        await AsyncStorage.removeItem(`leaveStats_${user.id}`);
+      } catch (error) {
+        console.error("Error clearing stats cache:", error);
+      }
     }
   };
 
@@ -290,6 +341,13 @@ export default function ManagementDashboard() {
       clearInterval(intervalId);
     };
   }, [user?.role]);
+
+  // Call clearStatsCache when component unmounts
+  useEffect(() => {
+    return () => {
+      clearStatsCache();
+    };
+  }, [user?.id]);
 
   const quickActions: QuickAction[] = [
     {

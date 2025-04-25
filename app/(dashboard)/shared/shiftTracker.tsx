@@ -12,8 +12,8 @@ import {
   InteractionManager,
   Platform,
   StyleSheet,
-  ActivityIndicator,
   TextInput,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -24,6 +24,11 @@ import axios from "axios";
 import AuthContext from "../../context/AuthContext";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Notifications from "expo-notifications";
+import { useLocationTracking } from "../../hooks/useLocationTracking";
+import { useGeofencing } from "../../hooks/useGeofencing";
+import useLocationStore from "../../store/locationStore";
+import * as Location from "expo-location";
+import { useFocusEffect } from "@react-navigation/native";
 
 interface ShiftData {
   date: string;
@@ -82,6 +87,15 @@ const warningMessages: WarningMessage[] = [
       "Do not logout or uninstall the app without ending your active shift first.",
   },
 ];
+
+// Update the combined warning message format to include titles
+const combinedWarningMessage = {
+  title: "Important Notices",
+  notices: warningMessages.map((msg) => ({
+    title: msg.title,
+    message: msg.message,
+  })),
+};
 
 // Update the TimerPicker component with manual time selection
 const TimerPicker = ({
@@ -270,6 +284,45 @@ const getRoleSpecificTitle = (role: string) => {
   }
 };
 
+// Add this function to format coordinates for display
+const formatCoordinates = (latitude?: number, longitude?: number) => {
+  if (latitude === undefined || longitude === undefined) return "Unknown";
+  return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+};
+
+// Add a new function to get address from coordinates
+const getLocationAddress = async (latitude: number, longitude: number): Promise<string> => {
+  try {
+    const results = await Location.reverseGeocodeAsync({
+      latitude,
+      longitude
+    });
+    
+    if (results && results.length > 0) {
+      const location = results[0];
+      // Format the address based on available data
+      const addressParts = [];
+      
+      if (location.name) addressParts.push(location.name);
+      if (location.street) addressParts.push(location.street);
+      if (location.district) addressParts.push(location.district);
+      if (location.city) addressParts.push(location.city);
+      if (location.region) addressParts.push(location.region);
+      
+      // Return first 2 parts for a concise display
+      if (addressParts.length > 0) {
+        return addressParts.slice(0, 2).join(', ');
+      }
+    }
+    
+    // Fallback to coordinates if geocoding fails
+    return formatCoordinates(latitude, longitude);
+  } catch (error) {
+    console.error('Error getting address:', error);
+    return formatCoordinates(latitude, longitude);
+  }
+};
+
 const getNotificationEndpoint = (role: string) => {
   switch (role) {
     case "employee":
@@ -280,6 +333,134 @@ const getNotificationEndpoint = (role: string) => {
       return "/api/employee-notifications/notify-admin";
   }
 };
+
+// Add a custom InAppNotification component
+const InAppNotification = ({
+  visible,
+  message,
+  type = "info",
+  duration = 5000,
+  onDismiss,
+}: {
+  visible: boolean;
+  message: string;
+  type?: "info" | "warning" | "error" | "success";
+  duration?: number;
+  onDismiss: () => void;
+}) => {
+  const { theme } = ThemeContext.useTheme();
+  const isDark = theme === "dark";
+  const [opacity] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+
+      const timer = setTimeout(() => {
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          onDismiss();
+        });
+      }, duration);
+
+      return () => clearTimeout(timer);
+    }
+  }, [visible, duration, opacity, onDismiss]);
+
+  if (!visible) return null;
+
+  const getBackgroundColor = () => {
+    switch (type) {
+      case "success":
+        return isDark ? "#065f46" : "#10b981";
+      case "warning":
+        return isDark ? "#92400e" : "#f59e0b";
+      case "error":
+        return isDark ? "#991b1b" : "#ef4444";
+      default:
+        return isDark ? "#1e40af" : "#3b82f6";
+    }
+  };
+
+  const getIcon = () => {
+    switch (type) {
+      case "success":
+        return "checkmark-circle";
+      case "warning":
+        return "warning";
+      case "error":
+        return "alert-circle";
+      default:
+        return "information-circle";
+    }
+  };
+
+  return (
+    <Animated.View
+      style={[
+        {
+          position: "absolute",
+          top: Platform.OS === "ios" ? 50 : 20,
+          left: 16,
+          right: 16,
+          backgroundColor: getBackgroundColor(),
+          borderRadius: 12,
+          padding: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+          elevation: 4,
+          zIndex: 9999,
+          opacity,
+        },
+      ]}
+    >
+      <Ionicons name={getIcon()} size={24} color="#fff" />
+      <Text
+        style={{
+          color: "#fff",
+          marginLeft: 10,
+          flex: 1,
+          fontSize: 14,
+          fontWeight: "500",
+        }}
+      >
+        {message}
+      </Text>
+      <TouchableOpacity onPress={onDismiss}>
+        <Ionicons name="close" size={20} color="#fff" />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+// Add this function to safely access battery level
+const getBatteryLevel = (location: any): number | undefined => {
+  if (!location) return undefined;
+
+  // Check if batteryLevel exists directly on the location object
+  if (typeof location.batteryLevel === "number") {
+    return location.batteryLevel;
+  }
+
+  // Check if battery exists directly on the location object (some implementations use this)
+  if (typeof location.battery === "number") {
+    return location.battery;
+  }
+
+  return undefined;
+};
+
 export default function EmployeeShiftTracker() {
   const { theme } = ThemeContext.useTheme();
   const { token, user } = AuthContext.useAuth();
@@ -297,6 +478,8 @@ export default function EmployeeShiftTracker() {
   const [shiftStart, setShiftStart] = useState<Date | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [shiftHistory, setShiftHistory] = useState<ShiftData[]>([]);
+  // Add state for currentAddress
+  const [currentAddress, setCurrentAddress] = useState<string>("Acquiring location...");
   const [showModal, setShowModal] = useState(false);
   const [modalData, setModalData] = useState<{
     title: string;
@@ -317,9 +500,116 @@ export default function EmployeeShiftTracker() {
   const [currentWarningIndex, setCurrentWarningIndex] = useState(-1);
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [notificationId, setNotificationId] = useState<string | null>(null);
+  // Add geofence validation state
+  const [locationValidated, setLocationValidated] = useState(false);
+  const [showLocationError, setShowLocationError] = useState(false);
+  const [locationErrorMessage, setLocationErrorMessage] = useState("");
+  const [isLocationServiceEnabled, setIsLocationServiceEnabled] =
+    useState(true);
+  const [locationWatchId, setLocationWatchId] = useState<string | null>(null);
+  const [locationOffTimer, setLocationOffTimer] =
+    useState<NodeJS.Timeout | null>(null);
+  const [inAppNotification, setInAppNotification] = useState<{
+    visible: boolean;
+    message: string;
+    type: "info" | "warning" | "error" | "success";
+  }>({
+    visible: false,
+    message: "",
+    type: "info",
+  });
+  const [locationCheckInterval, setLocationCheckInterval] =
+    useState<NodeJS.Timeout | null>(null);
 
   // Get the API endpoint based on user role
   const apiEndpoint = getApiEndpoint(user?.role || "employee");
+
+  // Initialize location tracking hooks
+  const {
+    currentLocation,
+    isInGeofence,
+    batteryLevel,
+    setIsInGeofence,
+    setBatteryLevel,
+  } = useLocationStore();
+
+  const { getCurrentLocation } = useLocationTracking({
+    onError: (error) => {
+      console.error("Location tracking error:", error);
+      setLocationErrorMessage(error);
+      setShowLocationError(true);
+    },
+  });
+
+  const { isLocationInAnyGeofence } = useGeofencing();
+
+  // Check if the user can override geofence restrictions
+  const [canOverrideGeofence, setCanOverrideGeofence] = useState(false);
+
+  // Add this function before the useEffect
+  const fetchAndUpdateGeofencePermissions = async () => {
+    // Only check permissions for employee role
+    if (user?.role !== "employee" || !user?.id || !token) {
+      return;
+    }
+
+    try {
+      console.log("Fetching fresh geofence permissions");
+
+      // Always fetch fresh permissions from API first
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/permissions`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (response.data && Array.isArray(response.data.permissions)) {
+        // Update state with fresh permissions
+        setCanOverrideGeofence(
+          response.data.permissions.includes("can_override_geofence")
+        );
+
+        // Cache fresh permissions in AsyncStorage
+        await AsyncStorage.setItem(
+          `user-${user.id}-permissions`,
+          JSON.stringify(response.data.permissions)
+        );
+
+        console.log("Updated geofence permissions cache");
+      }
+    } catch (error) {
+      console.error("Error fetching fresh permissions:", error);
+
+      // If API call fails, try to use cached permissions as fallback
+      try {
+        const cachedPermissions = await AsyncStorage.getItem(
+          `user-${user.id}-permissions`
+        );
+        if (cachedPermissions) {
+          const permissions = JSON.parse(cachedPermissions);
+          setCanOverrideGeofence(permissions.includes("can_override_geofence"));
+          console.log("Using cached permissions as fallback");
+        }
+      } catch (storageError) {
+        console.error("Error reading cached permissions:", storageError);
+      }
+    }
+  };
+
+  // Add this near other useEffect hooks
+  useFocusEffect(
+    useCallback(() => {
+      console.log("ShiftTracker screen focused - fetching fresh permissions");
+      fetchAndUpdateGeofencePermissions();
+    }, [user, token])
+  );
+
+  // Add a new useEffect to fetch permissions on mount
+  useEffect(() => {
+    console.log("ShiftTracker mounted - fetching initial permissions");
+    fetchAndUpdateGeofencePermissions();
+  }, []);
 
   // Load persistent state
   useEffect(() => {
@@ -566,7 +856,7 @@ export default function EmployeeShiftTracker() {
             "⚡ Live: Your shift is in progress!\n🔔 Remember to end your shift before leaving\n⏱️ Started at: " +
             format(shiftStart || new Date(), "hh:mm a"),
           priority: "max",
-          sticky: true,
+          sticky: false,
           color: "#3B82F6",
           badge: 1,
           vibrate: [0, 250, 250, 250],
@@ -683,135 +973,566 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Add this function to show warning messages sequentially
+  // Add a function to show in-app notifications
+  const showInAppNotification = (
+    message: string,
+    type: "info" | "warning" | "error" | "success" = "info"
+  ) => {
+    // First dismiss any existing notification
+    setInAppNotification({
+      visible: false,
+      message: "",
+      type: "info",
+    });
+
+    // Then show new notification after a small delay
+    setTimeout(() => {
+      setInAppNotification({
+        visible: true,
+        message,
+        type,
+      });
+    }, 300);
+  };
+
+  // Initialize location on component mount
+  useEffect(() => {
+    const initializeLocation = async () => {
+      try {
+        // Only initialize location for employee and group-admin roles
+        if (user?.role === 'management') {
+          return;
+        }
+        
+        // Check if location services are enabled
+        const locationEnabled = await Location.hasServicesEnabledAsync();
+        setIsLocationServiceEnabled(locationEnabled);
+
+        if (!locationEnabled) {
+          setLocationErrorMessage(
+            "Location services are required for tracking. Please enable location services to continue."
+          );
+          setShowLocationError(true);
+          return;
+        }
+
+        // Get current location
+        const location = await getCurrentLocation();
+
+        if (!location) {
+          setLocationErrorMessage(
+            "Unable to determine your current location. Please ensure you have granted location permissions."
+          );
+          setShowLocationError(true);
+        }
+      } catch (error: any) {
+        console.error("Error initializing location:", error);
+        setLocationErrorMessage(
+          error.message || "Failed to initialize location services"
+        );
+        setShowLocationError(true);
+      }
+    };
+
+    initializeLocation();
+  }, [user?.role]);
+
+  // Fix the useEffect that updates battery level
+  useEffect(() => {
+    if (currentLocation) {
+      // Update geofence status in the store - this was missing
+      const isInside = isLocationInAnyGeofence(currentLocation);
+      setIsInGeofence(isInside);
+      console.log("Updated geofence status:", { isInside, currentLocation });
+
+      // Update battery level if available
+      const battery = getBatteryLevel(currentLocation);
+      if (battery !== undefined) {
+        setBatteryLevel(battery);
+      }
+    }
+  }, [
+    currentLocation,
+    isLocationInAnyGeofence,
+    setIsInGeofence,
+    setBatteryLevel,
+  ]);
+
+  // Monitor location services status during active shift
+  useEffect(() => {
+    // Only monitor location services for employee role
+    if (!isShiftActive || user?.role !== 'employee') {
+      return;
+    }
+    
+    // Setup interval to check location services status
+    const intervalId = setInterval(async () => {
+      try {
+        // Check if location services are enabled
+        const locationEnabled = await Location.hasServicesEnabledAsync();
+
+        // Only take action if the state has changed
+        if (locationEnabled !== isLocationServiceEnabled) {
+          setIsLocationServiceEnabled(locationEnabled);
+
+          if (!locationEnabled) {
+            // Location services disabled - show notification and start countdown
+            showInAppNotification(
+              "Location services are turned off. Please enable location services immediately to continue your shift, or it will end automatically in 5 minutes.",
+              "warning"
+            );
+
+            // Cancel any existing timer before creating a new one
+            if (locationOffTimer) {
+              clearTimeout(locationOffTimer);
+              setLocationOffTimer(null);
+            }
+
+            // Start new countdown timer to end shift
+            const timer = setTimeout(() => {
+              if (isShiftActive) {
+                // Show a confirmation dialog instead of auto-ending
+                setModalData({
+                  title: "Location Services Disabled",
+                  message:
+                    "Your shift needs to be ended because location services have been disabled for over 5 minutes. Would you like to enable location services now or end your shift?",
+                  type: "info",
+                  showCancel: true,
+                });
+
+                // Store the original modal action
+                const originalConfirmEndShift = confirmEndShift;
+
+                // Temporarily override confirmEndShift to handle this special case
+                (confirmEndShift as any) = async () => {
+                  // Restore original function
+                  (confirmEndShift as any) = originalConfirmEndShift;
+
+                  // End shift without location validation
+                  const now = new Date();
+                  if (!shiftStart) return;
+
+                  // Immediately update UI state
+                  setShowModal(false);
+                  setIsShiftActive(false);
+                  setShiftStart(null);
+                  pulseAnim.setValue(1);
+                  rotateAnim.setValue(0);
+
+                  // Clear monitoring resources
+                  if (locationOffTimer) {
+                    clearTimeout(locationOffTimer);
+                    setLocationOffTimer(null);
+                  }
+
+                  if (locationCheckInterval) {
+                    clearInterval(locationCheckInterval);
+                    setLocationCheckInterval(null);
+                  }
+
+                  if (locationWatchId) {
+                    clearInterval(locationWatchId as any);
+                    setLocationWatchId(null);
+                  }
+
+                  // Calculate duration
+                  const duration = formatElapsedTime(
+                    differenceInSeconds(now, shiftStart)
+                  );
+
+                  // Show completion modal
+                  setModalData({
+                    title: "Shift Completed",
+                    message: `Total Duration: ${duration}\nStart: ${format(
+                      shiftStart,
+                      "hh:mm a"
+                    )}\nEnd: ${format(now, "hh:mm a")}`,
+                    type: "success",
+                    showCancel: false,
+                  });
+                  setShowModal(true);
+
+                  // Process in background
+                  InteractionManager.runAfterInteractions(async () => {
+                    try {
+                      await cancelShiftNotifications();
+
+                      // Create shift data for API
+                      const newShiftData: ShiftData = {
+                        date: format(shiftStart, "yyyy-MM-dd"),
+                        startTime: format(shiftStart, "HH:mm:ss"),
+                        endTime: format(now, "HH:mm:ss"),
+                        duration,
+                      };
+
+                      // End shift API calls
+                      await Promise.all([
+                        axios.post(
+                          `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
+                          {
+                            endTime: formatDateForBackend(now),
+                            locationServicesDisabled: true, // Add flag to indicate why shift ended
+                          },
+                          {
+                            headers: { Authorization: `Bearer ${token}` },
+                          }
+                        ),
+                        AsyncStorage.removeItem(`${user?.role}-shiftStatus`),
+                        AsyncStorage.setItem(
+                          `${user?.role}-shiftHistory`,
+                          JSON.stringify([newShiftData, ...shiftHistory])
+                        ),
+                      ]);
+
+                      // Refresh data
+                      await Promise.all([
+                        loadShiftHistoryFromBackend(),
+                        fetchRecentShifts(),
+                      ]);
+                      setLocationValidated(false);
+                    } catch (error: any) {
+                      console.error("Error ending shift:", error);
+                      showInAppNotification(
+                        error.response?.data?.error ||
+                          "Failed to end shift. Please try again.",
+                        "error"
+                      );
+                    }
+                  });
+                };
+
+                // Override the cancel action
+                const setShowModalOriginal = setShowModal;
+                (setShowModal as any) = (value: boolean) => {
+                  // If canceling, try to enable location
+                  if (!value) {
+                    // Restore functions
+                    (confirmEndShift as any) = originalConfirmEndShift;
+                    (setShowModal as any) = setShowModalOriginal;
+
+                    // Reset the timer
+                    if (locationOffTimer) {
+                      clearTimeout(locationOffTimer);
+                    }
+
+                    // Try to enable location
+                    Location.requestForegroundPermissionsAsync().then(
+                      ({ status }) => {
+                        if (status === "granted") {
+                          Location.getCurrentPositionAsync({
+                            accuracy: Location.Accuracy.Balanced,
+                            mayShowUserSettingsDialog: true,
+                          }).catch(() => {
+                            // Start a new timer if enabling location failed
+                            const newTimer = setTimeout(() => {
+                              if (isShiftActive) {
+                                showInAppNotification(
+                                  "Your shift will end soon if location services remain disabled.",
+                                  "warning"
+                                );
+                              }
+                            }, 4 * 60 * 1000); // Give another 4 minutes
+                            setLocationOffTimer(newTimer);
+                          });
+                        }
+                      }
+                    );
+                  }
+
+                  // Call original function
+                  setShowModalOriginal(value);
+                };
+
+                setShowModal(true);
+              }
+            }, 5 * 60 * 1000); // 5 minutes
+
+            setLocationOffTimer(timer);
+          } else {
+            // Location services turned back on - show notification and cancel timer
+            showInAppNotification(
+              "Location services have been re-enabled. Your shift will continue normally.",
+              "success"
+            );
+
+            // Cancel countdown timer if it exists
+            if (locationOffTimer) {
+              clearTimeout(locationOffTimer);
+              setLocationOffTimer(null);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error checking location services:", error);
+      }
+    }, 5000); // Check every 5 seconds
+
+    setLocationCheckInterval(intervalId);
+
+    return () => {
+      // Clean up interval on unmount or when shift becomes inactive
+      if (locationCheckInterval) {
+        clearInterval(locationCheckInterval);
+      }
+
+      // Clear any existing timer
+      if (locationOffTimer) {
+        clearTimeout(locationOffTimer);
+        setLocationOffTimer(null);
+      }
+    };
+  }, [isShiftActive, isLocationServiceEnabled, user?.role]);
+
+  // Replace the sequential warnings function with a single modal
   const showWarningMessages = useCallback(() => {
-    setCurrentWarningIndex(0);
     setShowWarningModal(true);
   }, []);
 
-  // Add this effect to handle warning message display
-  useEffect(() => {
-    if (
-      currentWarningIndex >= 0 &&
-      currentWarningIndex < warningMessages.length
-    ) {
-      const timer = setTimeout(() => {
-        setShowWarningModal(false);
-        setTimeout(() => {
-          if (currentWarningIndex < warningMessages.length - 1) {
-            setCurrentWarningIndex((prev) => prev + 1);
-            setShowWarningModal(true);
-          } else {
-            setCurrentWarningIndex(-1);
-          }
-        }, 500);
-      }, 3000);
-
-      return () => clearTimeout(timer);
+  // Update the validateLocationForShift function
+  const validateLocationForShift = async (): Promise<boolean> => {
+    // Management and group-admin roles don't need location validation
+    if (user?.role === 'management' || user?.role === 'group-admin') {
+      setLocationValidated(true);
+      return true;
     }
-  }, [currentWarningIndex, showWarningModal]);
-
-  // Modify handleStartShift to include notification
-  const handleStartShift = async () => {
-    const now = new Date();
-
-    // Update UI immediately
-    setShiftStart(now);
-    setIsShiftActive(true);
-    setElapsedTime(0);
-    startAnimations();
-
-    // Show feedback immediately
-    setModalData({
-      title: "Starting Shift",
-      message: `Your shift is starting at ${format(now, "hh:mm a")}...`,
-      type: "success",
-      showCancel: false,
-    });
-    setShowModal(true);
-
-    // Perform API call and storage updates in background
-    InteractionManager.runAfterInteractions(async () => {
-      try {
-        // Start shift API call using role-specific endpoint
-        await axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/start`,
-          {
-            startTime: formatDateForBackend(now),
-          },
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
+    
+    try {
+      // First check if location services are enabled
+      const locationEnabled = await Location.hasServicesEnabledAsync();
+      if (!locationEnabled) {
+        setLocationErrorMessage(
+          "Location services are turned off. Please enable location services to start or end your shift."
         );
+        setShowLocationError(true);
+        return false;
+      }
 
-        // Send notification to appropriate recipients based on role
+      // Try to use cached location first if it's recent enough (last 30 seconds)
+      let location = currentLocation;
+      if (
+        !location ||
+        !location.timestamp ||
+        new Date().getTime() - new Date(location.timestamp).getTime() > 30000
+      ) {
+        // Get fresh location if cached one is old or missing
+        location = await getCurrentLocation();
+      }
 
-        if (user?.role !== "management") {
+      if (!location) {
+        throw new Error("Unable to determine your current location");
+      }
+
+      // Check if location is within a geofence
+      const isInside = isLocationInAnyGeofence(location);
+
+      // Implementation of new permission logic:
+      // 1. If user is inside geofence: Allow regardless of permission
+      if (isInside) {
+        setLocationValidated(true);
+        return true;
+      }
+
+      // 2. If user is outside geofence but has override permission: Allow
+      if (canOverrideGeofence) {
+        // Show a notification that they're using override permission
+        showInAppNotification(
+          "You are outside designated work areas but using your override permission to continue.",
+          "warning"
+        );
+        setLocationValidated(true);
+        return true;
+      }
+
+      // 3. If user is outside geofence and doesn't have override permission: Show error
+      setLocationErrorMessage(
+        "You don't have permission to start or end your shift outside designated work areas. Please move to a work area or contact your administrator for override permission."
+      );
+      setShowLocationError(true);
+      return false;
+    } catch (error: any) {
+      setLocationErrorMessage(error.message || "Location validation failed");
+      setShowLocationError(true);
+      return false;
+    }
+  };
+
+  // Make handleStartShift more responsive by updating UI more quickly
+  const handleStartShift = async () => {
+    try {
+      // Update UI immediately to show we're processing
+      Animated.timing(pulseAnim, {
+        toValue: 1.05,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+
+      // Only validate location for employee role
+      let isLocationValid = true;
+      if (user?.role === 'employee') {
+        isLocationValid = await validateLocationForShift();
+
+        if (!isLocationValid) {
+          // Reset animation if validation fails
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: true,
+          }).start();
+          return;
+        }
+      }
+
+      const now = new Date();
+
+      // Update UI immediately
+      setShiftStart(now);
+      setIsShiftActive(true);
+      setElapsedTime(0);
+      startAnimations();
+
+      // Show feedback immediately
+      setModalData({
+        title: "Starting Shift",
+        message: `Your shift is starting at ${format(now, "hh:mm a")}...`,
+        type: "success",
+        showCancel: false,
+      });
+      setShowModal(true);
+
+      // Perform API call and storage updates in background
+      InteractionManager.runAfterInteractions(async () => {
+        try {
+          // Include location data in the API call for employee role only
+          const locationData = user?.role === 'employee' && currentLocation
+            ? {
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+                accuracy: currentLocation.accuracy || 0,
+              }
+            : undefined;
+
+          // Start shift API call using role-specific endpoint
           await axios.post(
-            `${process.env.EXPO_PUBLIC_API_URL}${getNotificationEndpoint(
-              user?.role || "employee"
-            )}`,
+            `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/start`,
             {
-              title: `🟢 Shift Started, by ${user?.name}`,
-              message: `👤 ${user?.name} has started their shift at ${format(
-                now,
-                "hh:mm a"
-              )} \n⏰ expected duration: ${
-                timerDuration ? `${timerDuration} hours` : `8 hours`
-              }`,
-              type: "shift-start",
+              startTime: formatDateForBackend(now),
+              location: locationData, // Include location data only for employees
             },
             {
               headers: { Authorization: `Bearer ${token}` },
             }
           );
+
+          // Send notification to appropriate recipients based on role
+          if (user?.role !== "management") {
+            await axios.post(
+              `${process.env.EXPO_PUBLIC_API_URL}${getNotificationEndpoint(
+                user?.role || "employee"
+              )}`,
+              {
+                title: `🟢 Shift Started, by ${user?.name}`,
+                message: `👤 ${user?.name} has started their shift at ${format(
+                  now,
+                  "hh:mm a"
+                )} \n⏰ expected duration: ${
+                  timerDuration ? `${timerDuration} hours` : `8 hours`
+                }`,
+                type: "shift-start",
+              },
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            );
+          }
+
+          await AsyncStorage.setItem(
+            `${user?.role}-shiftStatus`,
+            JSON.stringify({
+              isActive: true,
+              startTime: now.toISOString(),
+            })
+          );
+
+          // Schedule persistent notification
+          await schedulePersistentNotification();
+
+          // Update modal with success message
+          setModalData({
+            title: "Shift Started",
+            message: `Your shift has started at ${format(
+              now,
+              "hh:mm a"
+            )}. The timer will continue running even if you close the app.`,
+            type: "success",
+            showCancel: false,
+          });
+
+          // Show warning messages after shift start confirmation with new combined modal
+          setTimeout(() => {
+            showWarningMessages();
+          }, 1500);
+        } catch (error: any) {
+          // Revert UI state on error
+          setShiftStart(null);
+          setIsShiftActive(false);
+          setElapsedTime(0);
+          pulseAnim.setValue(1);
+          rotateAnim.setValue(0);
+
+          showInAppNotification(
+            error.response?.data?.error ||
+              "Failed to start shift. Please try again.",
+            "error"
+          );
         }
+      });
+    } catch (error: any) {
+      // Handle any unexpected errors
+      console.error("Error starting shift:", error);
+      showInAppNotification(
+        error.message ||
+          "An unexpected error occurred while starting your shift",
+        "error"
+      );
 
-        await AsyncStorage.setItem(
-          `${user?.role}-shiftStatus`,
-          JSON.stringify({
-            isActive: true,
-            startTime: now.toISOString(),
-          })
-        );
-
-        // Schedule persistent notification
-        await schedulePersistentNotification();
-
-        // Update modal with success message
-        setModalData({
-          title: "Shift Started",
-          message: `Your shift has started at ${format(
-            now,
-            "hh:mm a"
-          )}. The timer will continue running even if you close the app.`,
-          type: "success",
-          showCancel: false,
-        });
-
-        // Show warning messages after shift start confirmation
-        setTimeout(() => {
-          showWarningMessages();
-        }, 1500);
-      } catch (error: any) {
-        // Revert UI state on error
-        setShiftStart(null);
-        setIsShiftActive(false);
-        setElapsedTime(0);
-        pulseAnim.setValue(1);
-        rotateAnim.setValue(0);
-
-        Alert.alert(
-          "Error",
-          error.response?.data?.error ||
-            "Failed to start shift. Please try again."
-        );
-      }
-    });
+      // Reset UI
+      setShiftStart(null);
+      setIsShiftActive(false);
+      setElapsedTime(0);
+      pulseAnim.setValue(1);
+      rotateAnim.setValue(0);
+    }
   };
 
-  // Modify confirmEndShift to include notification
+  // Make handleEndShift more responsive too
+  const handleEndShift = () => {
+    // Update UI immediately
+    Animated.timing(pulseAnim, {
+      toValue: 1.05,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+
+    setModalData({
+      title: "End Shift?",
+      message: `Are you sure you want to end your current shift?`,
+      type: "info",
+      showCancel: true,
+    });
+    setShowModal(true);
+  };
+
+  // Restore confirmEndShift function with improved cleanup
   const confirmEndShift = async () => {
+    // Only validate location for employee role and for non-timer initiated end shift
+    if (user?.role === 'employee' && !timerEndTime) {
+      const isLocationValid = await validateLocationForShift();
+
+      if (!isLocationValid) {
+        return;
+      }
+    }
+
     const now = new Date();
     if (!shiftStart) return;
 
@@ -821,6 +1542,22 @@ export default function EmployeeShiftTracker() {
     setShiftStart(null);
     pulseAnim.setValue(1);
     rotateAnim.setValue(0);
+
+    // Clear any location monitoring resources
+    if (locationOffTimer) {
+      clearTimeout(locationOffTimer);
+      setLocationOffTimer(null);
+    }
+
+    if (locationCheckInterval) {
+      clearInterval(locationCheckInterval);
+      setLocationCheckInterval(null);
+    }
+
+    if (locationWatchId) {
+      clearInterval(locationWatchId as any);
+      setLocationWatchId(null);
+    }
 
     // Calculate duration for immediate feedback
     const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
@@ -862,6 +1599,15 @@ export default function EmployeeShiftTracker() {
         // Cancel all shift-related notifications
         await cancelShiftNotifications();
 
+        // Include location data in the API call for employee role only
+        const locationData = user?.role === 'employee' && currentLocation
+          ? {
+              latitude: currentLocation.latitude,
+              longitude: currentLocation.longitude,
+              accuracy: currentLocation.accuracy || 0,
+            }
+          : undefined;
+
         // Send notification based on role
         if (user?.role !== "management") {
           await axios.post(
@@ -885,11 +1631,12 @@ export default function EmployeeShiftTracker() {
         }
 
         await Promise.all([
-          // API call using role-specific endpoint
+          // API call using role-specific endpoint with location data
           axios.post(
             `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
             {
               endTime: formatDateForBackend(now),
+              location: locationData, // Include location data only for employees
             },
             {
               headers: { Authorization: `Bearer ${token}` },
@@ -905,19 +1652,18 @@ export default function EmployeeShiftTracker() {
 
         // Refresh data in background
         await Promise.all([loadShiftHistoryFromBackend(), fetchRecentShifts()]);
+
+        // Reset location validation state
+        setLocationValidated(false);
       } catch (error: any) {
         console.error("Error ending shift:", error);
 
-        // Show error modal
-        setModalData({
-          title: "Error",
-          message:
-            error.response?.data?.error ||
+        // Show notification instead of alert
+        showInAppNotification(
+          error.response?.data?.error ||
             "Failed to end shift. Please try again.",
-          type: "info",
-          showCancel: false,
-        });
-        setShowModal(true);
+          "error"
+        );
 
         // Revert UI state
         setIsShiftActive(true);
@@ -925,16 +1671,6 @@ export default function EmployeeShiftTracker() {
         startAnimations();
       }
     });
-  };
-
-  const handleEndShift = () => {
-    setModalData({
-      title: "End Shift",
-      message: "Are you sure you want to end your current shift?",
-      type: "info",
-      showCancel: true,
-    });
-    setShowModal(true);
   };
 
   const rotate = rotateAnim.interpolate({
@@ -1077,6 +1813,44 @@ export default function EmployeeShiftTracker() {
     };
   }, []);
 
+  // Create a function to handle refresh
+  const onRefresh = useCallback(async () => {
+    console.log("Refreshing data and permissions");
+    setIsRefreshing(true);
+
+    try {
+      // Run these operations in parallel
+      await Promise.all([
+        fetchAndUpdateGeofencePermissions(),
+        loadShiftHistoryFromBackend(),
+        fetchRecentShifts(),
+      ]);
+
+      // Show success notification
+      showInAppNotification("Data refreshed successfully", "success");
+    } catch (error) {
+      console.error("Error during refresh:", error);
+      showInAppNotification("Failed to refresh some data", "error");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [user, token]);
+
+  // Add useEffect to update address when location changes
+  useEffect(() => {
+    const updateAddress = async () => {
+      if (currentLocation?.latitude && currentLocation?.longitude) {
+        const address = await getLocationAddress(
+          currentLocation.latitude,
+          currentLocation.longitude
+        );
+        setCurrentAddress(address);
+      }
+    };
+    
+    updateAddress();
+  }, [currentLocation]);
+
   return (
     <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
       <StatusBar
@@ -1120,7 +1894,117 @@ export default function EmployeeShiftTracker() {
         </View>
       </LinearGradient>
 
-      <ScrollView className="flex-1 p-4">
+      <ScrollView
+        className="flex-1 p-4"
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={["#3B82F6", "#10B981"]}
+            tintColor={isDark ? "#60A5FA" : "#3B82F6"}
+            title="Refreshing permissions and data..."
+            titleColor={isDark ? "#D1D5DB" : "#6B7280"}
+          />
+        }
+      >
+        {(user?.role === "employee" || user?.role === "group-admin") && (
+          <View
+            className={`rounded-lg p-4 mb-4 ${
+              isDark ? "bg-gray-800" : "bg-white"
+            }`}
+          >
+            <View className="flex-row justify-between items-center mb-2">
+              <Text
+                className={`font-semibold ${
+                  isDark ? "text-gray-300" : "text-gray-700"
+                }`}
+              >
+                Location Status
+              </Text>
+              <View
+                className={`px-2 py-1 rounded-full ${
+                  isInGeofence ? "bg-green-100" : "bg-yellow-100"
+                }`}
+              >
+                <Text
+                  className={`text-xs font-medium ${
+                    isInGeofence ? "text-green-800" : "text-yellow-800"
+                  }`}
+                >
+                  {isInGeofence ? "In Work Area" : "Outside Work Area"}
+                </Text>
+              </View>
+            </View>
+
+            <View className="flex-row justify-between items-center">
+              <View>
+                <Text
+                  className={`text-xs ${
+                    isDark ? "text-gray-400" : "text-gray-500"
+                  }`}
+                >
+                  Current Position
+                </Text>
+                <Text className={`${isDark ? "text-white" : "text-gray-800"}`}>
+                  {currentAddress}
+                </Text>
+              </View>
+
+              <View>
+                <Text
+                  className={`text-xs text-right ${
+                    isDark ? "text-gray-400" : "text-gray-500"
+                  }`}
+                >
+                  Battery
+                </Text>
+                <View className="flex-row items-center justify-end">
+                  <Ionicons
+                    name={
+                      batteryLevel > 75
+                        ? "battery-full"
+                        : batteryLevel > 45
+                        ? "battery-half"
+                        : batteryLevel > 15
+                        ? "battery-half"
+                        : "battery-dead"
+                    }
+                    size={16}
+                    color={
+                      batteryLevel > 20
+                        ? isDark
+                          ? "#10B981"
+                          : "#059669"
+                        : "#EF4444"
+                    }
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text
+                    className={`${
+                      batteryLevel > 20
+                        ? isDark
+                          ? "text-green-400"
+                          : "text-green-600"
+                        : "text-red-500"
+                    }`}
+                  >
+                    {batteryLevel}%
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Add geofence override indicator */}
+            {canOverrideGeofence && (
+              <View className="mt-2 px-3 py-1 bg-blue-100 self-start rounded-full">
+                <Text className="text-xs text-blue-800 font-medium">
+                  Geofence Override Enabled
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
         <View
           className={`rounded-lg p-6 mb-6 ${
             isDark ? "bg-gray-800" : "bg-white"
@@ -1452,22 +2336,152 @@ export default function EmployeeShiftTracker() {
             } w-5/6`}
           >
             <View className="flex-row items-center mb-4">
-              <Ionicons
-                name={
-                  currentWarningIndex === 0
-                    ? "warning-outline"
-                    : "alert-circle-outline"
-                }
-                size={24}
-                color="#EF4444"
-              />
+              <Ionicons name="warning-outline" size={24} color="#EF4444" />
               <Text className={`ml-2 text-xl font-bold text-red-500`}>
-                {warningMessages[currentWarningIndex]?.title}
+                {combinedWarningMessage.title}
               </Text>
             </View>
-            <Text className={`text-red-500 text-base`}>
-              {warningMessages[currentWarningIndex]?.message}
+
+            {combinedWarningMessage.notices.map((notice, index) => (
+              <View key={index} className="mb-4">
+                <Text className={`text-lg font-semibold text-red-500 mb-2`}>
+                  {notice.title}
+                </Text>
+                <Text
+                  className={`text-base ${
+                    isDark ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
+                  {notice.message}
+                </Text>
+                {index === 0 && <View className="h-px bg-gray-300 my-4" />}
+              </View>
+            ))}
+
+            <TouchableOpacity
+              onPress={() => setShowWarningModal(false)}
+              className="mt-2 py-3 rounded-lg bg-blue-500"
+            >
+              <Text className="text-white text-center font-semibold">
+                I Understand
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Add InAppNotification component */}
+      <InAppNotification
+        visible={inAppNotification.visible}
+        message={inAppNotification.message}
+        type={inAppNotification.type}
+        onDismiss={() =>
+          setInAppNotification({ ...inAppNotification, visible: false })
+        }
+      />
+
+      {/* Enhanced Location error modal */}
+      <Modal visible={showLocationError} transparent animationType="fade">
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View
+            className={`m-5 p-6 rounded-xl ${
+              isDark ? "bg-gray-800" : "bg-white"
+            } w-5/6`}
+          >
+            <View className="flex-row items-center mb-4">
+              <Ionicons name="location-outline" size={24} color="#EF4444" />
+              <Text className={`ml-2 text-xl font-bold text-red-500`}>
+                Location Error
+              </Text>
+            </View>
+            <Text
+              className={`text-base mb-6 ${
+                isDark ? "text-gray-300" : "text-gray-600"
+              }`}
+            >
+              {locationErrorMessage}
             </Text>
+            <View className="flex-row justify-between gap-4">
+              <TouchableOpacity
+                onPress={() => setShowLocationError(false)}
+                className="flex-1 py-3 rounded-lg bg-gray-500"
+              >
+                <Text className="text-white text-center font-semibold">
+                  Later
+                </Text>
+              </TouchableOpacity>
+              {canOverrideGeofence && (
+                <TouchableOpacity
+                  onPress={async () => {
+                    setShowLocationError(false);
+
+                    try {
+                      // This will trigger the system location prompt if location is disabled
+                      const { status: foregroundStatus } =
+                        await Location.requestForegroundPermissionsAsync();
+
+                      if (foregroundStatus === "granted") {
+                        // If permissions are granted, try to get location which will prompt location services
+                        try {
+                          await Location.getCurrentPositionAsync({
+                            accuracy: Location.Accuracy.High,
+                            // This is important - it forces the location prompt even when location services are off
+                            mayShowUserSettingsDialog: true,
+                          });
+
+                          // If we get here, location services should be enabled
+                          showInAppNotification(
+                            "Location services enabled successfully.",
+                            "success"
+                          );
+
+                          // Reinitialize location
+                          const location = await getCurrentLocation();
+                          if (location) {
+                            // Update geofence status
+                            const isInside = isLocationInAnyGeofence(location);
+                            console.log(
+                              "Location enabled, updated geofence status:",
+                              { isInside, location }
+                            );
+                          }
+                        } catch (locationError) {
+                          console.error(
+                            "Error requesting location:",
+                            locationError
+                          );
+                          // The user likely denied the location services prompt
+                          showInAppNotification(
+                            "Please enable location services to use all app features.",
+                            "warning"
+                          );
+                        }
+                      } else {
+                        // Permission denied
+                        showInAppNotification(
+                          "Location permission is required for shift tracking.",
+                          "warning"
+                        );
+                      }
+                    } catch (error) {
+                      console.error(
+                        "Error requesting location permission:",
+                        error
+                      );
+                      showInAppNotification(
+                        "Unable to request location access. Please enable location from your device settings.",
+                        "error"
+                      );
+                    }
+                  }}
+                  className="flex-1 py-3 rounded-lg bg-blue-500"
+                >
+                  <Text className="text-white text-center font-semibold">
+                    Enable Location
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
       </Modal>

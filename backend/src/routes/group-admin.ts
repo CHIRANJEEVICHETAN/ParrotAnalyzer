@@ -287,7 +287,70 @@ router.post('/employees/bulk', verifyToken, upload.single('file'), async (req: C
     const results = [];
     const errors = [];
     const validGenders = ['male', 'female', 'other'];
+    const uniqueEmails = new Set();
+    const uniqueEmployeeNumbers = new Set();
+    const uniquePhones = new Set();
 
+    // First pass: validate all rows and check for duplicates within the CSV
+    for (let i = 1; i < parsedRows.length; i++) {
+      const row = parsedRows[i];
+      const email = row[headers['email']]?.trim();
+      const employeeNumber = row[headers['employee_number']]?.trim();
+      const phone = row[headers['phone']]?.trim();
+
+      if (email && uniqueEmails.has(email)) {
+        errors.push({
+          row: i + 1,
+          error: 'Duplicate email within CSV file',
+          email
+        });
+        continue;
+      }
+
+      if (employeeNumber && uniqueEmployeeNumbers.has(employeeNumber)) {
+        errors.push({
+          row: i + 1,
+          error: 'Duplicate employee number within CSV file',
+          email
+        });
+        continue;
+      }
+
+      if (phone) {
+        if (uniquePhones.has(phone)) {
+          errors.push({
+            row: i + 1,
+            error: 'Duplicate phone number within CSV file',
+            email
+          });
+          continue;
+        }
+        // Validate phone number format
+        const phoneRegex = /^\+?[1-9]\d{9,14}$/;
+        if (!phoneRegex.test(phone)) {
+          errors.push({
+            row: i + 1,
+            error: 'Invalid phone number format. Must be 10-15 digits with optional + prefix',
+            email
+          });
+          continue;
+        }
+      }
+
+      uniqueEmails.add(email);
+      uniqueEmployeeNumbers.add(employeeNumber);
+      if (phone) uniquePhones.add(phone);
+    }
+
+    // If there are validation errors, return them immediately
+    if (errors.length > 0) {
+      return res.status(400).json({
+        error: 'Validation errors in CSV file',
+        errors
+      });
+    }
+
+    // Second pass: process each row
     for (let i = 1; i < parsedRows.length; i++) {
       const row = parsedRows[i];
       try {
@@ -324,16 +387,22 @@ router.post('/employees/bulk', verifyToken, upload.single('file'), async (req: C
           continue;
         }
 
-        // Check for duplicate email or employee number
+        // Check for existing user in database
         const existingUser = await client.query(
-          'SELECT id FROM users WHERE email = $1 OR employee_number = $2',
-          [employee.email, employee.employee_number]
+          'SELECT id, email, employee_number, phone FROM users WHERE email = $1 OR employee_number = $2 OR (phone = $3 AND $3 IS NOT NULL)',
+          [employee.email, employee.employee_number, employee.phone]
         );
 
         if (existingUser.rows.length > 0) {
+          const existing = existingUser.rows[0];
+          let duplicateField = '';
+          if (existing.email === employee.email) duplicateField = 'email';
+          else if (existing.employee_number === employee.employee_number) duplicateField = 'employee number';
+          else if (existing.phone === employee.phone) duplicateField = 'phone number';
+
           errors.push({ 
             row: i + 1, 
-            error: 'Email or Employee Number already exists',
+            error: `Duplicate ${duplicateField} already exists in the system`,
             email: employee.email
           });
           continue;
@@ -376,11 +445,19 @@ router.post('/employees/bulk', verifyToken, upload.single('file'), async (req: C
         );
 
         results.push(result.rows[0]);
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Error processing row ${i + 1}:`, error);
+        let errorMessage = 'Failed to create employee';
+        
+        // Handle specific database errors
+        if (error.code === '23505') { // Unique violation
+          const field = error.constraint.replace('users_', '').replace('_key', '');
+          errorMessage = `Duplicate ${field} already exists in the system`;
+        }
+        
         errors.push({ 
           row: i + 1, 
-          error: 'Failed to create employee',
+          error: errorMessage,
           email: row[headers['email']]?.trim()
         });
       }
@@ -390,13 +467,23 @@ router.post('/employees/bulk', verifyToken, upload.single('file'), async (req: C
       await client.query('COMMIT');
       res.status(201).json({ 
         success: results, 
-        errors: errors.length > 0 ? errors : undefined 
+        errors: errors.length > 0 ? errors : undefined,
+        summary: {
+          total: parsedRows.length - 1,
+          success: results.length,
+          failed: errors.length
+        }
       });
     } else {
       await client.query('ROLLBACK');
       res.status(400).json({ 
         error: 'No employees were created',
-        errors 
+        errors,
+        summary: {
+          total: parsedRows.length - 1,
+          success: 0,
+          failed: errors.length
+        }
       });
     }
   } catch (error) {
@@ -918,5 +1005,71 @@ async function checkUserLimit(client: any, companyId: number, newUsersCount: num
     remainingSlots: userLimit - currentUserCount
   };
 }
+
+// Get employee expense permissions
+router.get('/employee-expense-permissions', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const result = await client.query(
+      `SELECT 
+        u.id as user_id,
+        u.name as user_name,
+        u.employee_number,
+        u.department,
+        u.designation,
+        u.can_submit_expenses_anytime
+       FROM users u
+       WHERE u.group_admin_id = $1 AND u.role = 'employee'
+       ORDER BY u.name ASC`,
+      [req.user.id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching expense permissions:', error);
+    res.status(500).json({ error: 'Failed to fetch expense permissions' });
+  } finally {
+    client.release();
+  }
+});
+
+// Update employee expense permission
+router.put('/employee-expense-permissions/:userId', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (req.user?.role !== 'group-admin') {
+      return res.status(403).json({ error: 'Access denied. Group admin only.' });
+    }
+
+    const { userId } = req.params;
+    const { can_submit_expenses_anytime } = req.body;
+
+    // Verify the employee belongs to this group admin
+    const result = await client.query(
+      `UPDATE users 
+       SET 
+         can_submit_expenses_anytime = $1,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND group_admin_id = $3 AND role = 'employee'
+       RETURNING id, name, employee_number, can_submit_expenses_anytime`,
+      [can_submit_expenses_anytime, userId, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found or unauthorized' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating expense permission:', error);
+    res.status(500).json({ error: 'Failed to update expense permission' });
+  } finally {
+    client.release();
+  }
+});
 
 export default router; 

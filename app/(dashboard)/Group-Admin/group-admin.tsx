@@ -149,22 +149,8 @@ export default function GroupAdminDashboard() {
       title: "Live Tracking",
       icon: "location-outline",
       color: "#EF4444", // Red color
-      route: "", // Remove the route
+      route: "/(dashboard)/Group-Admin/tracking",
       description: "Real-time employee location",
-      onPress: () =>
-        Alert.alert(
-          "Coming Soon!",
-          "Live tracking feature is under development. Stay tuned for updates!",
-          [
-            {
-              text: "OK",
-              style: "default",
-            },
-          ],
-          {
-            cancelable: true,
-          }
-        ),
     },
     {
       title: "View Reports",
@@ -318,9 +304,7 @@ export default function GroupAdminDashboard() {
                   styles.quickActionCard,
                   { backgroundColor: isDark ? "#1F2937" : "#FFFFFF" },
                 ]}
-                onPress={
-                  action.onPress || (() => router.push(action.route as any))
-                }
+                onPress={() => router.push(action.route as any)}
               >
                 <View
                   style={[

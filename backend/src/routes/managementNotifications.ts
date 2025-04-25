@@ -30,7 +30,7 @@ router.get("/", async (req: CustomRequest, res: Response) => {
     const offset = parseInt(req.query.offset as string) || 0;
 
     const notifications = await NotificationService.getUserNotificationsByRole(
-      parseInt(req.user!.id),
+      parseInt(req.user!.id.toString()),
       "management",
       limit,
       offset
@@ -60,7 +60,7 @@ router.post("/send-role", async (req: CustomRequest, res: Response) => {
 
     // Modify the notification service call to exclude current user
     await NotificationService.sendRoleNotification(
-      parseInt(currentUserId),
+      parseInt(currentUserId.toString()),
       targetRole,
       {
         title,
@@ -126,7 +126,7 @@ router.post("/send-users", async (req: CustomRequest, res: Response) => {
 router.put("/:id/read", async (req: CustomRequest, res: Response) => {
   try {
     const notificationId = parseInt(req.params.id);
-    const userId = parseInt(req.user!.id);
+    const userId = parseInt(req.user!.id.toString());
 
     console.log("[MarkAsRead] Request details:", {
       notificationId,
@@ -218,7 +218,7 @@ router.put("/:id/read", async (req: CustomRequest, res: Response) => {
 router.get("/unread-count", async (req: CustomRequest, res: Response) => {
   try {
     const count = await NotificationService.getUnreadNotificationCount(
-      parseInt(req.user!.id)
+      parseInt(req.user!.id.toString())
     );
     res.json({ count });
   } catch (error) {

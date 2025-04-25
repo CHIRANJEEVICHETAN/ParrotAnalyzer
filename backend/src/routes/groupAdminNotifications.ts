@@ -38,7 +38,7 @@ router.get("/", async (req: CustomRequest, res: Response) => {
     const offset = parseInt(req.query.offset as string) || 0;
 
     const notifications = await NotificationService.getUserNotificationsByRole(
-      parseInt(req.user!.id),
+      req.user!.id,
       "group-admin",
       limit,
       offset
@@ -64,14 +64,14 @@ router.post("/send-group", async (req: CustomRequest, res: Response) => {
     }
 
     // Verify that the requesting user is the group admin
-    if (parseInt(req.user!.id) !== groupAdminId) {
+    if (req.user!.id !== groupAdminId) {
       return res
         .status(403)
         .json({ error: "Unauthorized to send notifications to this group" });
     }
 
     await NotificationService.sendGroupNotification(
-      parseInt(req.user!.id),
+      req.user!.id,
       groupAdminId, // Using groupAdminId to find employees
       {
         title,
@@ -96,7 +96,7 @@ router.post("/send-group", async (req: CustomRequest, res: Response) => {
 router.put("/:id/read", async (req: CustomRequest, res: Response) => {
   try {
     const notificationId = parseInt(req.params.id);
-    const userId = parseInt(req.user!.id);
+    const userId = req.user!.id;
 
     console.log("[MarkAsRead] Request details:", {
       notificationId,
@@ -193,7 +193,7 @@ router.put("/:id/read", async (req: CustomRequest, res: Response) => {
 router.get("/unread-count", async (req: CustomRequest, res: Response) => {
   try {
     const count = await NotificationService.getUnreadNotificationCount(
-      parseInt(req.user!.id)
+      req.user!.id
     );
     res.json({ count });
   } catch (error) {

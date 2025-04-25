@@ -1,11 +1,16 @@
-import {
-  Expo,
-  ExpoPushMessage,
-  ExpoPushSuccessTicket,
-  ExpoPushErrorReceipt,
-} from "expo-server-sdk";
+import { Expo, ExpoPushMessage } from "expo-server-sdk";
 import { pool } from "../config/database";
 import { QueryResult } from "pg";
+import * as admin from "firebase-admin";
+import { getMessaging } from "firebase-admin/messaging";
+
+// Initialize Firebase Admin
+const serviceAccount = require("../config/admin-service-key.json");
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
 
 interface DeviceToken {
   id: number;
@@ -38,11 +43,122 @@ interface InAppNotification {
   created_at: Date;
 }
 
+type ExpoErrorCode =
+  | "DeviceNotRegistered"
+  | "MessageTooBig"
+  | "MessageRateExceeded"
+  | "MismatchSenderId"
+  | "InvalidCredentials"
+  | "DeveloperError"
+  | "ExpoError"
+  | "ProviderError";
+
+interface PushMessage {
+  to: string;
+  sound: string;
+  title: string;
+  body: string;
+  data?: any;
+  priority: "default" | "normal" | "high";
+  categoryId?: string;
+  badge: number;
+  channelId: string;
+  _displayInForeground: boolean;
+  isExpoToken?: boolean;
+}
+
+interface PushReceipt {
+  id: string;
+  status: "ok" | "error";
+  message?: string;
+  details?: {
+    error?: ExpoErrorCode;
+    [key: string]: any;
+  };
+}
+
+interface PushTicket {
+  id?: string;
+  status: "ok" | "error";
+  message?: string;
+  details?: {
+    error?: ExpoErrorCode;
+    [key: string]: any;
+  };
+}
+
+interface FCMResult {
+  error?: Error;
+  messageId?: string;
+}
+
+interface NotificationResult {
+  expo: {
+    success: boolean;
+    tickets: PushTicket[];
+  };
+  fcm: {
+    success: boolean;
+    results: FCMResult[];
+  };
+}
+
 class NotificationService {
   private expo: Expo;
+  private messaging: admin.messaging.Messaging;
 
   constructor() {
     this.expo = new Expo();
+    this.messaging = getMessaging();
+  }
+
+  private isExpoToken(token: string): boolean {
+    return Expo.isExpoPushToken(token);
+  }
+
+  private async sendFCMNotification(
+    token: string,
+    notification: PushNotification
+  ): Promise<string> {
+    try {
+      const message: admin.messaging.Message = {
+        token,
+        notification: {
+          title: notification.title,
+          body: notification.message,
+        },
+        data: notification.data || {},
+        android: {
+          priority: notification.priority === "high" ? "high" : "normal",
+          notification: {
+            channelId:
+              notification.priority === "high" ? "high_priority" : "default",
+            sound: "default",
+            priority: "high",
+          },
+        },
+        apns: {
+          headers: {
+            "apns-priority": "10",
+          },
+          payload: {
+            aps: {
+              sound: "default",
+              badge: 1,
+              contentAvailable: true,
+              mutableContent: true,
+              interruptionLevel:
+                notification.priority === "high" ? "time-sensitive" : "active",
+            },
+          },
+        },
+      };
+
+      return await this.messaging.send(message);
+    } catch (error) {
+      console.error("[FCM] Error sending message:", error);
+      throw error;
+    }
   }
 
   async saveDeviceToken(
@@ -105,101 +221,140 @@ class NotificationService {
   ): Promise<any> {
     const client = await pool.connect();
     try {
-      console.log('[PUSH] Starting sendPushNotification:', {
+      console.log("[PUSH] Starting sendPushNotification:", {
         notificationId: notification.id,
         title: notification.title.substring(0, 20),
-        recipientCount: userIds?.length || 1
+        recipientCount: userIds?.length || 1,
+        targetUsers: userIds,
       });
-      
+
       if (!userIds || userIds.length === 0) {
         userIds = [notification.user_id];
       }
 
-      // Get active device tokens
-      const tokenQuery = userIds
-        ? "SELECT token FROM device_tokens WHERE user_id = ANY($1) AND is_active = true"
-        : "SELECT token FROM device_tokens WHERE is_active = true";
-      const tokenParams = userIds ? [userIds] : [];
-
-      const tokenResult = await client.query(tokenQuery, tokenParams);
-      const tokens = tokenResult.rows.map(row => row.token);
-      
-      console.log(`[PUSH] Retrieved ${tokens.length} tokens for ${userIds.length} recipients`);
-      
-      if (!tokens.length) {
-        console.log('[PUSH] No tokens found for recipients');
-        return { success: false, message: 'No registered devices found' };
+      // For test notifications, first create a record
+      if (notification.id === 0) {
+        const result = await client.query(
+          `INSERT INTO push_notifications 
+           (user_id, title, message, type, priority, data) 
+           VALUES ($1, $2, $3, $4, $5, $6) 
+           RETURNING id`,
+          [
+            notification.user_id,
+            notification.title,
+            notification.message,
+            notification.type || "test",
+            notification.priority || "default",
+            notification.data || {},
+          ]
+        );
+        notification.id = result.rows[0].id;
       }
 
-      // Format the notification for Expo push service
-      const messages = [];
-      for (const token of tokens) {
-        if (!Expo.isExpoPushToken(token)) {
-          console.error(`[PUSH] Invalid Expo push token: ${token}`);
-          continue;
-        }
+      const tokenResult = await client.query(
+        "SELECT dt.*, u.role FROM device_tokens dt JOIN users u ON dt.user_id::integer = u.id WHERE dt.user_id = ANY($1) AND dt.is_active = true",
+        [userIds]
+      );
 
-        messages.push({
+      const tokens = tokenResult.rows.map((row) => ({
+        token: row.token,
+        isExpoToken: this.isExpoToken(row.token),
+      }));
+
+      console.log(
+        `[PUSH] Retrieved ${tokens.length} active tokens for ${userIds.length} recipients`
+      );
+
+      if (!tokens.length) {
+        console.log("[PUSH] No tokens found for recipients");
+        return { success: false, message: "No registered devices found" };
+      }
+
+      // Separate Expo and FCM tokens
+      const expoTokens = tokens
+        .filter((t) => t.isExpoToken)
+        .map((t) => t.token);
+      const fcmTokens = tokens
+        .filter((t) => !t.isExpoToken)
+        .map((t) => t.token);
+
+      const results: NotificationResult = {
+        expo: { success: false, tickets: [] },
+        fcm: { success: false, results: [] },
+      };
+
+      // Handle Expo notifications
+      if (expoTokens.length > 0) {
+        const messages: ExpoPushMessage[] = expoTokens.map((token) => ({
           to: token,
-          sound: 'default',
+          sound: "default",
           title: notification.title,
           body: notification.message,
           data: notification.data || {},
           priority: notification.priority as "default" | "normal" | "high",
           categoryId: notification.category,
-          badge: 1, // Set badge count
-          channelId: 'default', // Android channel ID
-          // Add these fields for better delivery rates
-          _displayInForeground: true, // Force display in foreground 
-        });
-      }
+          badge: 1,
+          channelId:
+            notification.priority === "high" ? "high_priority" : "default",
+          _displayInForeground: true,
+        }));
 
-      if (messages.length === 0) {
-        console.log('[PUSH] No valid tokens to send notifications');
-        return { success: false, message: 'No valid tokens' };
-      }
+        const chunks = this.expo.chunkPushNotifications(messages);
+        const tickets: PushTicket[] = [];
 
-      console.log(`[PUSH] Prepared ${messages.length} messages for sending`);
-      
-      // Send to Expo push notification service
-      const chunks = this.expo.chunkPushNotifications(messages);
-      const tickets = [];
-      
-      // Send chunks to Expo
-      for (let chunk of chunks) {
-        try {
-          console.log(`[PUSH] Sending chunk of ${chunk.length} messages...`);
-          const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
-          console.log(`[PUSH] Received ${ticketChunk.length} tickets in response`);
-          
-          // Log any errors in the response
-          ticketChunk.forEach((ticket, i) => {
-            if (ticket.status === 'error') {
-              console.error(`[PUSH] Error in ticket ${i}:`, ticket.message);
-            }
-          });
-          
-          tickets.push(...ticketChunk);
-        } catch (error) {
-          console.error('[PUSH] Error sending notification chunk:', error);
+        for (let chunk of chunks) {
+          try {
+            const ticketChunk = await this.expo.sendPushNotificationsAsync(
+              chunk
+            );
+            tickets.push(...ticketChunk);
+          } catch (error) {
+            console.error("[EXPO] Error sending notification chunk:", error);
+          }
         }
+
+        results.expo = {
+          success: tickets.some((t) => t.status === "ok"),
+          tickets,
+        };
       }
 
-      // Check if we have any successful tickets
-      const successTickets = tickets.filter(ticket => ticket.status === 'ok');
-      console.log(`[PUSH] Successfully sent ${successTickets.length}/${tickets.length} notifications`);
-      
-      // Update notification as sent in the database
+      // Handle FCM notifications
+      if (fcmTokens.length > 0) {
+        const fcmResults = await Promise.all(
+          fcmTokens.map(async (token) => {
+            try {
+              const messageId = await this.sendFCMNotification(
+                token,
+                notification
+              );
+              return { messageId };
+            } catch (error) {
+              return { error: error as Error };
+            }
+          })
+        );
+
+        results.fcm = {
+          success: fcmResults.some((result) => !result.error),
+          results: fcmResults,
+        };
+      }
+
+      // Update notification as sent
       await client.query(
         `UPDATE push_notifications
          SET sent = true, sent_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
         [notification.id]
       );
-      
-      return { success: successTickets.length > 0, tickets };
+
+      return {
+        success: results.expo.success || results.fcm.success,
+        results,
+      };
     } catch (error: any) {
-      console.error('[PUSH] Fatal error in sendPushNotification:', error);
+      console.error("[PUSH] Fatal error in sendPushNotification:", error);
       return { success: false, error: error.message };
     } finally {
       client.release();
@@ -400,6 +555,111 @@ class NotificationService {
         [userId]
       );
       return parseInt(result.rows[0].count);
+    } finally {
+      client.release();
+    }
+  }
+
+  async processReceipts(): Promise<void> {
+    const client = await pool.connect();
+    try {
+      console.log("[PUSH] Starting receipt processing");
+
+      // Get unprocessed receipts
+      const { rows } = await client.query(
+        `SELECT id, receipt_id FROM push_receipts WHERE processed = false`
+      );
+
+      if (rows.length === 0) {
+        console.log("[PUSH] No unprocessed receipts found");
+        return;
+      }
+
+      console.log(`[PUSH] Processing ${rows.length} receipts`);
+
+      // Process receipts in chunks
+      const chunks = this.expo.chunkPushNotificationReceiptIds(
+        rows.map((r) => r.receipt_id)
+      );
+
+      for (const chunk of chunks) {
+        try {
+          const receipts = await this.expo.getPushNotificationReceiptsAsync(
+            chunk
+          );
+
+          // Convert receipts object to array for iteration
+          const receiptArray = Object.entries(receipts).map(
+            ([id, receipt]) => ({
+              id,
+              ...receipt,
+            })
+          );
+
+          for (const receipt of receiptArray) {
+            console.log(`[RECEIPT] Processing receipt ${receipt.id}:`, receipt);
+
+            if (receipt.status === "error") {
+              console.error(
+                `[RECEIPT] Error [${receipt.id}]:`,
+                receipt.message,
+                receipt.details?.error
+              );
+
+              // Update receipt with error details
+              await client.query(
+                `UPDATE push_receipts 
+                 SET processed = true,
+                     processed_at = CURRENT_TIMESTAMP,
+                     error_details = $1
+                 WHERE receipt_id = $2`,
+                [
+                  JSON.stringify({
+                    status: receipt.status,
+                    message: receipt.message,
+                    error: receipt.details?.error,
+                    details: receipt.details,
+                  }),
+                  receipt.id,
+                ]
+              );
+
+              // Handle specific error codes
+              if (receipt.details?.error === "DeviceNotRegistered") {
+                // Get the token associated with this receipt
+                const { rows: tokenRows } = await client.query(
+                  `SELECT dt.token, dt.user_id 
+                   FROM device_tokens dt
+                   JOIN push_receipts pr ON pr.notification_id = dt.notification_id
+                   WHERE pr.receipt_id = $1`,
+                  [receipt.id]
+                );
+
+                if (tokenRows.length > 0) {
+                  const { token, user_id } = tokenRows[0];
+                  console.log(
+                    `[RECEIPT] Marking token ${token} as inactive due to DeviceNotRegistered error`
+                  );
+                  await this.removeDeviceToken(user_id, token);
+                }
+              }
+            } else {
+              // Update receipt as processed successfully
+              await client.query(
+                `UPDATE push_receipts 
+                 SET processed = true,
+                     processed_at = CURRENT_TIMESTAMP
+                 WHERE receipt_id = $1`,
+                [receipt.id]
+              );
+            }
+          }
+        } catch (error) {
+          console.error("[PUSH] Error processing receipt chunk:", error);
+        }
+      }
+    } catch (error) {
+      console.error("[PUSH] Error in processReceipts:", error);
     } finally {
       client.release();
     }

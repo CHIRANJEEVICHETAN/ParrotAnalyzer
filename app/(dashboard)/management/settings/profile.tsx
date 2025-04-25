@@ -17,9 +17,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import ThemeContext from '../../../context/ThemeContext';
-import AuthContext from '../../../context/AuthContext';
-import * as ImagePicker from 'expo-image-picker';
-import axios from 'axios';
+import AuthContext, { User } from "../../../context/AuthContext";
+import * as ImagePicker from "expo-image-picker";
+import axios from "axios";
 
 interface ProfileErrors {
   name?: string;
@@ -27,18 +27,9 @@ interface ProfileErrors {
   phone?: string;
 }
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: string;
-  company_name: string;
-}
-
 interface Theme {
-  theme: 'light' | 'dark';
-  useTheme: () => { theme: 'light' | 'dark' };
+  theme: "light" | "dark";
+  useTheme: () => { theme: "light" | "dark" };
 }
 
 interface Auth {
@@ -101,7 +92,7 @@ export default function ManagementProfileSettings() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,

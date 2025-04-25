@@ -672,12 +672,7 @@ export default function ManagementNotifications() {
   const { theme } = ThemeContext.useTheme();
   const { user, token } = useAuth();
   const isDark = theme === "dark";
-  const [selectedType, setSelectedType] = useState<NotificationType>("all");
-  const [showSendModal, setShowSendModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const { width: SCREEN_WIDTH } = Dimensions.get("window");
   const { unreadCount, notifications, setNotifications } = useNotifications();
   const listRef = useRef<any>(null);
   const router = useRouter();
@@ -708,6 +703,7 @@ export default function ManagementNotifications() {
     userIds: []
   });
 
+  const [showSendModal, setShowSendModal] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const successScale = useRef(new Animated.Value(0)).current;
 
@@ -748,22 +744,6 @@ export default function ManagementNotifications() {
       </View>
     </Animated.View>
   ), [isDark, successScale]);
-
-  const filterTypes = useMemo(() => {
-    // Get counts for each category
-    const roleCount = notifications?.filter((n: Notification) => n.type === 'role' && !n.read).length || 0;
-    const userCount = notifications?.filter((n: Notification) => n.type === 'user' && !n.read).length || 0;
-    const announcementCount = notifications?.filter((n: Notification) => n.type === 'announcement' && !n.read).length || 0;
-    const generalCount = notifications?.filter((n: Notification) => n.type === 'general' && !n.read).length || 0;
-
-    return [
-      { id: "all", label: "All", icon: "bell-outline", count: unreadCount },
-      { id: "role", label: "Role", icon: "shield-account-outline", count: roleCount },
-      { id: "user", label: "User", icon: "account-outline", count: userCount },
-      { id: "announcement", label: "Announcements", icon: "bullhorn-outline", count: announcementCount },
-      { id: "general", label: "General", icon: "information-outline", count: generalCount },
-    ];
-  }, [unreadCount, notifications]);
 
   useEffect(() => {
     return () => {
@@ -807,7 +787,6 @@ export default function ManagementNotifications() {
             params: {
               page: nextPage,
               limit: PAGE_SIZE,
-              type: selectedType === "all" ? undefined : selectedType,
             },
             headers: {
               Authorization: `Bearer ${token}`,
@@ -830,76 +809,13 @@ export default function ManagementNotifications() {
         }
       }
     }
-  }, [page, isEndReached, isFetchingMore, selectedType, token]);
+  }, [page, isEndReached, isFetchingMore, token]);
 
   // Handle when all data is loaded
   const handleAllDataLoaded = useCallback(() => {
     setIsEndReached(true);
     loadingRef.current = false;
   }, []);
-
-  // Reset pagination when type changes
-  const handleTypeChange = useCallback(async (type: NotificationType) => {
-    if (selectedType === type) return;
-
-    setIsLoading(true);
-    setPage(1);
-    setIsEndReached(false);
-    loadingRef.current = false;
-    setIsFetchingMore(false);
-
-    // Parallel animations for smoother transition
-    Animated.parallel([
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-          delay: 100,
-        }),
-      ]),
-      Animated.spring(scrollX, {
-        toValue: filterTypes.findIndex(t => t.id === type) * (SCREEN_WIDTH / filterTypes.length),
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 90,
-      }),
-    ]).start();
-
-    setSelectedType(type);
-
-    try {
-      // Fetch first page of notifications for new type
-      const response = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/management-notifications`,
-        {
-          params: {
-            page: 1,
-            limit: PAGE_SIZE,
-            type: type === "all" ? undefined : type,
-          },
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.data && response.data.length < PAGE_SIZE) {
-        setIsEndReached(true);
-      }
-    } catch (error) {
-      console.error("Error fetching notifications:", error);
-    } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [fadeAnim, scrollX, filterTypes, SCREEN_WIDTH, selectedType, token]);
 
   // Update the mode change handler
   const handleModeChange = useCallback((mode: NotificationMode) => {
@@ -1028,7 +944,7 @@ export default function ManagementNotifications() {
         }}
       />
 
-      {/* Enhanced Header with proper status bar height and integrated tabs */}
+      {/* Enhanced Header with proper status bar height */}
       <LinearGradient
         colors={isDark ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]}
         style={[styles.header]}
@@ -1114,104 +1030,11 @@ export default function ManagementNotifications() {
               </View>
             </View>
           </View>
-
-          {/* Tabs integrated in header */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabsContainer}
-            style={styles.scrollView}
-            className="pl-6"
-          >
-            {filterTypes.map((type, index) => (
-              <Pressable
-                key={type.id}
-                onPress={() => handleTypeChange(type.id as NotificationType)}
-                className={`py-2.5 px-4 rounded-2xl flex-row items-center ${selectedType === type.id
-                    ? isDark
-                      ? "bg-blue-500/90 border border-blue-400/30"
-                      : "bg-blue-500 border border-blue-600/20"
-                    : isDark
-                      ? "bg-gray-800/40 border border-gray-700"
-                      : "bg-gray-50 border border-gray-200"
-                }`}
-                style={[
-                  styles.tabButton,
-                  selectedType === type.id && styles.activeTabButton,
-                  {
-                    transform: [
-                      {
-                        scale: selectedType === type.id ? 1 : 0.98,
-                      },
-                    ],
-                    marginRight: index === filterTypes.length - 1 ? 10 : 0,
-                  },
-                ]}
-              >
-                <MaterialCommunityIcons
-                  name={type.icon as any}
-                  size={20}
-                  color={
-                    selectedType === type.id
-                      ? "#FFFFFF"
-                      : isDark
-                        ? "#94A3B8"
-                        : "#64748B"
-                  }
-                  style={{ marginRight: 8 }}
-                />
-                <Text
-                  className={`text-sm font-medium ${selectedType === type.id
-                      ? "text-white"
-                      : isDark
-                        ? "text-gray-300"
-                        : "text-gray-700"
-                    }`}
-                >
-                  {type.label}
-                </Text>
-                {type.count > 0 && (
-                  <View
-                    className={`ml-2 px-2 py-0.5 rounded-full ${selectedType === type.id
-                        ? "bg-white/20 border border-white/10"
-                        : isDark
-                          ? "bg-gray-900/60 border border-gray-700"
-                          : "bg-white border border-gray-200"
-                      }`}
-                  >
-                    <Text
-                      className={`text-xs font-medium ${selectedType === type.id
-                          ? "text-white/90"
-                          : isDark
-                            ? "text-gray-300"
-                            : "text-gray-600"
-                        }`}
-                    >
-                      {type.count}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            ))}
-          </ScrollView>
         </View>
       </LinearGradient>
 
       <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
-        <Animated.View
-          className="flex-1 pt-3"
-          style={{
-            opacity: fadeAnim,
-            transform: [
-              {
-                translateX: scrollX.interpolate({
-                  inputRange: [0, SCREEN_WIDTH],
-                  outputRange: [0, 0],
-                }),
-              },
-            ],
-          }}
-        >
+        <View className="flex-1 pt-3">
           {isLoading ? (
             <View className="flex-1 justify-center items-center">
               <ActivityIndicator
@@ -1227,10 +1050,58 @@ export default function ManagementNotifications() {
           ) : (
             <PushNotificationsList
               ref={listRef}
-              filterType={selectedType === "all" ? undefined : selectedType}
               unreadCount={unreadCount}
               onMarkAllAsRead={() => {
-                handleTypeChange(selectedType);
+                // Refresh notifications
+                setNotifications([]);
+                setIsLoading(true);
+                setPage(1);
+                setIsEndReached(false);
+                loadingRef.current = false;
+                
+                // Fetch notifications again
+                const refreshNotifications = async () => {
+                  try {
+                    const response = await axios.get(
+                      `${process.env.EXPO_PUBLIC_API_URL}/api/management-notifications`,
+                      {
+                        params: { limit: PAGE_SIZE, page: 1 },
+                        headers: { Authorization: `Bearer ${token}` },
+                      }
+                    );
+                    
+                    if (response.data && (response.data.push || response.data.inApp)) {
+                      const notificationsMap = new Map();
+                      
+                      (response.data.push || []).forEach((notification: Notification) => {
+                        notificationsMap.set(`push_${notification.id}`, {
+                          ...notification,
+                          uniqueId: `push_${notification.id}`,
+                          source: "push",
+                          read: true
+                        });
+                      });
+                      
+                      (response.data.inApp || []).forEach((notification: Notification) => {
+                        notificationsMap.set(`inapp_${notification.id}`, {
+                          ...notification,
+                          uniqueId: `inapp_${notification.id}`,
+                          source: "inapp",
+                          read: true
+                        });
+                      });
+                      
+                      const allNotifications = Array.from(notificationsMap.values()) as Notification[];
+                      setNotifications(allNotifications);
+                    }
+                  } catch (error) {
+                    console.error("Error refreshing notifications:", error);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                };
+                
+                refreshNotifications();
               }}
               showSendButton={true}
               onSendNotification={() => setShowSendModal(true)}
@@ -1238,7 +1109,7 @@ export default function ManagementNotifications() {
               onAllDataLoaded={handleAllDataLoaded}
             />
           )}
-        </Animated.View>
+        </View>
       </View>
 
       <SendNotificationModal
@@ -1284,28 +1155,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
-  },
-  scrollView: {
-    // Remove paddingLeft from here since we're using className
-  },
-  tabsContainer: {
-    paddingRight: 24,
-    paddingBottom: 16,
-    gap: 12,
-  },
-  tabButton: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  activeTabButton: {
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 4,
   },
   markAllButton: {
     shadowColor: '#3B82F6',

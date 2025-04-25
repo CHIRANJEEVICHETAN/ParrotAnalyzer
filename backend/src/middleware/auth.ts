@@ -2,8 +2,58 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/database';
 import { CustomRequest, JwtPayload } from '../types';
+import { User } from '../types/user';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+export const authenticateToken = async (req: CustomRequest, res: Response, next: NextFunction) => {
+    try {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+
+        if (!token) {
+            return res.status(401).json({ error: 'Authentication token required' });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+        
+        // Get the user ID from the decoded token - could be 'id' or 'userId' depending on how the token was created
+        const userId = decoded.id || decoded.userId;
+        
+        if (!userId) {
+            return res.status(401).json({ error: 'Invalid token format' });
+        }
+        
+        // Get user from database
+        const result = await pool.query(
+            'SELECT id, name, email, role, company_id, group_admin_id FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'User not found' });
+        }
+
+        const userData = result.rows[0];
+        // Ensure user object matches User interface
+        req.user = {
+            id: parseInt(userData.id),
+            name: userData.name,
+            email: userData.email,
+            role: userData.role,
+            company_id: parseInt(userData.company_id),
+            group_admin_id: userData.group_admin_id ? parseInt(userData.group_admin_id) : undefined,
+            token: token
+        };
+        next();
+    } catch (error) {
+        console.error('Token validation error:', error);
+        if (error instanceof jwt.TokenExpiredError) {
+            return res.status(401).json({ error: 'Token expired' });
+        }
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+};
 
 export const verifyToken = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
@@ -44,7 +94,15 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
         }
 
         const user = result.rows[0];
-        req.user = user;
+        // Ensure the user object matches the User interface
+        req.user = {
+          id: parseInt(user.id),
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          company_id: parseInt(user.company_id),
+          token: token
+        };
         next();
       } finally {
         client.release();

@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
+import "./utils/backgroundLocationTask";
 import {
   View,
   Text,
@@ -6,32 +7,17 @@ import {
   Image,
   StatusBar,
   Platform,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import ThemeContext from "./context/ThemeContext";
 import { LinearGradient } from "expo-linear-gradient";
 import AuthContext from "./context/AuthContext";
-import * as Notifications from "expo-notifications";
-import PushNotificationService from "./utils/pushNotificationService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
-// Configure notification behavior for foreground state
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true, // Show alert when app is in foreground
-    shouldPlaySound: true,
-    shouldSetBadge: true, // Changed from false to true for consistency
-  }),
-});
 
 export default function SplashScreen() {
   const router = useRouter();
   const { theme } = ThemeContext.useTheme();
-  const { isLoading, user, token } = AuthContext.useAuth();
-  const [notificationPermission, setNotificationPermission] = useState<
-    string | null
-  >(null);
+  const { isLoading, user } = AuthContext.useAuth();
 
   // Animation refs
   const fadeAnim = new Animated.Value(0);
@@ -39,192 +25,6 @@ export default function SplashScreen() {
   const rotateAnim = new Animated.Value(0);
   const slideUpAnim = new Animated.Value(50);
   const textFadeAnim = new Animated.Value(0);
-
-  // Notification refs
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
-
-  // Handle notification permissions
-  useEffect(() => {
-    async function requestNotificationPermissions() {
-      try {
-        if (Platform.OS === "web") {
-          // Web notification permissions
-          if ("Notification" in window) {
-            const permission = await window.Notification.requestPermission();
-            setNotificationPermission(permission);
-          }
-          return;
-        }
-
-        // Check existing permissions first
-        const { status: existingStatus } =
-          await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-
-        // Only ask if permissions haven't been determined
-        if (existingStatus !== "granted") {
-          // Show custom alert on iOS (more user-friendly)
-          if (Platform.OS === "ios") {
-            Alert.alert(
-              "Enable Notifications",
-              "Parrot Analyzer would like to send you notifications for important updates and reminders.",
-              [
-                {
-                  text: "Don't Allow",
-                  style: "cancel",
-                  onPress: () => setNotificationPermission("denied"),
-                },
-                {
-                  text: "Allow",
-                  onPress: async () => {
-                    const { status } =
-                      await Notifications.requestPermissionsAsync();
-                    setNotificationPermission(status);
-                  },
-                },
-              ]
-            );
-          } else {
-            // Direct request for Android
-            const { status } = await Notifications.requestPermissionsAsync();
-            finalStatus = status;
-            setNotificationPermission(finalStatus);
-          }
-        } else {
-          setNotificationPermission(finalStatus);
-        }
-
-        // Create default notification channel for Android
-        if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "Default",
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#FF231F7C",
-          });
-        }
-      } catch (error) {
-        console.error("Error requesting notification permissions:", error);
-        setNotificationPermission("error");
-      }
-    }
-
-    requestNotificationPermissions();
-  }, []);
-
-  // Initialize push notifications and set up listeners
-  useEffect(() => {
-    if (!user || !notificationPermission) return;
-
-    let cleanupMonitoring: (() => void) | undefined;
-
-    const initializePushNotifications = async () => {
-      try {
-        console.log(`[SplashScreen] Initializing push notifications for user: ${user.id} on ${Platform.OS} (version ${Platform.Version})`);
-        console.log(`[SplashScreen] Notification permission status: ${notificationPermission}`);
-        
-        // Check platform-specific notification settings
-        if (Platform.OS === 'ios') {
-          const settings = await Notifications.getPermissionsAsync();
-          console.log('[SplashScreen] iOS notification settings:', settings);
-        } else if (Platform.OS === 'android') {
-          // Check Android notification channels
-          const channels = await Notifications.getNotificationChannelsAsync();
-          console.log('[SplashScreen] Android channels:', channels.length ? channels.map(c => c.name) : 'None');
-        }
-        
-        // Check if we need to reset the Expo Push Token
-        await checkAndRefreshExpoToken();
-        
-        const result =
-          await PushNotificationService.registerForPushNotifications();
-
-        if (result.success && result.token) {
-          console.log("[SplashScreen] Successfully registered with token:", result.token);
-          
-          // Register token with backend
-          try {
-            await PushNotificationService.registerDeviceWithBackend(
-              user.id.toString(),
-              result.token,
-              token || undefined,
-              user.role as any
-            );
-            console.log("[SplashScreen] Successfully registered token with backend");
-            
-            // Start notification monitoring
-            cleanupMonitoring = PushNotificationService.startMonitoringNotifications();
-            console.log("[SplashScreen] Notification monitoring started");
-            
-            // // Try sending a local test notification to verify functionality
-            // setTimeout(() => {
-            //   PushNotificationService.sendTestNotification(
-            //     "Diagnostic Test", 
-            //     "This notification confirms your device can receive notifications"
-            //   )
-            //     .then(() => console.log("[SplashScreen] Diagnostic test sent"))
-            //     .catch((error: Error) => console.error("[SplashScreen] Diagnostic error:", error));
-            // }, 5000); // Give some time after initialization
-          } catch (registerError) {
-            console.error("[SplashScreen] Failed to register token with backend:", registerError);
-          }
-          
-          // Set up notification handlers
-          const cleanup = PushNotificationService.setupNotificationListeners(
-            (notification) => {
-              console.log("[SplashScreen] Received notification in foreground:", notification);
-              // Handle foreground notification
-            },
-            (response) => {
-              console.log("[SplashScreen] Notification response (tapped):", response);
-              const data = response.notification.request.content.data;
-
-              // Handle notification response (e.g., when user taps notification)
-              const validScreens = [
-                "/(dashboard)/employee/notifications",
-                "/(dashboard)/Group-Admin/notifications",
-                "/(dashboard)/management/notifications",
-              ];
-
-              if (
-                data?.screen &&
-                typeof data.screen === "string" &&
-                validScreens.includes(data.screen)
-              ) {
-                router.push(data.screen as any);
-              }
-            }
-          );
-
-          return cleanup;
-        } else {
-          console.warn("[SplashScreen] Push notification registration failed:", result.message);
-        }
-      } catch (error) {
-        console.error("[SplashScreen] Error initializing push notifications:", error);
-      }
-    };
-
-    initializePushNotifications();
-
-    // Cleanup function
-    return () => {
-      if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(
-          notificationListener.current
-        );
-      }
-      if (responseListener.current) {
-        Notifications.removeNotificationSubscription(
-          responseListener.current
-        );
-      }
-      if (cleanupMonitoring) {
-        cleanupMonitoring();
-      }
-    };
-  }, [user, notificationPermission]);
 
   // Animation and navigation logic
   useEffect(() => {

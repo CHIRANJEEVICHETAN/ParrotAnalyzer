@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,9 @@ import {
   StyleSheet,
   StatusBar,
   Platform,
+  Animated
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Calendar } from 'react-native-calendars';
 import { format } from 'date-fns';
@@ -80,6 +81,8 @@ export default function EmployeeSchedule() {
   const { token } = AuthContext.useAuth();
   const router = useRouter();
   const isDark = theme === 'dark';
+  const successScale = useRef(new Animated.Value(0)).current;
+  const [showSuccess, setShowSuccess] = useState(false);
   
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [schedule, setSchedule] = useState<{ [key: string]: ScheduleEvent[] }>({});
@@ -170,6 +173,24 @@ export default function EmployeeSchedule() {
     }
   };
 
+  const showSuccessAnimation = () => {
+    setShowSuccess(true);
+    Animated.sequence([
+      Animated.spring(successScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 15,
+        stiffness: 200,
+      }),
+    ]).start();
+
+    // Auto hide after 2 seconds
+    setTimeout(() => {
+      setShowSuccess(false);
+      successScale.setValue(0);
+    }, 2000);
+  };
+
   const handleAddSchedule = async (scheduleData: {
     title: string;
     description: string;
@@ -197,7 +218,7 @@ export default function EmployeeSchedule() {
       }));
 
       setIsAddModalVisible(false);
-      Alert.alert('Success', 'Schedule added successfully');
+      showSuccessAnimation();
     } catch (error) {
       console.error('Error adding schedule:', error);
       Alert.alert('Error', 'Failed to add schedule');
@@ -553,6 +574,61 @@ export default function EmployeeSchedule() {
           Add Schedule
         </Text>
       </TouchableOpacity>
+
+      {/* Success Modal */}
+      {showSuccess && (
+        <Animated.View 
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: isDark ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 50,
+            },
+            {
+              transform: [{ scale: successScale }],
+            }
+          ]}
+        >
+          <View style={{ alignItems: 'center', padding: 24 }}>
+            <View style={{ 
+              width: 80, 
+              height: 80, 
+              borderRadius: 40, 
+              backgroundColor: isDark ? 'rgba(74, 222, 128, 0.2)' : 'rgba(74, 222, 128, 0.1)',
+              justifyContent: 'center', 
+              alignItems: 'center',
+              marginBottom: 16
+            }}>
+              <MaterialCommunityIcons
+                name="check-circle"
+                size={40}
+                color={isDark ? "#4ADE80" : "#22C55E"}
+              />
+            </View>
+            <Text style={{ 
+              fontSize: 24, 
+              fontWeight: '600',
+              marginBottom: 8,
+              color: isDark ? '#FFFFFF' : '#111827'
+            }}>
+              Success!
+            </Text>
+            <Text style={{ 
+              fontSize: 16,
+              textAlign: 'center',
+              color: isDark ? '#9CA3AF' : '#4B5563'
+            }}>
+              Schedule has been added successfully
+            </Text>
+          </View>
+        </Animated.View>
+      )}
 
       {/* Modals */}
       <AddScheduleModal

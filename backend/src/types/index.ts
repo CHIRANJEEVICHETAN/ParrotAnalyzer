@@ -1,24 +1,18 @@
 import { Request } from 'express';
+import { User } from './user';
 
 // Define all interfaces and types here
 export interface JwtPayload {
-  id: string;
+  id: number;
   role: string;
-  company_id?: string;
+  company_id?: number;
   token_version?: number;
   iat?: number;
   exp?: number;
 }
 
 export interface CustomRequest extends Request {
-  user?: {
-    id: string;
-    name?: string;
-    email?: string;
-    role: string;
-    company_id?: string;
-    token_version?: number;
-  };
+  user?: User;
 }
 
 export interface ExpenseData {

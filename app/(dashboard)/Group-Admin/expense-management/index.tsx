@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   StatusBar,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -18,6 +19,7 @@ import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
 import { format } from 'date-fns';
 import RejectModal from '../components/RejectModal';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 interface ExpenseDetail {
   id: number;
@@ -50,6 +52,9 @@ export default function ExpenseManagement() {
   const { token, user } = AuthContext.useAuth();
   const router = useRouter();
   const isDark = theme === 'dark';
+  const successScale = useRef(new Animated.Value(0)).current;
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const [expenses, setExpenses] = useState<ExpenseDetail[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,6 +70,8 @@ export default function ExpenseManagement() {
     pendingExpenses: 0,
     approvedExpenses: 0,
   });
+  const [approveLoading, setApproveLoading] = useState<number | null>(null);
+  const [rejectLoading, setRejectLoading] = useState<number | null>(null);
 
   const checkUserRole = async () => {
     try {
@@ -172,9 +179,29 @@ export default function ExpenseManagement() {
     }
   };
 
+  const showSuccessAnimation = (message: string) => {
+    setSuccessMessage(message);
+    setShowSuccess(true);
+    Animated.sequence([
+      Animated.spring(successScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 15,
+        stiffness: 200,
+      }),
+    ]).start();
+
+    // Auto hide after 2 seconds
+    setTimeout(() => {
+      setShowSuccess(false);
+      successScale.setValue(0);
+      router.back();
+    }, 2000);
+  };
+
   const handleApprove = async (id: number) => {
     try {
-      setActionLoading(id);
+      setApproveLoading(id);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
         { approved: true },
@@ -189,7 +216,7 @@ export default function ExpenseManagement() {
         )
       );
       
-      Alert.alert('Success', 'Expense approved successfully');
+      showSuccessAnimation('Expense approved successfully');
     } catch (error) {
       console.error('Error approving expense:', error);
       if (axios.isAxiosError(error)) {
@@ -201,13 +228,13 @@ export default function ExpenseManagement() {
         Alert.alert('Error', 'An unexpected error occurred. Please try again.');
       }
     } finally {
-      setActionLoading(null);
+      setApproveLoading(null);
     }
   };
 
   const handleReject = async (id: number, reason: string) => {
     try {
-      setActionLoading(id);
+      setRejectLoading(id);
       await axios.post(
         `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/group-admin/${id}/approve`,
         { 
@@ -225,7 +252,7 @@ export default function ExpenseManagement() {
         )
       );
       
-      Alert.alert('Success', 'Expense rejected successfully');
+      showSuccessAnimation('Expense rejected successfully');
     } catch (error) {
       console.error('Error rejecting expense:', error);
       Alert.alert(
@@ -235,7 +262,7 @@ export default function ExpenseManagement() {
           : 'Failed to reject expense'
       );
     } finally {
-      setActionLoading(null);
+      setRejectLoading(null);
     }
   };
 
@@ -545,12 +572,13 @@ export default function ExpenseManagement() {
                       e.stopPropagation();
                       handleApprove(expense.id);
                     }}
-                    disabled={actionLoading === expense.id}
-                    className={`bg-green-500 px-4 py-2 rounded-lg mr-3 ${actionLoading === expense.id ? 'opacity-50' : ''
+                    disabled={approveLoading === expense.id || rejectLoading === expense.id}
+                    className={`bg-green-500 px-4 py-2 rounded-lg mr-3 ${
+                      (approveLoading === expense.id || rejectLoading === expense.id) ? 'opacity-50' : ''
                     }`}
                     style={styles.actionButton}
                   >
-                    {actionLoading === expense.id ? (
+                    {approveLoading === expense.id ? (
                       <ActivityIndicator size="small" color="white" />
                     ) : (
                       <Text className="text-white font-medium text-center">Approve</Text>
@@ -562,12 +590,13 @@ export default function ExpenseManagement() {
                       setSelectedExpenseId(expense.id);
                       setRejectModalVisible(true);
                     }}
-                    disabled={actionLoading === expense.id}
-                    className={`bg-red-500 px-4 py-2 rounded-lg ${actionLoading === expense.id ? 'opacity-50' : ''
+                    disabled={approveLoading === expense.id || rejectLoading === expense.id}
+                    className={`bg-red-500 px-4 py-2 rounded-lg ${
+                      (approveLoading === expense.id || rejectLoading === expense.id) ? 'opacity-50' : ''
                     }`}
                     style={styles.actionButton}
                   >
-                    {actionLoading === expense.id ? (
+                    {rejectLoading === expense.id ? (
                       <ActivityIndicator size="small" color="white" />
                     ) : (
                       <Text className="text-white font-medium text-center">Reject</Text>
@@ -593,6 +622,61 @@ export default function ExpenseManagement() {
         }}
         isDark={isDark}
       />
+
+      {/* Success Modal */}
+      {showSuccess && (
+        <Animated.View 
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: isDark ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 50,
+            },
+            {
+              transform: [{ scale: successScale }],
+            }
+          ]}
+        >
+          <View style={{ alignItems: 'center', padding: 24 }}>
+            <View style={{ 
+              width: 80, 
+              height: 80, 
+              borderRadius: 40, 
+              backgroundColor: isDark ? 'rgba(74, 222, 128, 0.2)' : 'rgba(74, 222, 128, 0.1)',
+              justifyContent: 'center', 
+              alignItems: 'center',
+              marginBottom: 16
+            }}>
+              <MaterialCommunityIcons
+                name="check-circle"
+                size={40}
+                color={isDark ? "#4ADE80" : "#22C55E"}
+              />
+            </View>
+            <Text style={{ 
+              fontSize: 24, 
+              fontWeight: '600',
+              marginBottom: 8,
+              color: isDark ? '#FFFFFF' : '#111827'
+            }}>
+              Success!
+            </Text>
+            <Text style={{ 
+              fontSize: 16,
+              textAlign: 'center',
+              color: isDark ? '#9CA3AF' : '#4B5563'
+            }}>
+              {successMessage}
+            </Text>
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 }

@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { initDB, seedUsers, initExpensesTable } from "./src/config/database";
+import { initDB, initExpensesTable } from "./src/config/database";
 import authRoutes from "./src/routes/auth";
 import expenseRoutes from "./src/routes/expenses";
 import companyRoutes from "./src/routes/companies";
@@ -24,10 +24,25 @@ import groupAdminLeaveRouter from "./src/routes/group-admin-leave";
 import employeeNotifications from "./src/routes/employeeNotifications";
 import groupAdminNotifications from "./src/routes/groupAdminNotifications";
 import managementNotifications from "./src/routes/managementNotifications";
+import employeeLiveTracking from "./src/routes/employeeLiveTracking";
+import groupAdminLiveTracking from "./src/routes/groupAdminLiveTracking";
+import LocationSocketService from "./src/services/socketService";
+import { createServer } from "http";
+import { startScheduledJobs } from "./src/jobs/scheduledTasks";
 
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
+
+// Initialize Socket.IO service
+export const socketService = new LocationSocketService(httpServer);
+
+console.log("Socket service initialized");
+
+// Start scheduled jobs
+startScheduledJobs();
+
 app.use(cors());
 
 // Increase JSON payload limit to 10MB
@@ -63,6 +78,8 @@ app.use("/api/group-admin-leave", groupAdminLeaveRouter);
 app.use("/api/employee-notifications", employeeNotifications);
 app.use("/api/group-admin-notifications", groupAdminNotifications);
 app.use("/api/management-notifications", managementNotifications);
+app.use("/api/employee-tracking", employeeLiveTracking);
+app.use("/api/group-admin-tracking", groupAdminLiveTracking);
 
 // Test route at root level
 app.get("/api/test", (req, res) => {
@@ -106,7 +123,7 @@ const PORT = process.env.PORT || 8080;
 initDB()
   .then(() => initExpensesTable())
   .then(() => {
-    app.listen(PORT, () => {
+    httpServer.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log("Available routes:");
       console.log("- /auth/*");
@@ -129,6 +146,8 @@ initDB()
       console.log("- /api/employee-notifications/*");
       console.log("- /api/group-admin-notifications/*");
       console.log("- /api/management-notifications/*");
+      console.log("- /api/employee-tracking/*");
+      console.log("- /api/group-admin-tracking/*");
     });
   })
   .catch((error) => {

@@ -26,6 +26,28 @@ interface FilterState {
   leaveType: string;
 }
 
+interface EmployeeInfo {
+  id: number;
+  name: string;
+  employee_number?: string;
+  department?: string;
+}
+
+interface BackendLeaveBalance {
+  id: number;
+  name: string;
+  is_paid: boolean;
+  total_days: number;
+  used_days: number;
+  pending_days: number;
+  carry_forward_days?: number;
+  available_days?: number;
+  leave_type_id?: number;
+  max_days?: number;
+  requires_documentation?: boolean;
+  year?: number;
+}
+
 export default function LeaveBalances() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -44,16 +66,59 @@ export default function LeaveBalances() {
 
   const fetchBalances = async () => {
     try {
-      const response = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/employee-leave-balances`,
+      // Fetch list of employees under this group admin
+      const employeesResponse = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/employees`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-      setBalances(response.data);
-      setFilteredBalances(response.data);
+      
+      if (employeesResponse.data && employeesResponse.data.length > 0) {
+        // Create an array to store all balances
+        let allBalances: LeaveBalance[] = [];
+        
+        // Fetch leave balances for each employee
+        for (const employee of employeesResponse.data as EmployeeInfo[]) {
+          try {
+            const response = await axios.get(
+              `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/employee-leave-balances?userId=${employee.id}`,
+              {
+                headers: { Authorization: `Bearer ${token}` }
+              }
+            );
+            
+            // Add employee information to each balance record
+            const balancesWithUserInfo = response.data.map((balance: BackendLeaveBalance) => {
+              return {
+                ...balance,
+                user_id: employee.id,
+                user_name: employee.name,
+                employee_number: employee.employee_number || 'N/A',
+                department: employee.department || 'N/A',
+                leave_type_name: balance.name, // Map name to leave_type_name for backward compatibility
+                leave_type_id: balance.leave_type_id || balance.id,
+                remaining_days: balance.available_days || (balance.total_days - balance.used_days - balance.pending_days),
+                year: balance.year || selectedYear
+              } as LeaveBalance;
+            });
+            
+            allBalances = [...allBalances, ...balancesWithUserInfo];
+          } catch (error) {
+            console.error(`Error fetching balances for employee ${employee.id}:`, error);
+          }
+        }
+        
+        setBalances(allBalances);
+        setFilteredBalances(allBalances);
+      } else {
+        setBalances([]);
+        setFilteredBalances([]);
+      }
     } catch (error) {
       console.error('Error fetching leave balances:', error);
+      setBalances([]);
+      setFilteredBalances([]);
     } finally {
       setLoading(false);
     }
@@ -106,12 +171,21 @@ export default function LeaveBalances() {
         balances: []
       };
     }
+    
+    // Calculate remaining days
+    const remainingDays = balance.remaining_days !== undefined 
+      ? balance.remaining_days 
+      : balance.total_days - balance.used_days - balance.pending_days;
+    
     const existingBalanceIndex = acc[key].balances.findIndex(
       (b: LeaveBalance) => b.leave_type_id === balance.leave_type_id
     );
     
     if (existingBalanceIndex === -1) {
-      acc[key].balances.push(balance);
+      acc[key].balances.push({
+        ...balance,
+        remaining_days: remainingDays
+      });
     }
     return acc;
   }, {} as Record<string, any>);
@@ -188,7 +262,8 @@ export default function LeaveBalances() {
         {isSelected && (
           <View className="p-4">
             {employeeData.balances.map((balance: LeaveBalance, index: number) => {
-              const availableDays = balance.total_days - balance.used_days - balance.pending_days;
+              // Calculate available days accurately based on total, used, and pending
+              const availableDays = Math.max(0, balance.total_days - balance.used_days - balance.pending_days);
               const isLast = index === employeeData.balances.length - 1;
               return (
                 <View 
@@ -216,7 +291,9 @@ export default function LeaveBalances() {
                       <View
                         className="h-2 rounded-full bg-blue-500"
                         style={{
-                          width: `${((balance.used_days + balance.pending_days) / balance.total_days) * 100}%`,
+                          width: balance.total_days > 0 ? 
+                            `${Math.min(100, ((balance.used_days + balance.pending_days) / balance.total_days) * 100)}%` : 
+                            '0%',
                         }}
                       />
                     </View>

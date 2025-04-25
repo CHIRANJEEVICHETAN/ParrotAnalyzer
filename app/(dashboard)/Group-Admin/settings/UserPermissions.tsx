@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Platform, StatusBar, StyleSheet, TextInput, Alert, ActivityIndicator, Modal, Switch } from 'react-native';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Platform, StatusBar, StyleSheet, TextInput, Alert, ActivityIndicator, Modal, Switch, Animated, RefreshControl, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ThemeContext from '../../../context/ThemeContext';
+import { useAuth } from '../../../context/AuthContext';
+import axios from 'axios';
+import { useTrackingPermissionsStore } from '../../../store/trackingPermissionsStore';
+import { MotiView } from 'moti';
 
 // Define types
 interface User {
@@ -44,10 +48,24 @@ interface RoleChangeModal {
     selectedRole: string;
 }
 
+// Add new interface for tracking permissions
+interface TrackingPermission {
+    id: number;
+    user_id: number;
+    user_name: string;
+    can_override_geofence: boolean;
+    tracking_precision: 'low' | 'medium' | 'high';
+    updated_at: string;
+}
+
+// Update the type definition for field in updateTrackingPermission
+type TrackingField = 'can_override_geofence' | 'tracking_precision' | 'location_required_for_shift';
+
 export default function UserPermissions() {
     const router = useRouter();
     const { theme } = ThemeContext.useTheme();
-    const [activeTab, setActiveTab] = useState<'roles' | 'users' | 'logs'>('roles');
+    const { token } = useAuth();
+    const [activeTab, setActiveTab] = useState<'roles' | 'tracking'>('tracking');
     
     // Sample data - Replace with actual API calls
     const [users] = useState<User[]>([
@@ -91,7 +109,6 @@ export default function UserPermissions() {
     ]);
 
     // Add new states
-    const [searchQuery, setSearchQuery] = useState('');
     const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
     const [showRoleModal, setShowRoleModal] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -101,10 +118,25 @@ export default function UserPermissions() {
         selectedRole: ''
     });
 
-    // Add useLocalSearchParams to get the returned data
+    // Use the tracking permissions store
+    const {
+        mergedData,
+        isLoading: storeIsLoading,
+        isUpdating,
+        searchQuery,
+        error: storeError,
+        fetchEmployees,
+        fetchTrackingPermissions,
+        updateTrackingPermission: updateTrackingPermissionStore,
+        updateExpensePermission: updateExpensePermissionStore,
+        setSearchQuery,
+        refreshData
+    } = useTrackingPermissionsStore();
+    
+    // Add back useLocalSearchParams to get the returned data
     const params = useLocalSearchParams();
 
-    // Effect to handle returned data from edit-role
+    // Add back effect to handle returned data from edit-role
     useEffect(() => {
         if (params.updatedRoleId && params.enabledPermissions) {
             const enabledPermissions = JSON.parse(params.enabledPermissions as string);
@@ -122,25 +154,41 @@ export default function UserPermissions() {
         }
     }, [params.updatedRoleId, params.enabledPermissions]);
 
-    // Add refresh function
-    const refreshData = async () => {
-        try {
-            setIsLoading(true);
-            setError(null);
-            // Add your API calls here
-            // const response = await fetch(...);
-            // const data = await response.json();
-            // Update state with new data
-        } catch (err) {
-            setError('Failed to load data. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
+    // Use animation value for switch toggling
+    const fadeAnim = useRef(new Animated.Value(1)).current;
+    
+    // Update tracking permission with animation
+    const updateTrackingPermission = async (userId: number, field: TrackingField, value: boolean | string) => {
+        // Fade out
+        Animated.timing(fadeAnim, {
+            toValue: 0.4,
+            duration: 200,
+            useNativeDriver: true,
+        }).start();
+        
+        // Update the permission
+        await updateTrackingPermissionStore(token!, userId, field, value);
+        
+        // Fade back in
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+        }).start();
     };
-
+    
+    // Refresh function that uses the store
+    const handleRefresh = async () => {
+        await refreshData(token!);
+    };
+    
+    // Load data on mount and when activeTab changes
     useEffect(() => {
-        refreshData();
-    }, []);
+        if (activeTab === 'tracking') {
+            fetchEmployees(token!);
+            fetchTrackingPermissions(token!);
+        }
+    }, [activeTab]);
 
     const handleBulkDelete = () => {
         Alert.alert(
@@ -183,18 +231,10 @@ export default function UserPermissions() {
         }
     };
 
-    const handleUserSelect = (userId: string) => {
-        setSelectedUsers(prev => 
-            prev.includes(userId)
-                ? prev.filter(id => id !== userId)
-                : [...prev, userId]
-        );
-    };
-
     const renderHeader = () => (
         <LinearGradient
             colors={theme === 'dark' ? ['#1F2937', '#111827'] : ['#FFFFFF', '#F3F4F6']}
-            style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 0 }]}
+            style={[styles.header, { paddingTop: Platform.OS === 'ios' ? StatusBar.currentHeight || 44 : StatusBar.currentHeight || 10 }]}
         >
             <View className="px-6">
                 <View className="flex-row items-center">
@@ -218,7 +258,7 @@ export default function UserPermissions() {
 
             {/* Tab Navigation */}
             <View className="flex-row px-6 mt-4">
-                {(['roles', 'users', 'logs'] as const).map((tab) => (
+                {(['roles', 'tracking'] as const).map((tab) => (
                     <TouchableOpacity
                         key={tab}
                         onPress={() => setActiveTab(tab)}
@@ -235,7 +275,7 @@ export default function UserPermissions() {
                                     : theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
                             } font-medium`}
                         >
-                            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                            {tab === 'tracking' ? 'Tracking' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                         </Text>
                     </TouchableOpacity>
                 ))}
@@ -354,7 +394,7 @@ export default function UserPermissions() {
     );
 
     const renderBulkActions = () => (
-        activeTab === 'users' && selectedUsers.length > 0 && (
+        false && (
             <View 
                 className={`absolute bottom-0 left-0 right-0 p-4 ${
                     theme === 'dark' ? 'bg-gray-800' : 'bg-white'
@@ -376,85 +416,372 @@ export default function UserPermissions() {
         )
     );
 
-    const renderUsersTab = () => (
-        <View className="px-6 py-4 pb-20">
-            {renderSearchBar()}
-            {users
-                .filter(user => 
-                    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    user.email.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-                .map((user) => (
-                    <TouchableOpacity 
-                        key={user.id}
-                        onPress={() => handleUserSelect(user.id)}
-                        onLongPress={() => handleUserSelect(user.id)}
-                    >
-                        <View 
-                            className={`mb-4 p-4 rounded-xl ${
-                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                            } ${
-                                selectedUsers.includes(user.id) ? 'border-2 border-blue-500' : ''
-                            }`}
-                            style={styles.card}
-                        >
-                            <View className="flex-row justify-between items-center">
-                                <View>
-                                    <Text className={`text-lg font-semibold ${
-                                        theme === 'dark' ? 'text-white' : 'text-gray-900'
-                                    }`}>
-                                        {user.name}
-                                    </Text>
-                                    <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
-                                        {user.email}
-                                    </Text>
-                                </View>
-                                <View className={`px-3 py-1 rounded-lg ${
-                                    user.role === 'Group Admin' ? 'bg-blue-500' : 'bg-green-500'
-                                }`}>
-                                    <Text className="text-white">{user.role}</Text>
-                                </View>
-                            </View>
-                        </View>
-                    </TouchableOpacity>
-                ))
-            }
+    // Enhanced tracking tab render function with modern UI
+    const renderTrackingTab = () => (
+      <View className="px-4 py-2 pb-20">
+        {/* Enhanced search bar */}
+        <View
+          className={`flex-row items-center px-4 py-3 rounded-xl shadow-sm mb-4 ${
+            theme === "dark" ? "bg-gray-800" : "bg-white"
+          }`}
+          style={styles.searchBarEnhanced}
+        >
+          <Ionicons
+            name="search-outline"
+            size={20}
+            color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+          />
+          <TextInput
+            placeholder="Search by name or employee number..."
+            placeholderTextColor={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            className={`ml-2 flex-1 ${
+              theme === "dark" ? "text-white" : "text-gray-900"
+            }`}
+          />
+          {searchQuery && searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Ionicons
+                name="close-circle"
+                size={20}
+                color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+              />
+            </TouchableOpacity>
+          )}
         </View>
-    );
 
-    const renderLogsTab = () => (
-        <View className="px-6 py-4">
-            {activityLogs.map((log) => (
-                <View 
-                    key={log.id}
-                    className={`mb-4 p-4 rounded-xl ${
-                        theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`}
-                    style={styles.card}
-                >
-                    <View className="flex-row items-center mb-2">
-                        <Ionicons 
-                            name="time-outline" 
-                            size={20} 
-                            color={theme === 'dark' ? '#60A5FA' : '#2563EB'} 
-                        />
-                        <Text className={`ml-2 ${
-                            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                        }`}>
-                            {log.timestamp}
+        {storeIsLoading ? (
+          <View className="items-center justify-center py-8">
+            <ActivityIndicator
+              size="large"
+              color={theme === "dark" ? "#60A5FA" : "#3B82F6"}
+            />
+            <Text
+              className={`mt-2 ${
+                theme === "dark" ? "text-gray-300" : "text-gray-700"
+              }`}
+            >
+              Loading tracking permissions...
+            </Text>
+          </View>
+        ) : storeError ? (
+          <View className="items-center justify-center py-8">
+            <Ionicons
+              name="alert-circle-outline"
+              size={40}
+              color={theme === "dark" ? "#EF4444" : "#DC2626"}
+            />
+            <Text
+              className={`mt-2 text-center ${
+                theme === "dark" ? "text-gray-300" : "text-gray-700"
+              }`}
+            >
+              {storeError}
+            </Text>
+            <TouchableOpacity
+              className="mt-4 bg-blue-500 px-4 py-2 rounded-lg"
+              onPress={handleRefresh}
+            >
+              <Text className="text-white">Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : mergedData.length === 0 ? (
+          <View className="items-center justify-center py-8">
+            <Ionicons
+              name="location-outline"
+              size={40}
+              color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+            />
+            <Text
+              className={`mt-2 text-center ${
+                theme === "dark" ? "text-gray-300" : "text-gray-700"
+              }`}
+            >
+              No employee tracking permissions found
+            </Text>
+            <TouchableOpacity
+              className="mt-4 bg-blue-500 px-4 py-2 rounded-lg"
+              onPress={handleRefresh}
+            >
+              <Text className="text-white">Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={mergedData.filter(
+              (perm) =>
+                perm.user_name
+                  .toLowerCase()
+                  .includes((searchQuery || "").toLowerCase()) ||
+                (perm.employee_number &&
+                  perm.employee_number.includes(searchQuery || ""))
+            )}
+            keyExtractor={(item) => `permission-${item.id}-${item.user_id}`}
+            renderItem={({ item }) => (
+              <MotiView
+                from={{ opacity: 0, translateY: 20 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{ type: "timing", duration: 300 }}
+                className={`mb-4 rounded-xl overflow-hidden shadow-sm ${
+                  theme === "dark" ? "bg-gray-800" : "bg-white"
+                }`}
+                style={styles.cardEnhanced}
+              >
+                <Animated.View style={{ opacity: fadeAnim }}>
+                  <View className="p-4">
+                    <View className="flex-row items-center justify-between">
+                      <View>
+                        <Text
+                          className={`text-lg font-semibold ${
+                            theme === "dark" ? "text-white" : "text-gray-900"
+                          }`}
+                        >
+                          {item.user_name}
                         </Text>
+                        <View className="flex-row items-center mt-1">
+                          <MaterialCommunityIcons
+                            name="badge-account-horizontal-outline"
+                            size={16}
+                            color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+                          />
+                          <Text
+                            className={`ml-1 ${
+                              theme === "dark"
+                                ? "text-gray-400"
+                                : "text-gray-600"
+                            }`}
+                          >
+                            {item.employee_number || "No Employee Number"}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {item.department && (
+                        <View className="bg-blue-100 dark:bg-blue-900/30 px-3 py-1 rounded-full">
+                          <Text className="text-blue-800 dark:text-blue-300 text-xs font-medium">
+                            {item.department}
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                    <Text className={`text-lg font-semibold ${
-                        theme === 'dark' ? 'text-white' : 'text-gray-900'
-                    }`}>
-                        {log.action}
+
+                    {item.designation && (
+                      <View className="mt-1">
+                        <Text
+                          className={`text-sm ${
+                            theme === "dark" ? "text-gray-400" : "text-gray-600"
+                          }`}
+                        >
+                          {item.designation}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <View className="flex-row items-center justify-between py-2">
+                        <View className="flex-row items-center flex-1">
+                          <Ionicons
+                            name="map-outline"
+                            size={20}
+                            color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+                          />
+                          <Text
+                            className={`ml-2 flex-1 ${
+                              theme === "dark"
+                                ? "text-gray-300"
+                                : "text-gray-700"
+                            }`}
+                          >
+                            Can Override Geofence
+                          </Text>
+                        </View>
+                        <Switch
+                          value={item.can_override_geofence}
+                          onValueChange={(value) =>
+                            updateTrackingPermission(
+                              item.user_id,
+                              "can_override_geofence",
+                              value
+                            )
+                          }
+                          disabled={isUpdating}
+                          trackColor={{
+                            false: theme === "dark" ? "#4B5563" : "#D1D5DB",
+                            true: "#3B82F6",
+                          }}
+                          thumbColor={theme === "dark" ? "#E5E7EB" : "#FFFFFF"}
+                          ios_backgroundColor={
+                            theme === "dark" ? "#4B5563" : "#D1D5DB"
+                          }
+                        />
+                      </View>
+
+                      {/* Add new Location Required toggle */}
+                      <View className="flex-row items-center justify-between py-2">
+                        <View className="flex-row items-center flex-1">
+                          <Ionicons
+                            name="location-outline"
+                            size={20}
+                            color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+                          />
+                          <Text
+                            className={`ml-2 flex-1 ${
+                              theme === "dark"
+                                ? "text-gray-300"
+                                : "text-gray-700"
+                            }`}
+                          >
+                            Location Required for Shift
+                          </Text>
+                        </View>
+                        <Switch
+                          value={item.location_required_for_shift}
+                          onValueChange={(value) =>
+                            updateTrackingPermission(
+                              item.user_id,
+                              "location_required_for_shift",
+                              value
+                            )
+                          }
+                          disabled={isUpdating}
+                          trackColor={{
+                            false: theme === "dark" ? "#4B5563" : "#D1D5DB",
+                            true: "#3B82F6",
+                          }}
+                          thumbColor={theme === "dark" ? "#E5E7EB" : "#FFFFFF"}
+                          ios_backgroundColor={
+                            theme === "dark" ? "#4B5563" : "#D1D5DB"
+                          }
+                        />
+                      </View>
+
+                      {/* Add new Expense Submission toggle */}
+                      <View className="flex-row items-center justify-between py-2">
+                        <View className="flex-row items-center flex-1">
+                          <Ionicons
+                            name="cash-outline"
+                            size={20}
+                            color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+                          />
+                          <Text
+                            className={`ml-2 flex-1 ${
+                              theme === "dark"
+                                ? "text-gray-300"
+                                : "text-gray-700"
+                            }`}
+                          >
+                            Can Submit Expenses Anytime
+                          </Text>
+                        </View>
+                        <Switch
+                          value={item.can_submit_expenses_anytime}
+                          onValueChange={(value) => updateExpensePermissionStore(token!, item.user_id, value)}
+                          disabled={isUpdating}
+                          trackColor={{ 
+                            false: theme === 'dark' ? '#4B5563' : '#D1D5DB',
+                            true: '#3B82F6'
+                          }}
+                          thumbColor={theme === 'dark' ? '#E5E7EB' : '#FFFFFF'}
+                          ios_backgroundColor={theme === 'dark' ? '#4B5563' : '#D1D5DB'}
+                        />
+                      </View>
+
+                      <View className="pt-2">
+                        <View className="flex-row items-center mb-2">
+                          <Ionicons
+                            name="speedometer-outline"
+                            size={20}
+                            color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+                          />
+                          <Text
+                            className={`ml-2 ${
+                              theme === "dark"
+                                ? "text-gray-300"
+                                : "text-gray-700"
+                            }`}
+                          >
+                            Tracking Precision
+                          </Text>
+                        </View>
+                        <View className="flex-row">
+                          {(["low", "medium", "high"] as const).map(
+                            (precision) => (
+                              <TouchableOpacity
+                                key={precision}
+                                style={[
+                                  styles.precisionButton,
+                                  {
+                                    flex: 1,
+                                    marginHorizontal: 4,
+                                    paddingVertical: 10,
+                                    borderRadius: 10,
+                                    alignItems: "center",
+                                    backgroundColor:
+                                      item.tracking_precision === precision
+                                        ? theme === "dark"
+                                          ? "#3B82F6"
+                                          : "#2563EB"
+                                        : theme === "dark"
+                                        ? "#374151"
+                                        : "#F3F4F6",
+                                  },
+                                ]}
+                                onPress={() =>
+                                  updateTrackingPermission(
+                                    item.user_id,
+                                    "tracking_precision",
+                                    precision
+                                  )
+                                }
+                                disabled={isUpdating}
+                              >
+                                <Text
+                                  style={{
+                                    color:
+                                      item.tracking_precision === precision
+                                        ? "#FFFFFF"
+                                        : theme === "dark"
+                                        ? "#E5E7EB"
+                                        : "#374151",
+                                    fontWeight: "600",
+                                    fontSize: 13,
+                                  }}
+                                >
+                                  {precision.charAt(0).toUpperCase() +
+                                    precision.slice(1)}
+                                </Text>
+                              </TouchableOpacity>
+                            )
+                          )}
+                        </View>
+                      </View>
+                    </View>
+
+                    <Text
+                      className={`mt-3 text-xs ${
+                        theme === "dark" ? "text-gray-400" : "text-gray-500"
+                      }`}
+                    >
+                      Last updated: {new Date(item.updated_at).toLocaleString()}
                     </Text>
-                    <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
-                        {log.user} - {log.details}
-                    </Text>
-                </View>
-            ))}
-        </View>
+                  </View>
+                </Animated.View>
+              </MotiView>
+            )}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={storeIsLoading}
+                onRefresh={handleRefresh}
+                colors={[theme === "dark" ? "#60A5FA" : "#3B82F6"]}
+                tintColor={theme === "dark" ? "#60A5FA" : "#3B82F6"}
+              />
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+      </View>
     );
 
     // Add role change modal
@@ -517,11 +844,11 @@ export default function UserPermissions() {
             <View style={styles.container}>
                 {renderHeader()}
                 
-                {isLoading ? (
+                {isLoading && activeTab !== 'tracking' ? (
                     <View className="flex-1 justify-center items-center">
                         <ActivityIndicator size="large" color="#3B82F6" />
                     </View>
-                ) : error ? (
+                ) : error && activeTab !== 'tracking' ? (
                     <View className="flex-1 justify-center items-center p-6">
                         <Text className={`text-center mb-4 ${
                             theme === 'dark' ? 'text-white' : 'text-gray-900'
@@ -530,20 +857,24 @@ export default function UserPermissions() {
                         </Text>
                         <TouchableOpacity
                             className="bg-blue-500 px-4 py-2 rounded-lg"
-                            onPress={refreshData}
+                            onPress={handleRefresh}
                         >
                             <Text className="text-white">Try Again</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
+                    activeTab === 'tracking' ? (
+                        // Directly render the tracking tab without ScrollView wrapper
+                        renderTrackingTab()
+                    ) : (
+                        // Only use ScrollView for the roles tab
                     <ScrollView 
                         className={`flex-1 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}
                         showsVerticalScrollIndicator={false}
                     >
-                        {activeTab === 'roles' && renderRolesTab()}
-                        {activeTab === 'users' && renderUsersTab()}
-                        {activeTab === 'logs' && renderLogsTab()}
+                            {renderRolesTab()}
                     </ScrollView>
+                    )
                 )}
                 
                 {renderBulkActions()}
@@ -592,5 +923,21 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 3,
         elevation: 3,
-    }
+    },
+    cardEnhanced: {
+        elevation: 3,
+        borderRadius: 16,
+        overflow: 'hidden',
+    },
+    searchBarEnhanced: {
+        elevation: 2,
+        borderRadius: 12,
+    },
+    precisionButton: {
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 1,
+    },
 });

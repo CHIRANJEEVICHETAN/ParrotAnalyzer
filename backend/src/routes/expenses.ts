@@ -389,38 +389,77 @@ router.get('/group-admin/reports/expenses/by-employee', verifyToken, async (req:
 });
 
 // Update the expense submission route
-router.post('/submit', verifyToken, upload.array('documents'), async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    console.log('Starting expense submission process...');
-    console.log('Request body:', req.body);
+router.post(
+  "/submit",
+  verifyToken,
+  upload.array("documents"),
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      console.log("Starting expense submission process...");
+      console.log("Request body:", req.body);
 
-    // Validate required employee details
-    const requiredFields = ['employeeName', 'employeeNumber', 'department', 'designation'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
-    
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: 'Missing required fields',
-        details: `Missing fields: ${missingFields.join(', ')}`
-      });
-    }
+      // Validate required employee details
+      const requiredFields = [
+        "employeeName",
+        "employeeNumber",
+        "department",
+        "designation",
+      ];
+      const missingFields = requiredFields.filter((field) => !req.body[field]);
 
-    if (req.user?.role !== 'employee') {
-      return res.status(403).json({ error: 'Only employees can submit expenses' });
-    }
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          error: "Missing required fields",
+          details: `Missing fields: ${missingFields.join(", ")}`,
+        });
+      }
 
-    await client.query('BEGIN');
+      if (req.user?.role !== "employee") {
+        return res
+          .status(403)
+          .json({ error: "Only employees can submit expenses" });
+      }
 
-    // Get user's company_id
-    const userResult = await client.query(
-      'SELECT company_id FROM users WHERE id = $1',
-      [req.user.id]
-    );
-    const company_id = userResult.rows[0]?.company_id;
+      await client.query("BEGIN");
 
-    // First, ensure user details are up to date
-    await client.query(`
+      // Get user's company_id, active shift, and permissions
+      const userResult = await client.query(
+        "SELECT company_id, can_submit_expenses_anytime FROM users WHERE id = $1",
+        [req.user.id]
+      );
+      const company_id = userResult.rows[0]?.company_id;
+      const canSubmitAnytime =
+        userResult.rows[0]?.can_submit_expenses_anytime || false;
+
+      // Always check for active shift, even if user can submit anytime
+      // This way we can update the shift with kilometers and expenses if it exists
+      let activeShift = null;
+      const activeShiftResult = await client.query(
+        `SELECT id, total_expenses, total_kilometers
+         FROM employee_shifts 
+         WHERE user_id = $1 
+         AND status = 'active' 
+         ORDER BY start_time DESC 
+         LIMIT 1`,
+        [req.user.id]
+      );
+      
+      if (activeShiftResult.rows.length > 0) {
+        activeShift = activeShiftResult.rows[0];
+        console.log("Found active shift:", activeShift);
+      } else if (!canSubmitAnytime) {
+        // Only prevent submission if user cannot submit anytime
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "No active shift found",
+          details: "You must have an active shift to submit expenses",
+        });
+      }
+
+      // First, ensure user details are up to date
+      await client.query(
+        `
       UPDATE users 
       SET 
         name = $1,
@@ -428,154 +467,211 @@ router.post('/submit', verifyToken, upload.array('documents'), async (req: Custo
         department = $3,
         designation = $4
       WHERE id = $5`,
-      [
-        req.body.employeeName,
-        req.body.employeeNumber,
-        req.body.department,
-        req.body.designation,
-        req.user.id
-      ]
-    );
+        [
+          req.body.employeeName,
+          req.body.employeeNumber,
+          req.body.department,
+          req.body.designation,
+          req.user.id,
+        ]
+      );
 
-    // Get saved travel and expense details from request
-    const savedTravelDetails = JSON.parse(req.body.savedTravelDetails || '[]');
-    const savedExpenseDetails = JSON.parse(req.body.savedExpenseDetails || '[]');
+      // Get saved travel and expense details from request
+      const savedTravelDetails = JSON.parse(
+        req.body.savedTravelDetails || "[]"
+      );
+      const savedExpenseDetails = JSON.parse(
+        req.body.savedExpenseDetails || "[]"
+      );
 
-    // Combine current form data with saved details
-    const allTravelDetails = [
-      ...savedTravelDetails,
-      {
-        vehicleType: req.body.vehicleType,
-        vehicleNumber: req.body.vehicleNumber,
-        totalKilometers: req.body.totalKilometers,
-        startDateTime: req.body.startDateTime,
-        endDateTime: req.body.endDateTime,
-        routeTaken: req.body.routeTaken
-      }
-    ].filter(detail => detail.vehicleType && detail.totalKilometers); // Filter out empty entries
+      // Combine current form data with saved details
+      const allTravelDetails = [
+        ...savedTravelDetails,
+        {
+          vehicleType: req.body.vehicleType,
+          vehicleNumber: req.body.vehicleNumber,
+          totalKilometers: req.body.totalKilometers,
+          startDateTime: req.body.startDateTime,
+          endDateTime: req.body.endDateTime,
+          routeTaken: req.body.routeTaken,
+        },
+      ].filter((detail) => detail.vehicleType && detail.totalKilometers);
 
-    const allExpenseDetails = [
-      ...savedExpenseDetails,
-      {
-        lodgingExpenses: req.body.lodgingExpenses,
-        dailyAllowance: req.body.dailyAllowance,
-        diesel: req.body.diesel,
-        tollCharges: req.body.tollCharges,
-        otherExpenses: req.body.otherExpenses
-      }
-    ].filter(detail => 
-      detail.lodgingExpenses || 
-      detail.dailyAllowance || 
-      detail.diesel || 
-      detail.tollCharges || 
-      detail.otherExpenses
-    );
+      const allExpenseDetails = [
+        ...savedExpenseDetails,
+        {
+          lodgingExpenses: req.body.lodgingExpenses,
+          dailyAllowance: req.body.dailyAllowance,
+          diesel: req.body.diesel,
+          tollCharges: req.body.tollCharges,
+          otherExpenses: req.body.otherExpenses,
+        },
+      ].filter(
+        (detail) =>
+          detail.lodgingExpenses ||
+          detail.dailyAllowance ||
+          detail.diesel ||
+          detail.tollCharges ||
+          detail.otherExpenses
+      );
 
-    // Insert an expense record for each travel detail
-    for (const travelDetail of allTravelDetails) {
-      // Calculate total amount for this travel detail
-      const expenseDetail = allExpenseDetails[allTravelDetails.indexOf(travelDetail)] || {
-        lodgingExpenses: 0,
-        dailyAllowance: 0,
-        diesel: 0,
-        tollCharges: 0,
-        otherExpenses: 0
-      };
+      let totalExpensesForShift = 0;
+      let totalKilometersForShift = 0;
 
-      const totalAmount = 
-        Number(expenseDetail.lodgingExpenses || 0) +
-        Number(expenseDetail.dailyAllowance || 0) +
-        Number(expenseDetail.diesel || 0) +
-        Number(expenseDetail.tollCharges || 0) +
-        Number(expenseDetail.otherExpenses || 0);
+      // Insert an expense record for each travel detail
+      for (const travelDetail of allTravelDetails) {
+        const expenseDetail = allExpenseDetails[
+          allTravelDetails.indexOf(travelDetail)
+        ] || {
+          lodgingExpenses: 0,
+          dailyAllowance: 0,
+          diesel: 0,
+          tollCharges: 0,
+          otherExpenses: 0,
+        };
 
-      const amountPayable = totalAmount - Number(req.body.advanceTaken || 0);
+        const totalAmount =
+          Number(expenseDetail.lodgingExpenses || 0) +
+          Number(expenseDetail.dailyAllowance || 0) +
+          Number(expenseDetail.diesel || 0) +
+          Number(expenseDetail.tollCharges || 0) +
+          Number(expenseDetail.otherExpenses || 0);
 
-      const expenseResult = await client.query(`
+        totalExpensesForShift += totalAmount;
+        totalKilometersForShift += parseNumericField(travelDetail.totalKilometers);
+
+        const amountPayable = totalAmount - Number(req.body.advanceTaken || 0);
+
+        const expenseResult = await client.query(
+          `
         INSERT INTO expenses (
           user_id, company_id, employee_name, employee_number, department, designation,
           location, date, vehicle_type, vehicle_number, total_kilometers,
           start_time, end_time, route_taken, lodging_expenses, daily_allowance,
           diesel, toll_charges, other_expenses, advance_taken, total_amount,
-          amount_payable, status, created_at, updated_at
+          amount_payable, status, created_at, updated_at, shift_id
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
-          $16, $17, $18, $19, $20, $21, $22, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          $16, $17, $18, $19, $20, $21, $22, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $23
         ) RETURNING id`,
-        [
-          req.user.id,
-          company_id,
-          req.body.employeeName,
-          req.body.employeeNumber,
-          req.body.department,
-          req.body.designation,
-          req.body.location,
-          new Date(req.body.date),
-          travelDetail.vehicleType,
-          travelDetail.vehicleNumber,
-          travelDetail.totalKilometers,
-          new Date(travelDetail.startDateTime),
-          new Date(travelDetail.endDateTime),
-          travelDetail.routeTaken,
-          expenseDetail.lodgingExpenses || 0,
-          expenseDetail.dailyAllowance || 0,
-          expenseDetail.diesel || 0,
-          expenseDetail.tollCharges || 0,
-          expenseDetail.otherExpenses || 0,
-          req.body.advanceTaken || 0,
-          totalAmount,
-          amountPayable
-        ]
-      );
+          [
+            req.user.id,
+            company_id,
+            req.body.employeeName,
+            req.body.employeeNumber,
+            req.body.department,
+            req.body.designation,
+            req.body.location,
+            new Date(req.body.date),
+            travelDetail.vehicleType,
+            travelDetail.vehicleNumber,
+            travelDetail.totalKilometers,
+            new Date(travelDetail.startDateTime),
+            new Date(travelDetail.endDateTime),
+            travelDetail.routeTaken,
+            expenseDetail.lodgingExpenses || 0,
+            expenseDetail.dailyAllowance || 0,
+            expenseDetail.diesel || 0,
+            expenseDetail.tollCharges || 0,
+            expenseDetail.otherExpenses || 0,
+            req.body.advanceTaken || 0,
+            totalAmount,
+            amountPayable,
+            activeShift?.id || null, // Use null if no active shift (when canSubmitAnytime is true)
+          ]
+        );
 
-      const expenseId = expenseResult.rows[0].id;
+        const expenseId = expenseResult.rows[0].id;
 
-      // Handle document uploads if any
-      if (req.files && Array.isArray(req.files)) {
-        for (const file of req.files) {
-          await client.query(`
+        // Handle document uploads if any
+        if (req.files && Array.isArray(req.files)) {
+          for (const file of req.files) {
+            await client.query(
+              `
             INSERT INTO expense_documents (
               expense_id, file_name, file_type, file_size, file_data
             ) VALUES ($1, $2, $3, $4, $5)`,
-            [
-              expenseId,
-              file.originalname,
-              file.mimetype,
-              file.size,
-              file.buffer
-            ]
-          );
+              [
+                expenseId,
+                file.originalname,
+                file.mimetype,
+                file.size,
+                file.buffer,
+              ]
+            );
+          }
         }
       }
-    }
 
-    await client.query('COMMIT');
-    console.log('Expense submission completed successfully');
-    res.json({ message: 'Expense submitted successfully' });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error in expense submission:', error);
-    res.status(500).json({
-      error: 'Failed to submit expense',
-      details: error instanceof Error ? error.message : 'Unknown error occurred'
-    });
-  } finally {
-    client.release();
+      // Update total_expenses and total_kilometers in employee_shifts table if there's an active shift
+      // This now happens regardless of the canSubmitAnytime permission
+      if (activeShift) {
+        console.log("Updating active shift with new totals:", {
+          shiftId: activeShift.id,
+          currentExpenses: activeShift.total_expenses,
+          newExpenses: totalExpensesForShift,
+          currentKilometers: activeShift.total_kilometers,
+          newKilometers: totalKilometersForShift
+        });
+        
+        const currentTotalExpenses =
+          parseFloat(activeShift.total_expenses) || 0;
+        const newTotalExpenses = currentTotalExpenses + totalExpensesForShift;
+        
+        const currentTotalKilometers =
+          parseFloat(activeShift.total_kilometers) || 0;
+        const newTotalKilometers = currentTotalKilometers + totalKilometersForShift;
+        
+        await client.query(
+          `UPDATE employee_shifts 
+         SET total_expenses = $1,
+             total_kilometers = $2,
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $3`,
+          [newTotalExpenses, newTotalKilometers, activeShift.id]
+        );
+      }
+
+      await client.query("COMMIT");
+      console.log("Expense submission completed successfully");
+      res.json({
+        message: "Expense submitted successfully",
+        shiftId: activeShift?.id || null,
+        totalExpenses: activeShift
+          ? parseFloat(activeShift.total_expenses) + totalExpensesForShift
+          : totalExpensesForShift,
+        totalKilometers: activeShift
+          ? parseFloat(activeShift.total_kilometers) + totalKilometersForShift
+          : totalKilometersForShift,
+        submittedWithoutShift: canSubmitAnytime && !activeShift,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Error in expense submission:", error);
+      res.status(500).json({
+        error: "Failed to submit expense",
+        details:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+    } finally {
+      client.release();
+    }
   }
-});
+);
 
 // Finally add the generic routes
-router.get('/:id', verifyToken, async (req: CustomRequest, res: Response) => {
+router.get("/:id", verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    console.log('Fetching expense details for ID:', req.params.id);
+    console.log("Fetching expense details for ID:", req.params.id);
 
     if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
+      return res.status(401).json({ error: "Authentication required" });
     }
 
     // Query to get expense details with employee information
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT 
         e.*,
         u.name as employee_name,
@@ -603,44 +699,46 @@ router.get('/:id', verifyToken, async (req: CustomRequest, res: Response) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        error: 'Expense not found',
-        details: 'The expense does not exist or you do not have permission to view it'
+      return res.status(404).json({
+        error: "Expense not found",
+        details:
+          "The expense does not exist or you do not have permission to view it",
       });
     }
 
     // Convert numeric fields to ensure they're numbers
     const expense = result.rows[0];
     const numericFields = [
-      'total_amount',
-      'amount_payable',
-      'lodging_expenses',
-      'daily_allowance',
-      'diesel',
-      'toll_charges',
-      'other_expenses',
-      'advance_taken',
-      'total_kilometers'
+      "total_amount",
+      "amount_payable",
+      "lodging_expenses",
+      "daily_allowance",
+      "diesel",
+      "toll_charges",
+      "other_expenses",
+      "advance_taken",
+      "total_kilometers",
     ];
 
-    numericFields.forEach(field => {
+    numericFields.forEach((field) => {
       if (expense[field]) {
         expense[field] = parseFloat(expense[field]);
       }
     });
 
-    console.log('Expense details found:', {
+    console.log("Expense details found:", {
       id: expense.id,
       employee: expense.employee_name,
-      status: expense.status
+      status: expense.status,
     });
 
     res.json(expense);
   } catch (error) {
-    console.error('Error fetching expense details:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch expense details',
-      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    console.error("Error fetching expense details:", error);
+    res.status(500).json({
+      error: "Failed to fetch expense details",
+      details:
+        error instanceof Error ? error.message : "Unknown error occurred",
     });
   } finally {
     client.release();
@@ -648,15 +746,19 @@ router.get('/:id', verifyToken, async (req: CustomRequest, res: Response) => {
 });
 
 // Add this route to fetch documents for an expense
-router.get('/:id/documents', verifyToken, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
+router.get(
+  "/:id/documents",
+  verifyToken,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
 
-    // First check if user has access to this expense
-    const accessCheck = await client.query(`
+      // First check if user has access to this expense
+      const accessCheck = await client.query(
+        `
       SELECT 1
        FROM expenses e
        JOIN users u ON e.user_id = u.id
@@ -672,18 +774,19 @@ router.get('/:id/documents', verifyToken, async (req: CustomRequest, res: Respon
           AND e.user_id = $3
         )
       )`,
-      [req.params.id, req.user.role, req.user.id]
-    );
+        [req.params.id, req.user.role, req.user.id]
+      );
 
-    if (accessCheck.rows.length === 0) {
-      return res.status(403).json({ 
-        error: 'Access denied',
-        details: 'You do not have permission to view these documents'
-      });
-    }
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({
+          error: "Access denied",
+          details: "You do not have permission to view these documents",
+        });
+      }
 
-    // Fetch documents
-    const result = await client.query(`
+      // Fetch documents
+      const result = await client.query(
+        `
       SELECT 
         id,
         file_name,
@@ -694,25 +797,27 @@ router.get('/:id/documents', verifyToken, async (req: CustomRequest, res: Respon
       FROM expense_documents
       WHERE expense_id = $1
       ORDER BY created_at DESC`,
-      [req.params.id]
-    );
+        [req.params.id]
+      );
 
-    // Convert binary data to base64
-    const documents = result.rows.map(doc => ({
-      ...doc,
-      file_data: doc.file_data.toString('base64')
-    }));
+      // Convert binary data to base64
+      const documents = result.rows.map((doc) => ({
+        ...doc,
+        file_data: doc.file_data.toString("base64"),
+      }));
 
-    res.json(documents);
-  } catch (error) {
-    console.error('Error fetching expense documents:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch documents',
-      details: error instanceof Error ? error.message : 'Unknown error occurred'
-    });
-  } finally {
-    client.release();
+      res.json(documents);
+    } catch (error) {
+      console.error("Error fetching expense documents:", error);
+      res.status(500).json({
+        error: "Failed to fetch documents",
+        details:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+    } finally {
+      client.release();
+    }
   }
-});
+);
 
 export default router;

@@ -144,7 +144,7 @@ export default function LeaveRequests() {
         }
 
         result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           quality: 0.7,
           base64: true,
         });
@@ -369,24 +369,130 @@ export default function LeaveRequests() {
     } catch (error: any) {
       console.error('Error submitting leave request:', error);
       
-      // Handle specific error messages
-      const errorMessage = error.response?.data?.error || error.message;
+      const errorResponse = error.response?.data;
+      const errorMessage = errorResponse?.error;
+      const errorDetails = errorResponse?.details;
+      
       let userFriendlyMessage = 'Failed to submit request. Please try again.';
       let errorType: 'error' | 'warning' = 'error';
       let errorTitle = 'Request Failed';
 
-      if (errorMessage.includes('Insufficient leave balance')) {
-        errorTitle = 'Insufficient Leave Balance';
-        userFriendlyMessage = `You don't have enough leave balance for this request. Please check your available balance before requesting leaves.`;
-        errorType = 'warning';
-      } else if (errorMessage.includes('Cannot request more than')) {
-        errorTitle = 'Maximum Days Exceeded';
-        userFriendlyMessage = 'You cannot request more than the maximum consecutive days allowed for this leave type.';
-        errorType = 'warning';
-      } else if (errorMessage.includes('overlapping')) {
-        errorTitle = 'Overlapping Request';
-        userFriendlyMessage = 'This leave request overlaps with an existing request.';
-        errorType = 'warning';
+      // Handle specific backend error cases
+      if (errorMessage) {
+        switch (true) {
+          // Notice Period Validation
+          case errorMessage.includes('Notice period requirement not met'): {
+            errorTitle = 'Notice Period Required';
+            userFriendlyMessage = `${errorDetails?.message}\n\n` +
+              `• Required Notice: ${errorDetails?.required_days} days\n` +
+              `• Earliest Possible Date: ${format(new Date(errorDetails?.earliest_possible_date), 'MMM dd, yyyy')}\n\n` +
+              'Please adjust your start date to comply with the notice period requirement.';
+            errorType = 'warning';
+            break;
+          }
+
+          // Maximum Consecutive Days
+          case errorMessage.includes('Maximum consecutive days exceeded'): {
+            errorTitle = 'Maximum Days Exceeded';
+            userFriendlyMessage = `${errorDetails?.message}\n\n` +
+              `• Maximum Allowed: ${errorDetails?.max_days} days\n` +
+              `• Requested: ${errorDetails?.requested_days} days\n\n` +
+              'Please adjust your dates to comply with this limit.';
+            errorType = 'warning';
+            break;
+          }
+
+          // Leave Balance
+          case errorMessage.includes('Insufficient leave balance'): {
+            errorTitle = 'Insufficient Leave Balance';
+            userFriendlyMessage = 'You do not have enough leave balance for this request.\n\n' +
+              'Please check your available balance before requesting leaves.';
+            errorType = 'warning';
+            break;
+          }
+
+          // Overlapping Requests
+          case errorMessage.includes('overlapping leave requests'): {
+            errorTitle = 'Overlapping Request';
+            userFriendlyMessage = 'You have an existing leave request that overlaps with these dates.\n\n' +
+              'Please choose different dates or cancel the existing request.';
+            errorType = 'warning';
+            break;
+          }
+
+          // Leave Balance Initialization
+          case errorMessage.includes('No leave balance found'): {
+            errorTitle = 'Leave Balance Required';
+            userFriendlyMessage = 'You need to initialize your leave balances before submitting a request.\n\n' +
+              'Please go to the Leave Balance tab and initialize your balances.';
+            errorType = 'warning';
+            setShowRequestModal(false);
+            resetForm();
+            break;
+          }
+
+          // Company Configuration
+          case errorMessage.includes('No active leave types found for your company'): {
+            errorTitle = 'Leave Types Not Configured';
+            userFriendlyMessage = 'No active leave types have been configured for your company.\n\n' +
+              'Please contact your management team to set up leave types.';
+            errorType = 'warning';
+            setShowRequestModal(false);
+            resetForm();
+            break;
+          }
+
+          // Leave Type Availability
+          case errorMessage.includes('leave type is not available'): {
+            errorTitle = 'Leave Type Unavailable';
+            userFriendlyMessage = 'The selected leave type is not available for your company.\n\n' +
+              'Please contact your management team.';
+            errorType = 'warning';
+            setShowRequestModal(false);
+            resetForm();
+            break;
+          }
+
+          // Gender-Specific Leave
+          case errorMessage.includes('User gender information is required'): {
+            errorTitle = 'Missing Information';
+            userFriendlyMessage = 'This leave type requires gender information.\n\n' +
+              'Please update your profile with gender information.';
+            errorType = 'warning';
+            break;
+          }
+
+          case errorMessage.includes('only available for'): {
+            errorTitle = 'Not Eligible';
+            userFriendlyMessage = errorDetails || 'You are not eligible for this type of leave.';
+            errorType = 'warning';
+            break;
+          }
+
+          // Documentation Required
+          case errorMessage.includes('Documentation is required'): {
+            errorTitle = 'Documentation Required';
+            userFriendlyMessage = 'Please attach the required documentation for this leave type.';
+            errorType = 'warning';
+            break;
+          }
+
+          // Balance Initialization Failed
+          case errorMessage.includes('Failed to initialize leave balance'): {
+            errorTitle = 'System Error';
+            userFriendlyMessage = 'There was an issue initializing your leave balances.\n\n' +
+              'Please contact support for assistance.';
+            errorType = 'error';
+            break;
+          }
+
+          // Default Error
+          default: {
+            errorTitle = 'Request Failed';
+            userFriendlyMessage = errorMessage || 'An unexpected error occurred. Please try again.';
+            errorType = 'error';
+          }
+        }
       }
 
       showError(errorTitle, userFriendlyMessage, errorType);

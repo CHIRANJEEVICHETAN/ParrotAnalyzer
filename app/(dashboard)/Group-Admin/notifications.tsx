@@ -558,14 +558,9 @@ export default function GroupAdminNotifications() {
   const { theme } = ThemeContext.useTheme();
   const { user, token } = useAuth();
   const isDark = theme === "dark";
-  const [selectedType, setSelectedType] = useState<NotificationType>("all");
-  const [showSendModal, setShowSendModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
   const successScale = useRef(new Animated.Value(0)).current;
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const { width: SCREEN_WIDTH } = Dimensions.get("window");
   const [notificationData, setNotificationData] = useState<NotificationData>({
     title: "",
     message: "",
@@ -576,6 +571,7 @@ export default function GroupAdminNotifications() {
   const { unreadCount, notifications, setNotifications } = useNotifications();
   const listRef = useRef<any>(null);
   const router = useRouter();
+  const [showSendModal, setShowSendModal] = useState(false);
 
   // Add isMounted ref for cleanup
   const isMounted = useRef(true);
@@ -583,6 +579,156 @@ export default function GroupAdminNotifications() {
   // Add pagination state management
   const [isEndReached, setIsEndReached] = useState(false);
   const loadingRef = useRef(false);
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  const showSuccessAnimation = useCallback(() => {
+    setShowSuccess(true);
+    Animated.sequence([
+      Animated.spring(successScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 15,
+        stiffness: 200,
+      }),
+    ]).start();
+  }, [successScale]);
+
+  // Success Modal Component
+  const SuccessModal = useCallback(() => (
+    <Animated.View 
+      className={`absolute inset-0 items-center justify-center ${isDark ? 'bg-gray-900/95' : 'bg-white/95'}`}
+      style={{
+        transform: [{ scale: successScale }],
+      }}
+    >
+      <View className="items-center px-6">
+        <View className={`w-20 h-20 rounded-full items-center justify-center mb-4 ${isDark ? 'bg-green-500/20' : 'bg-green-100'}`}>
+          <MaterialCommunityIcons
+            name="check-circle"
+            size={40}
+            color={isDark ? "#4ADE80" : "#22C55E"}
+          />
+        </View>
+        <Text className={`text-xl font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          Success!
+        </Text>
+        <Text className={`text-base text-center ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+          Your notification has been sent successfully
+        </Text>
+      </View>
+    </Animated.View>
+  ), [isDark, successScale]);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // Handle end reached for pagination
+  const handleEndReached = useCallback(async () => {
+    if (!loadingRef.current && !isEndReached && !isFetchingMore) {
+      try {
+        setIsFetchingMore(true);
+        loadingRef.current = true;
+
+        // Fetch next page of notifications
+        const nextPage = page + 1;
+        setPage(nextPage);
+        
+        const response = await axios.get(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications`,
+          {
+            params: {
+              page: nextPage,
+              limit: PAGE_SIZE,
+            },
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (response.data && (
+          (response.data.push && response.data.push.length > 0) || 
+          (response.data.inApp && response.data.inApp.length > 0)
+        )) {
+          // Pagination logic is handled in the PushNotificationsList component
+        } else {
+          setIsEndReached(true);
+        }
+      } catch (error) {
+        console.error("Error fetching more notifications:", error);
+      } finally {
+        if (isMounted.current) {
+          setIsFetchingMore(false);
+          loadingRef.current = false;
+        }
+      }
+    }
+  }, [page, isEndReached, isFetchingMore, token]);
+
+  // Handle when all data is loaded
+  const handleAllDataLoaded = useCallback(() => {
+    setIsEndReached(true);
+    loadingRef.current = false;
+  }, []);
+
+  const handleSendNotification = async () => {
+    try {
+      setIsLoading(true);
+      const endpoint = notificationData.type === "all" 
+        ? "/api/group-admin-notifications/send-group"
+        : "/api/group-admin-notifications/send-users";
+
+      const payload = {
+        title: notificationData.title,
+        message: notificationData.message,
+        type: "group",
+        priority: notificationData.priority,
+        groupAdminId: user?.id,
+        ...(notificationData.type === "user" && { userIds: notificationData.selectedUsers })
+      };
+
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}${endpoint}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.status === 200) {
+        // Show success modal
+        showSuccessAnimation();
+        
+        // Reset form after a delay
+        setTimeout(() => {
+          setNotificationData({
+            title: "",
+            message: "",
+            type: "all",
+            priority: "default",
+            selectedUsers: []
+          });
+          setShowSuccess(false); // Reset success state
+          setShowSendModal(false);
+        }, 2000);
+      }
+    } catch (error) {
+      console.error("Error sending notification:", error);
+      Alert.alert(
+        "Error",
+        "Failed to send notification. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Add initial data loading for notifications
   useEffect(() => {
@@ -650,186 +796,19 @@ export default function GroupAdminNotifications() {
     };
   }, [token, user?.id, setNotifications]);
 
-  const filterTypes = useMemo(() => {
-    // Get counts for each category
-    const groupCount = notifications?.filter((n: Notification) => n.type === 'group' && !n.read).length || 0;
-    const announcementCount = notifications?.filter((n: Notification) => n.type === 'announcement' && !n.read).length || 0;
-    const generalCount = notifications?.filter((n: Notification) => n.type === 'general' && !n.read).length || 0;
-
-    return [
-      { id: "all", label: "All", icon: "bell-outline", count: unreadCount },
-      { id: "group", label: "Group", icon: "account-group-outline", count: groupCount },
-      { id: "announcement", label: "Announcements", icon: "bullhorn-outline", count: announcementCount },
-      { id: "general", label: "General", icon: "information-outline", count: generalCount },
-    ];
-  }, [unreadCount, notifications]);
-
-  // Update handleTypeChange to handle pagination reset
-  const handleTypeChange = useCallback(async (type: NotificationType) => {
-    if (selectedType === type) return; // Don't reload if same type selected
-    
-    setIsLoading(true);
-    setIsEndReached(false); // Reset end reached state
-    loadingRef.current = false; // Reset loading ref
-
-    // Parallel animations for smoother transition
-    Animated.parallel([
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-          delay: 100,
-        }),
-      ]),
-      Animated.spring(scrollX, {
-        toValue: filterTypes.findIndex(t => t.id === type) * (SCREEN_WIDTH / filterTypes.length),
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 90,
-      }),
-    ]).start();
-
-    setSelectedType(type);
-    // Shorter loading delay for better UX
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    if (isMounted.current) {
-      setIsLoading(false);
-    }
-  }, [fadeAnim, scrollX, filterTypes, SCREEN_WIDTH, selectedType]);
-
-  // Handle end reached for pagination
-  const handleEndReached = useCallback(() => {
-    if (!loadingRef.current && !isEndReached) {
-      loadingRef.current = true;
-      // The actual loading will be handled by PushNotificationsList
-    }
-  }, [isEndReached]);
-
-  // Handle when all data is loaded
-  const handleAllDataLoaded = useCallback(() => {
-    setIsEndReached(true);
-    loadingRef.current = false;
-  }, []);
-
-  const showSuccessAnimation = useCallback(() => {
-    setShowSuccess(true);
-    Animated.sequence([
-      Animated.spring(successScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        damping: 15,
-        stiffness: 200,
-      }),
-    ]).start();
-  }, [successScale]);
-
-  // Success Modal Component
-  const SuccessModal = useCallback(() => (
-    <Animated.View 
-      className={`absolute inset-0 items-center justify-center ${isDark ? 'bg-gray-900/95' : 'bg-white/95'}`}
-      style={{
-        transform: [{ scale: successScale }],
-      }}
-    >
-      <View className="items-center px-6">
-        <View className={`w-20 h-20 rounded-full items-center justify-center mb-4 ${isDark ? 'bg-green-500/20' : 'bg-green-100'}`}>
-          <MaterialCommunityIcons
-            name="check-circle"
-            size={40}
-            color={isDark ? "#4ADE80" : "#22C55E"}
-          />
-        </View>
-        <Text className={`text-xl font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-          Success!
-        </Text>
-        <Text className={`text-base text-center ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-          Your notification has been sent successfully
-        </Text>
-      </View>
-    </Animated.View>
-  ), [isDark, successScale]);
-
-  const handleSendNotification = async () => {
-    try {
-      setIsLoading(true);
-      const endpoint = notificationData.type === "all" 
-        ? "/api/group-admin-notifications/send-group"
-        : "/api/group-admin-notifications/send-users";
-
-      const payload = {
-        title: notificationData.title,
-        message: notificationData.message,
-        type: "group",
-        priority: notificationData.priority,
-        groupAdminId: user?.id,
-        ...(notificationData.type === "user" && { userIds: notificationData.selectedUsers })
-      };
-
-      const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}${endpoint}`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.status === 200) {
-        // Show success modal
-        showSuccessAnimation();
-        
-        // Reset form after a delay
-        setTimeout(() => {
-          setNotificationData({
-            title: "",
-            message: "",
-            type: "all",
-            priority: "default",
-            selectedUsers: []
-          });
-          setShowSuccess(false); // Reset success state
-          setShowSendModal(false);
-        }, 2000);
-      }
-    } catch (error) {
-      console.error("Error sending notification:", error);
-      Alert.alert(
-        "Error",
-        "Failed to send notification. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <View className="flex-1">
+      {/* Screen Configuration */}
       <Stack.Screen
         options={{
-          headerTitle: "Notifications",
-          headerRight: () => (
-            <Pressable
-              onPress={() => setShowSendModal(true)}
-              className={`p-2 rounded-lg ${isDark ? "bg-blue-600" : "bg-blue-500"}`}
-            >
-              <MaterialCommunityIcons name="bell-plus" size={24} color="white" />
-            </Pressable>
-          ),
+          headerShown: false,
         }}
       />
 
-      {/* Enhanced Header with proper status bar height and integrated tabs */}
+      {/* Enhanced Header with status bar integration */}
       <LinearGradient
         colors={isDark ? ["#1F2937", "#111827"] : ["#FFFFFF", "#F3F4F6"]}
-        style={[styles.header]}
+        style={styles.header}
       >
         <StatusBar
           barStyle={isDark ? "light-content" : "dark-content"}
@@ -837,7 +816,7 @@ export default function GroupAdminNotifications() {
           translucent
         />
 
-        {/* Header Content with adjusted spacing */}
+        {/* Header Content */}
         <View
           style={{
             paddingTop:
@@ -849,7 +828,7 @@ export default function GroupAdminNotifications() {
           }}
         >
           <View className="px-6 mb-6">
-            <View className="flex-row items-center">
+            <View className="flex-row items-center mb-1">
               <TouchableOpacity
                 onPress={() => router.back()}
                 className={`w-12 h-12 rounded-full items-center justify-center ${isDark ? "bg-gray-800/80" : "bg-gray-100"}`}
@@ -860,7 +839,7 @@ export default function GroupAdminNotifications() {
                   color={isDark ? "#E5E7EB" : "#374151"}
                 />
               </TouchableOpacity>
-              <View className="flex-1 flex-row justify-between items-center ml-3">
+              <View className="flex-1 flex-row justify-between items-center">
                 <View>
                   <Text
                     className={`text-2xl font-bold ${isDark ? "text-white" : "text-gray-900"}`}
@@ -898,7 +877,8 @@ export default function GroupAdminNotifications() {
                         );
                       }
                     }}
-                    className={`py-2 px-4 rounded-lg ${isDark ? "bg-blue-600" : "bg-blue-500"}`}
+                    className={`py-2 px-4 rounded-lg ${isDark ? "bg-blue-600" : "bg-blue-500"
+                      }`}
                     style={[styles.markAllButton, { position: 'absolute', right: 0 }]}
                   >
                     <Text className="text-white font-medium text-sm">
@@ -909,105 +889,12 @@ export default function GroupAdminNotifications() {
               </View>
             </View>
           </View>
-
-          {/* Tabs integrated in header */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabsContainer}
-            style={styles.scrollView}
-            className="pl-6"
-          >
-            {filterTypes.map((type, index) => (
-              <Pressable
-                key={type.id}
-                onPress={() => handleTypeChange(type.id as NotificationType)}
-                className={`py-2.5 px-4 rounded-2xl flex-row items-center ${selectedType === type.id
-                  ? isDark
-                    ? "bg-blue-500/90 border border-blue-400/30"
-                    : "bg-blue-500 border border-blue-600/20"
-                  : isDark
-                    ? "bg-gray-800/40 border border-gray-700"
-                    : "bg-gray-50 border border-gray-200"
-                  }`}
-                style={[
-                  styles.tabButton,
-                  selectedType === type.id && styles.activeTabButton,
-                  {
-                    transform: [
-                      {
-                        scale: selectedType === type.id ? 1 : 0.98,
-                      },
-                    ],
-                    marginRight: index === filterTypes.length - 1 ? 10 : 0,
-                  },
-                ]}
-              >
-                <MaterialCommunityIcons
-                  name={type.icon as any}
-                  size={20}
-                  color={
-                    selectedType === type.id
-                      ? "#FFFFFF"
-                      : isDark
-                        ? "#94A3B8"
-                        : "#64748B"
-                  }
-                  style={{ marginRight: 8 }}
-                />
-                <Text
-                  className={`text-sm font-medium ${selectedType === type.id
-                    ? "text-white"
-                    : isDark
-                      ? "text-gray-300"
-                      : "text-gray-700"
-                    }`}
-                >
-                  {type.label}
-                </Text>
-                {type.count > 0 && (
-                  <View
-                    className={`ml-2 px-2 py-0.5 rounded-full ${selectedType === type.id
-                      ? "bg-white/20 border border-white/10"
-                      : isDark
-                        ? "bg-gray-900/60 border border-gray-700"
-                        : "bg-white border border-gray-200"
-                      }`}
-                  >
-                    <Text
-                      className={`text-xs font-medium ${selectedType === type.id
-                        ? "text-white/90"
-                        : isDark
-                          ? "text-gray-300"
-                          : "text-gray-600"
-                        }`}
-                    >
-                      {type.count}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            ))}
-          </ScrollView>
         </View>
       </LinearGradient>
 
       <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
-        {/* Loading State and Animated Content */}
-        <Animated.View
-          className="flex-1 pt-3"
-          style={{
-            opacity: fadeAnim,
-            transform: [
-              {
-                translateX: scrollX.interpolate({
-                  inputRange: [0, SCREEN_WIDTH],
-                  outputRange: [0, 0],
-                }),
-              },
-            ],
-          }}
-        >
+        {/* Loading State and Content */}
+        <View className="flex-1 pt-3">
           {isLoading ? (
             <View className="flex-1 justify-center items-center">
               <ActivityIndicator
@@ -1023,10 +910,58 @@ export default function GroupAdminNotifications() {
           ) : (
             <PushNotificationsList
               ref={listRef}
-              filterType={selectedType === "all" ? undefined : selectedType}
               unreadCount={unreadCount}
               onMarkAllAsRead={() => {
-                handleTypeChange(selectedType);
+                // Refresh notifications
+                setNotifications([]);
+                setIsLoading(true);
+                setPage(1);
+                setIsEndReached(false);
+                loadingRef.current = false;
+                
+                // Fetch notifications again
+                const refreshNotifications = async () => {
+                  try {
+                    const response = await axios.get(
+                      `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-notifications`,
+                      {
+                        params: { limit: PAGE_SIZE, page: 1 },
+                        headers: { Authorization: `Bearer ${token}` },
+                      }
+                    );
+                    
+                    if (response.data && (response.data.push || response.data.inApp)) {
+                      const notificationsMap = new Map();
+                      
+                      (response.data.push || []).forEach((notification: Notification) => {
+                        notificationsMap.set(`push_${notification.id}`, {
+                          ...notification,
+                          uniqueId: `push_${notification.id}`,
+                          source: "push",
+                          read: true
+                        });
+                      });
+                      
+                      (response.data.inApp || []).forEach((notification: Notification) => {
+                        notificationsMap.set(`inapp_${notification.id}`, {
+                          ...notification,
+                          uniqueId: `inapp_${notification.id}`,
+                          source: "inapp",
+                          read: true
+                        });
+                      });
+                      
+                      const allNotifications = Array.from(notificationsMap.values()) as Notification[];
+                      setNotifications(allNotifications);
+                    }
+                  } catch (error) {
+                    console.error("Error refreshing notifications:", error);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                };
+                
+                refreshNotifications();
               }}
               showSendButton={true}
               onSendNotification={() => setShowSendModal(true)}
@@ -1034,9 +969,10 @@ export default function GroupAdminNotifications() {
               onAllDataLoaded={handleAllDataLoaded}
             />
           )}
-        </Animated.View>
+        </View>
       </View>
 
+      {/* Send Notification Modal */}
       <SendNotificationModal
         visible={showSendModal}
         onClose={() => {
@@ -1072,28 +1008,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
-  },
-  scrollView: {
-    // Remove paddingLeft from here since we're using className
-  },
-  tabsContainer: {
-    paddingRight: 24,
-    paddingBottom: 16,
-    gap: 12,
-  },
-  tabButton: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  activeTabButton: {
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 4,
   },
   markAllButton: {
     shadowColor: '#3B82F6',

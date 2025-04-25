@@ -8,17 +8,28 @@ import ThemeContext from '../../../context/ThemeContext';
 import AuthContext from '../../../context/AuthContext';
 import axios from 'axios';
 
+interface ErrorType {
+  row: number;
+  error: string;
+  email?: string;
+}
+
+interface ErrorsByType {
+  [key: string]: string[];
+}
+
 interface UploadResponse {
   success: Array<{
     id: number;
     name: string;
     email: string;
   }>;
-  errors: Array<{
-    row: number;
-    error: string;
-    email?: string;
-  }>;
+  errors: ErrorType[];
+  summary?: {
+    total: number;
+    success: number;
+    failed: number;
+  };
 }
 
 export default function BulkUpload() {
@@ -100,19 +111,36 @@ export default function BulkUpload() {
         );
 
         if (response.data.success && response.data.success.length > 0) {
-          const successMessage = `Successfully created ${response.data.success.length} employee${
-            response.data.success.length > 1 ? 's' : ''
-          }`;
+          const summary = response.data.summary;
+          const successMessage = `Successfully processed ${summary?.total} employees:\n` +
+            `✓ ${summary?.success} created successfully\n` +
+            `✗ ${summary?.failed} failed`;
 
           if (response.data.errors && response.data.errors.length > 0) {
-            const errorDetails = response.data.errors
-              .map(err => `Row ${err.row}: ${err.error}`)
-              .join('\n');
+            // Group errors by type for better readability
+            const errorsByType = response.data.errors.reduce((acc: ErrorsByType, err: ErrorType) => {
+              const errorType = err.error;
+              if (!acc[errorType]) {
+                acc[errorType] = [];
+              }
+              acc[errorType].push(`Row ${err.row}${err.email ? ` (${err.email})` : ''}`);
+              return acc;
+            }, {} as ErrorsByType);
+
+            const errorDetails = (Object.entries(errorsByType) as [string, string[]][])
+              .map(([type, rows]) => `${type}:\n${rows.join('\n')}`)
+              .join('\n\n');
 
             Alert.alert(
               'Partial Success',
-              `${successMessage}\n\nErrors encountered:\n${errorDetails}`,
+              `${successMessage}\n\nErrors encountered:\n\n${errorDetails}`,
               [{ 
+                text: 'Download Error Report',
+                onPress: () => {
+                  Alert.alert('Coming Soon', 'Error report download will be available in a future update.');
+                }
+              },
+              { 
                 text: 'OK',
                 onPress: () => router.back()
               }]
@@ -121,11 +149,21 @@ export default function BulkUpload() {
             showSuccessAnimation(successMessage);
           }
         } else if (response.data.errors && response.data.errors.length > 0) {
-          const errorDetails = response.data.errors
-            .map(err => `Row ${err.row}: ${err.error}`)
-            .join('\n');
+          // Group errors by type for better readability
+          const errorsByType = response.data.errors.reduce((acc: ErrorsByType, err: ErrorType) => {
+            const errorType = err.error;
+            if (!acc[errorType]) {
+              acc[errorType] = [];
+            }
+            acc[errorType].push(`Row ${err.row}${err.email ? ` (${err.email})` : ''}`);
+            return acc;
+          }, {} as ErrorsByType);
 
-          setError(`Failed to create employees:\n${errorDetails}`);
+          const errorDetails = (Object.entries(errorsByType) as [string, string[]][])
+            .map(([type, rows]) => `${type}:\n${rows.join('\n')}`)
+            .join('\n\n');
+
+          setError(`Failed to create employees:\n\n${errorDetails}`);
         }
       } catch (error: any) {
         setLoading(false);
@@ -140,6 +178,32 @@ export default function BulkUpload() {
               `Remaining Slots: ${details.remainingSlots}\n` +
               `Attempted to Add: ${details.attemptedToAdd}\n\n` +
               `Please contact your management to increase the user limit or reduce the number of employees in your CSV file.`,
+              [{ text: 'OK' }]
+            );
+          } else if (error.response.data.error === 'Missing required columns') {
+            Alert.alert(
+              'Invalid CSV Format',
+              `${error.response.data.details}\n\nPlease ensure your CSV file contains all required columns.`,
+              [{ text: 'OK' }]
+            );
+          } else if (error.response.data.error === 'Validation errors in CSV file') {
+            // Group validation errors by type
+            const errorsByType = error.response.data.errors.reduce((acc: ErrorsByType, err: ErrorType) => {
+              const errorType = err.error;
+              if (!acc[errorType]) {
+                acc[errorType] = [];
+              }
+              acc[errorType].push(`Row ${err.row}${err.email ? ` (${err.email})` : ''}`);
+              return acc;
+            }, {} as ErrorsByType);
+
+            const errorDetails = (Object.entries(errorsByType) as [string, string[]][])
+              .map(([type, rows]) => `${type}:\n${rows.join('\n')}`)
+              .join('\n\n');
+
+            Alert.alert(
+              'CSV Validation Errors',
+              `Please fix the following issues in your CSV file:\n\n${errorDetails}`,
               [{ text: 'OK' }]
             );
           } else {
@@ -300,13 +364,26 @@ export default function BulkUpload() {
               justifyContent: 'center',
               alignItems: 'center',
               zIndex: 50,
+              padding: 20
             },
             {
               transform: [{ scale: successScale }],
             }
           ]}
         >
-          <View style={{ alignItems: 'center', padding: 24 }}>
+          <View style={{ 
+            alignItems: 'center', 
+            padding: 24,
+            width: '100%',
+            maxWidth: 400,
+            backgroundColor: isDark ? 'rgba(31, 41, 55, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+            borderRadius: 16,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5
+          }}>
             <View style={{ 
               width: 80, 
               height: 80, 
@@ -325,15 +402,18 @@ export default function BulkUpload() {
             <Text style={{ 
               fontSize: 24, 
               fontWeight: '600',
-              marginBottom: 8,
-              color: isDark ? '#FFFFFF' : '#111827'
+              marginBottom: 16,
+              color: isDark ? '#FFFFFF' : '#111827',
+              textAlign: 'center'
             }}>
               Success!
             </Text>
             <Text style={{ 
               fontSize: 16,
               textAlign: 'center',
-              color: isDark ? '#9CA3AF' : '#4B5563'
+              color: isDark ? '#9CA3AF' : '#4B5563',
+              lineHeight: 24,
+              width: '100%'
             }}>
               {successMessage}
             </Text>

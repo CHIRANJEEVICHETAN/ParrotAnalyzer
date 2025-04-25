@@ -20,7 +20,7 @@ router.get("/", async (req: CustomRequest, res: Response) => {
     const offset = parseInt(req.query.offset as string) || 0;
 
     const notifications = await NotificationService.getUserNotificationsByRole(
-      parseInt(req.user.id),
+      parseInt(req.user.id.toString()),
       req.user.role,
       limit,
       offset
@@ -46,7 +46,7 @@ router.put("/:id/read", async (req: CustomRequest, res: Response) => {
     const notificationId = parseInt(req.params.id);
     const result = await NotificationService.markNotificationAsRead(
       notificationId,
-      parseInt(req.user.id)
+      parseInt(req.user.id.toString())
     );
 
     if (result.rowCount === 0) {
@@ -71,7 +71,7 @@ router.get("/unread-count", async (req: CustomRequest, res: Response) => {
     }
 
     const count = await NotificationService.getUnreadNotificationCount(
-      parseInt(req.user.id)
+      parseInt(req.user.id.toString())
     );
     res.json({ count });
   } catch (error) {
@@ -97,7 +97,7 @@ router.post("/group", async (req: CustomRequest, res: Response) => {
     }
 
     await NotificationService.sendGroupNotification(
-      parseInt(req.user.id),
+      parseInt(req.user.id.toString()),
       groupId,
       {
         title,
@@ -132,7 +132,7 @@ router.post("/role", async (req: CustomRequest, res: Response) => {
     }
 
     await NotificationService.sendRoleNotification(
-      parseInt(req.user.id),
+      parseInt(req.user.id.toString()),
       targetRole,
       {
         title,
@@ -163,7 +163,7 @@ router.post("/register-device", async (req: CustomRequest, res: Response) => {
     }
 
     const result = await NotificationService.saveDeviceToken(
-      parseInt(req.user.id).toString(),
+      req.user.id.toString(),
       token,
       deviceType || "unknown",
       deviceName || "unknown"
@@ -191,7 +191,7 @@ router.delete(
       }
 
       await NotificationService.removeDeviceToken(
-        parseInt(req.user.id).toString(),
+        req.user.id.toString(),
         token
       );
       res.json({ success: true });

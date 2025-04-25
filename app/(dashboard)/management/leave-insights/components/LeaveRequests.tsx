@@ -436,53 +436,15 @@ export default function LeaveRequests() {
     );
   }
 
-  if (error) {
-    return (
-      <View className="flex-1 justify-center items-center p-4">
-        <Text className={`text-lg text-center mb-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-          {error}
-        </Text>
-        <TouchableOpacity
-          onPress={fetchRequests}
-          className="bg-blue-500 px-4 py-2 rounded-lg flex-row items-center"
-        >
-          <Ionicons name="refresh" size={20} color="white" style={{ marginRight: 8 }} />
-          <Text className="text-white font-medium">Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (!requests || requests.length === 0) {
-    return (
-      <View className="flex-1 justify-center items-center p-4">
-        <Ionicons
-          name="document-text-outline"
-          size={64}
-          color={isDark ? '#9CA3AF' : '#6B7280'}
-        />
-        <Text className={`text-xl font-semibold mt-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-          No Leave Requests
-        </Text>
-        <Text className={`text-center mt-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-          You haven't made any leave requests yet.
-        </Text>
-        <TouchableOpacity
-          onPress={fetchRequests}
-          className="mt-6 bg-blue-500 px-6 py-3 rounded-lg flex-row items-center"
-        >
-          <Ionicons name="refresh" size={20} color="white" style={{ marginRight: 8 }} />
-          <Text className="text-white font-medium">Refresh</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   return (
     <View className="flex-1">
-      {/* Header with Add Button */}
-      <View className="flex-row justify-between items-center mb-6">
-        <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+      {/* Header with Add Button - Always visible */}
+      <View className="flex-row z-10 justify-between items-center mb-6">
+        <Text
+          className={`text-xl font-semibold ${
+            isDark ? "text-white" : "text-gray-900"
+          }`}
+        >
           Leave Requests
         </Text>
         <TouchableOpacity
@@ -490,96 +452,167 @@ export default function LeaveRequests() {
             resetForm();
             setShowAddModal(true);
           }}
-          className="bg-blue-500 px-4 py-2 rounded-lg flex-row items-center"
+          className="bg-blue-500 px-4 z-10 py-2 rounded-lg flex-row items-center"
         >
           <Ionicons name="add" size={24} color="white" />
           <Text className="text-white font-medium ml-2">Request Leave</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Requests List */}
-      <ScrollView
-        className="flex-1"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={['#3B82F6']}
-            tintColor={isDark ? '#FFFFFF' : '#3B82F6'}
-          />
-        }
-      >
-        {requests.map((request) => (
-          <View
-            key={request.id}
-            className={`mb-4 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+      {error ? (
+        <View className="flex-1 justify-center items-center p-4">
+          <Text
+            className={`text-lg text-center mb-4 ${
+              isDark ? "text-gray-400" : "text-gray-600"
+            }`}
           >
-            <View className="flex-row justify-between items-start mb-2">
-              <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                {request.leave_type_name}
-              </Text>
-              <View className={`px-2 py-1 rounded ${getStatusColor(request.status)}`}>
-                <Text className="text-sm capitalize">
-                  {request.status}
+            {error}
+          </Text>
+          <TouchableOpacity
+            onPress={fetchRequests}
+            className="bg-blue-500 px-4 py-2 rounded-lg flex-row items-center"
+          >
+            <Ionicons
+              name="refresh"
+              size={20}
+              color="white"
+              style={{ marginRight: 8 }}
+            />
+            <Text className="text-white font-medium">Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !requests || requests.length === 0 ? (
+        <View className="flex-1 justify-center items-center p-4">
+          <Ionicons
+            name="document-text-outline"
+            size={64}
+            color={isDark ? "#9CA3AF" : "#6B7280"}
+          />
+          <Text
+            className={`text-xl font-semibold mt-4 ${
+              isDark ? "text-white" : "text-gray-900"
+            }`}
+          >
+            No Leave Requests
+          </Text>
+          <Text
+            className={`text-center mt-2 ${
+              isDark ? "text-gray-400" : "text-gray-600"
+            }`}
+          >
+            You haven't made any leave requests yet.
+          </Text>
+          <TouchableOpacity
+            onPress={fetchRequests}
+            className="mt-6 bg-blue-500 px-6 py-3 rounded-lg flex-row items-center"
+          >
+            <Ionicons
+              name="refresh"
+              size={20}
+              color="white"
+              style={{ marginRight: 8 }}
+            />
+            <Text className="text-white font-medium">Refresh</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView
+          className="flex-1"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#3B82F6"]}
+              tintColor={isDark ? "#FFFFFF" : "#3B82F6"}
+            />
+          }
+        >
+          {requests.map((request) => (
+            <View
+              key={request.id}
+              className={`mb-4 p-4 rounded-lg ${
+                isDark ? "bg-gray-800" : "bg-white"
+              }`}
+            >
+              <View className="flex-row justify-between items-start mb-2">
+                <Text
+                  className={`text-lg font-semibold ${
+                    isDark ? "text-white" : "text-gray-900"
+                  }`}
+                >
+                  {request.leave_type_name}
                 </Text>
-              </View>
-            </View>
-
-            <View className="mt-4 space-y-2">
-              <View className="flex-row items-center">
-                <Ionicons
-                  name="calendar-outline"
-                  size={16}
-                  color={isDark ? '#9CA3AF' : '#6B7280'}
-                  style={{ marginRight: 8 }}
-                />
-                <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
-                  {format(new Date(request.start_date), 'MMM dd, yyyy')} - {format(new Date(request.end_date), 'MMM dd, yyyy')}
-                  {' '}({request.days_requested} days)
-                </Text>
+                <View
+                  className={`px-2 py-1 rounded ${getStatusColor(
+                    request.status
+                  )}`}
+                >
+                  <Text className="text-sm capitalize">{request.status}</Text>
+                </View>
               </View>
 
-              <View className="flex-row items-center">
-                <Ionicons
-                  name="document-text-outline"
-                  size={16}
-                  color={isDark ? '#9CA3AF' : '#6B7280'}
-                  style={{ marginRight: 8 }}
-                />
-                <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
-                  {request.reason}
-                </Text>
-              </View>
-
-              {request.rejection_reason && (
+              <View className="mt-4 space-y-2">
                 <View className="flex-row items-center">
                   <Ionicons
-                    name="alert-circle-outline"
+                    name="calendar-outline"
                     size={16}
-                    color="#EF4444"
+                    color={isDark ? "#9CA3AF" : "#6B7280"}
                     style={{ marginRight: 8 }}
                   />
-                  <Text className="text-red-500">
-                    {request.rejection_reason}
+                  <Text className={isDark ? "text-gray-300" : "text-gray-700"}>
+                    {format(new Date(request.start_date), "MMM dd, yyyy")} -{" "}
+                    {format(new Date(request.end_date), "MMM dd, yyyy")} (
+                    {request.days_requested} days)
                   </Text>
                 </View>
-              )}
 
-              <View className="flex-row items-center">
-                <Ionicons
-                  name="time-outline"
-                  size={16}
-                  color={isDark ? '#9CA3AF' : '#6B7280'}
-                  style={{ marginRight: 8 }}
-                />
-                <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Requested on {format(new Date(request.created_at), 'MMM dd, yyyy')}
-                </Text>
+                <View className="flex-row items-center">
+                  <Ionicons
+                    name="document-text-outline"
+                    size={16}
+                    color={isDark ? "#9CA3AF" : "#6B7280"}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text className={isDark ? "text-gray-300" : "text-gray-700"}>
+                    {request.reason}
+                  </Text>
+                </View>
+
+                {request.rejection_reason && (
+                  <View className="flex-row items-center">
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={16}
+                      color="#EF4444"
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text className="text-red-500">
+                      {request.rejection_reason}
+                    </Text>
+                  </View>
+                )}
+
+                <View className="flex-row items-center">
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={isDark ? "#9CA3AF" : "#6B7280"}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text
+                    className={`text-sm ${
+                      isDark ? "text-gray-400" : "text-gray-600"
+                    }`}
+                  >
+                    Requested on{" "}
+                    {format(new Date(request.created_at), "MMM dd, yyyy")}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
-        ))}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      )}
 
       {/* Add/Edit Leave Request Modal */}
       <Modal
@@ -590,8 +623,16 @@ export default function LeaveRequests() {
         }}
         style={{ margin: 0 }}
       >
-        <View className={`m-4 p-6 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-          <Text className={`text-xl font-semibold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+        <View
+          className={`m-4 p-6 rounded-2xl ${
+            isDark ? "bg-gray-800" : "bg-white"
+          }`}
+        >
+          <Text
+            className={`text-xl font-semibold mb-6 ${
+              isDark ? "text-white" : "text-gray-900"
+            }`}
+          >
             Request Leave
           </Text>
 
@@ -599,14 +640,22 @@ export default function LeaveRequests() {
           <View className="space-y-4">
             {/* Leave Type Picker */}
             <View>
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <Text
+                className={`text-sm font-medium mb-2 ${
+                  isDark ? "text-gray-300" : "text-gray-700"
+                }`}
+              >
                 Leave Type
               </Text>
-              <View className={`border rounded-lg overflow-hidden ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <View
+                className={`border rounded-lg overflow-hidden ${
+                  isDark ? "border-gray-700" : "border-gray-200"
+                }`}
+              >
                 <Picker
                   selectedValue={formData.leave_type_id}
                   onValueChange={handleLeaveTypeChange}
-                  style={{ color: isDark ? '#FFFFFF' : '#111827' }}
+                  style={{ color: isDark ? "#FFFFFF" : "#111827" }}
                 >
                   <Picker.Item label="Select Leave Type" value="" />
                   {leaveTypes.map((type) => (
@@ -622,92 +671,121 @@ export default function LeaveRequests() {
 
             {/* Date Selection */}
             <View>
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <Text
+                className={`text-sm font-medium mb-2 ${
+                  isDark ? "text-gray-300" : "text-gray-700"
+                }`}
+              >
                 Start Date
               </Text>
               <TouchableOpacity
-                onPress={() => setShowDatePicker('start')}
+                onPress={() => setShowDatePicker("start")}
                 className={`p-3 border rounded-lg flex-row justify-between items-center ${
-                  isDark ? 'border-gray-700 bg-gray-700' : 'border-gray-200 bg-gray-50'
+                  isDark
+                    ? "border-gray-700 bg-gray-700"
+                    : "border-gray-200 bg-gray-50"
                 }`}
               >
-                <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                  {format(formData.start_date, 'MMM dd, yyyy')}
+                <Text className={isDark ? "text-white" : "text-gray-900"}>
+                  {format(formData.start_date, "MMM dd, yyyy")}
                 </Text>
                 <Ionicons
                   name="calendar-outline"
                   size={20}
-                  color={isDark ? '#9CA3AF' : '#6B7280'}
+                  color={isDark ? "#9CA3AF" : "#6B7280"}
                 />
               </TouchableOpacity>
             </View>
 
             <View>
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <Text
+                className={`text-sm font-medium mb-2 ${
+                  isDark ? "text-gray-300" : "text-gray-700"
+                }`}
+              >
                 End Date
               </Text>
               <TouchableOpacity
-                onPress={() => setShowDatePicker('end')}
+                onPress={() => setShowDatePicker("end")}
                 className={`p-3 border rounded-lg flex-row justify-between items-center ${
-                  isDark ? 'border-gray-700 bg-gray-700' : 'border-gray-200 bg-gray-50'
+                  isDark
+                    ? "border-gray-700 bg-gray-700"
+                    : "border-gray-200 bg-gray-50"
                 }`}
               >
-                <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-                  {format(formData.end_date, 'MMM dd, yyyy')}
+                <Text className={isDark ? "text-white" : "text-gray-900"}>
+                  {format(formData.end_date, "MMM dd, yyyy")}
                 </Text>
                 <Ionicons
                   name="calendar-outline"
                   size={20}
-                  color={isDark ? '#9CA3AF' : '#6B7280'}
+                  color={isDark ? "#9CA3AF" : "#6B7280"}
                 />
               </TouchableOpacity>
             </View>
 
             {/* Reason Input */}
             <View>
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <Text
+                className={`text-sm font-medium mb-2 ${
+                  isDark ? "text-gray-300" : "text-gray-700"
+                }`}
+              >
                 Reason
               </Text>
               <TextInput
                 value={formData.reason}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, reason: text }))}
+                onChangeText={(text) =>
+                  setFormData((prev) => ({ ...prev, reason: text }))
+                }
                 multiline
                 numberOfLines={3}
                 className={`p-3 rounded-lg border ${
                   isDark
-                    ? 'border-gray-700 bg-gray-700 text-white'
-                    : 'border-gray-200 bg-gray-50 text-gray-900'
+                    ? "border-gray-700 bg-gray-700 text-white"
+                    : "border-gray-200 bg-gray-50 text-gray-900"
                 }`}
-                placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
                 textAlignVertical="top"
               />
             </View>
 
             {/* Contact Number */}
             <View>
-              <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <Text
+                className={`text-sm font-medium mb-2 ${
+                  isDark ? "text-gray-300" : "text-gray-700"
+                }`}
+              >
                 Contact Number
               </Text>
-              <View className={`flex-row items-center p-3 rounded-lg border ${
-                isDark
-                  ? 'border-gray-700 bg-gray-700'
-                  : 'border-gray-200 bg-gray-50'
-              }`}>
-                <Text className={isDark ? 'text-white' : 'text-gray-900'}>+91</Text>
+              <View
+                className={`flex-row items-center p-3 rounded-lg border ${
+                  isDark
+                    ? "border-gray-700 bg-gray-700"
+                    : "border-gray-200 bg-gray-50"
+                }`}
+              >
+                <Text className={isDark ? "text-white" : "text-gray-900"}>
+                  +91
+                </Text>
                 <TextInput
-                  value={formData.contact_number.replace('+91', '')}
+                  value={formData.contact_number.replace("+91", "")}
                   onChangeText={(text) => {
-                    const numbersOnly = text.replace(/[^0-9]/g, '');
-                    setFormData(prev => ({ 
-                      ...prev, 
-                      contact_number: numbersOnly.length > 0 ? `+91${numbersOnly.slice(0, 10)}` : '+91'
+                    const numbersOnly = text.replace(/[^0-9]/g, "");
+                    setFormData((prev) => ({
+                      ...prev,
+                      contact_number:
+                        numbersOnly.length > 0
+                          ? `+91${numbersOnly.slice(0, 10)}`
+                          : "+91",
                     }));
                   }}
                   keyboardType="phone-pad"
                   className={`flex-1 ml-1 ${
-                    isDark ? 'text-white' : 'text-gray-900'
+                    isDark ? "text-white" : "text-gray-900"
                   }`}
-                  placeholderTextColor={isDark ? '#9CA3AF' : '#6B7280'}
+                  placeholderTextColor={isDark ? "#9CA3AF" : "#6B7280"}
                   maxLength={13} // +91 + 10 digits
                 />
               </View>
@@ -716,22 +794,36 @@ export default function LeaveRequests() {
             {/* Document Upload Section */}
             {selectedLeaveType?.requires_documentation && (
               <View className="mt-2">
-                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                <Text
+                  className={`text-sm font-medium mb-2 ${
+                    isDark ? "text-gray-300" : "text-gray-700"
+                  }`}
+                >
                   Documentation Required
                 </Text>
                 <View className="flex-row space-x-2 gap-4">
                   <TouchableOpacity
-                    onPress={() => handleDocumentUpload('camera')}
+                    onPress={() => handleDocumentUpload("camera")}
                     className="flex-1 bg-blue-500 p-3 rounded-lg flex-row justify-center items-center"
                   >
-                    <Ionicons name="camera" size={20} color="white" style={{ marginRight: 8 }} />
+                    <Ionicons
+                      name="camera"
+                      size={20}
+                      color="white"
+                      style={{ marginRight: 8 }}
+                    />
                     <Text className="text-white font-medium">Take Photo</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => handleDocumentUpload('file')}
+                    onPress={() => handleDocumentUpload("file")}
                     className="flex-1 bg-blue-500 p-3 rounded-lg flex-row justify-center items-center"
                   >
-                    <Ionicons name="document" size={20} color="white" style={{ marginRight: 8 }} />
+                    <Ionicons
+                      name="document"
+                      size={20}
+                      color="white"
+                      style={{ marginRight: 8 }}
+                    />
                     <Text className="text-white font-medium">Upload File</Text>
                   </TouchableOpacity>
                 </View>
@@ -739,23 +831,32 @@ export default function LeaveRequests() {
                 {/* Document Preview */}
                 {documents.length > 0 && (
                   <View className="mt-4">
-                    <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <Text
+                      className={`text-sm font-medium mb-2 ${
+                        isDark ? "text-gray-300" : "text-gray-700"
+                      }`}
+                    >
                       Uploaded Documents
                     </Text>
                     {documents.map((doc, index) => (
                       <View
                         key={index}
                         className={`flex-row items-center justify-between p-2 rounded-lg mb-2 ${
-                          isDark ? 'bg-gray-700' : 'bg-gray-100'
+                          isDark ? "bg-gray-700" : "bg-gray-100"
                         }`}
                       >
                         <View className="flex-row items-center flex-1">
                           <Ionicons
                             name={getDocumentIcon(doc.file_type)}
                             size={20}
-                            color={isDark ? '#9CA3AF' : '#6B7280'}
+                            color={isDark ? "#9CA3AF" : "#6B7280"}
                           />
-                          <Text className={`ml-2 flex-1 ${isDark ? 'text-white' : 'text-gray-900'}`} numberOfLines={1}>
+                          <Text
+                            className={`ml-2 flex-1 ${
+                              isDark ? "text-white" : "text-gray-900"
+                            }`}
+                            numberOfLines={1}
+                          >
                             {doc.file_name}
                           </Text>
                         </View>
@@ -766,7 +867,7 @@ export default function LeaveRequests() {
                           <Ionicons
                             name="close-circle"
                             size={20}
-                            color={isDark ? '#9CA3AF' : '#6B7280'}
+                            color={isDark ? "#9CA3AF" : "#6B7280"}
                           />
                         </TouchableOpacity>
                       </View>
@@ -784,13 +885,19 @@ export default function LeaveRequests() {
                 setShowAddModal(false);
                 resetForm();
               }}
-              className={`flex-1 py-3 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+              className={`flex-1 py-3 rounded-lg ${
+                isDark ? "bg-gray-700" : "bg-gray-100"
+              }`}
             >
-              <Text className={`text-center font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              <Text
+                className={`text-center font-medium ${
+                  isDark ? "text-white" : "text-gray-900"
+                }`}
+              >
                 Cancel
               </Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               onPress={handleSubmit}
               disabled={submitting}
@@ -811,15 +918,18 @@ export default function LeaveRequests() {
       {/* Date Picker Modal */}
       {showDatePicker && (
         <DateTimePicker
-          value={showDatePicker === 'start' ? formData.start_date : formData.end_date}
+          value={
+            showDatePicker === "start" ? formData.start_date : formData.end_date
+          }
           mode="date"
           display="default"
           onChange={(event, selectedDate) => {
             setShowDatePicker(null);
             if (selectedDate) {
-              setFormData(prev => ({
+              setFormData((prev) => ({
                 ...prev,
-                [showDatePicker === 'start' ? 'start_date' : 'end_date']: selectedDate
+                [showDatePicker === "start" ? "start_date" : "end_date"]:
+                  selectedDate,
               }));
             }
           }}
@@ -832,7 +942,7 @@ export default function LeaveRequests() {
         title={errorModal.title}
         message={errorModal.message}
         type={errorModal.type}
-        onClose={() => setErrorModal(prev => ({ ...prev, visible: false }))}
+        onClose={() => setErrorModal((prev) => ({ ...prev, visible: false }))}
       />
     </View>
   );

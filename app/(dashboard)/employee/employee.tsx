@@ -213,16 +213,16 @@ export default function EmployeeDashboard() {
   const fetchTasks = async () => {
     try {
       setIsLoading(true);
-      console.log('Current user:', user);
-      console.log('Token:', token);
-      
+      console.log("Current user:", user);
+      console.log("Token:", token);
+
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/employee`,
         {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         }
       );
-      console.log('API Response:', response);
+      // console.log('API Response:', response);
       setTasks(response.data);
     } catch (error) {
       console.error('Error fetching tasks:', error);

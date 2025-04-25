@@ -55,22 +55,36 @@ export default function SignIn() {
 
     const handleSignIn = async () => {
         setError(null);
+        Keyboard.dismiss();
 
         if (!identifier || !password) {
-            setError({
-                message: 'Please enter both email/phone and password',
-                type: 'VALIDATION'
-            });
-            return;
+          setError({
+            message: "Please enter both email/phone and password",
+            type: "VALIDATION",
+          });
+          return;
         }
 
-        const result = await login(identifier, password);
+        try {
+          const result = await login(identifier, password);
 
-        if (result.error) {
+          if (result.error) {
             setError({
-                message: result.error,
-                type: result.errorType || 'UNKNOWN'
+              message: result.error,
+              type: result.errorType || "UNKNOWN",
             });
+
+            // For critical errors, you might want to show an alert
+            if (result.errorType === "COMPANY_DISABLED") {
+              Alert.alert("Account Disabled", result.error, [{ text: "OK" }]);
+            }
+          }
+        } catch (error) {
+          console.error("Sign in error:", error);
+          setError({
+            message: "An unexpected error occurred. Please try again.",
+            type: "UNKNOWN",
+          });
         }
     };
 

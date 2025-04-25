@@ -276,6 +276,9 @@ const PushNotificationsList = forwardRef(({
       if (notificationsWithReadStatus.length < PAGE_SIZE) {
         setHasMoreData(false);
         onAllDataLoaded?.(); // Call the parent's onAllDataLoaded callback
+      } else {
+        // Ensure hasMoreData is true if we received a full page of data
+        setHasMoreData(true);
       }
 
       // Update state based on whether we're appending or replacing
@@ -301,6 +304,7 @@ const PushNotificationsList = forwardRef(({
     } catch (err) {
       console.error("[Notifications] Error fetching:", err);
       setError(err instanceof Error ? err.message : "An error occurred");
+      setHasMoreData(false); // Ensure we stop loading more on error
       onAllDataLoaded?.(); // Also call onAllDataLoaded on error to prevent infinite loading
     } finally {
       setLoading(false);

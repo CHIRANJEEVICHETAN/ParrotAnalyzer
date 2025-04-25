@@ -1,8 +1,11 @@
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Animated, Image, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from './context/ThemeContext';
 import { useEffect, useRef } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import PermissionsModal from './components/PermissionsModal';
 
 export default function Welcome() {
     const router = useRouter();
@@ -10,6 +13,7 @@ export default function Welcome() {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(50)).current;
     const scaleAnim = useRef(new Animated.Value(0.95)).current;
+    const [showPermissionsModal, setShowPermissionsModal] = useState(false);
 
     useEffect(() => {
         Animated.parallel([
@@ -30,6 +34,30 @@ export default function Welcome() {
             }),
         ]).start();
     }, []);
+
+    const handleGetStarted = async () => {
+        // Check if permissions have been requested before
+        try {
+            const permissionsRequested = await AsyncStorage.getItem('permissionsRequested');
+            if (permissionsRequested === 'true') {
+                // If permissions were already requested before, skip to sign in
+                router.push('/(auth)/signin');
+            } else {
+                // Show the permissions modal
+                setShowPermissionsModal(true);
+            }
+        } catch (error) {
+            console.error('Error checking permissions status:', error);
+            // Default to showing the modal if there's an error
+            setShowPermissionsModal(true);
+        }
+    };
+
+    const handlePermissionsClose = () => {
+        setShowPermissionsModal(false);
+        // Navigate to sign in after permissions handling
+        router.push('/(auth)/signin');
+    };
 
     const isDark = theme === 'dark';
 
@@ -150,7 +178,7 @@ export default function Welcome() {
                                 shadowRadius: 8,
                                 elevation: 8,
                             }}
-                            onPress={() => router.push('/(auth)/signin')}
+                            onPress={handleGetStarted}
                         >
                             <Text style={{
                                 color: '#ffffff',
@@ -174,6 +202,12 @@ export default function Welcome() {
                     </Animated.View>
                 </View>
             </LinearGradient>
+
+            {/* Permissions Modal */}
+            <PermissionsModal
+                visible={showPermissionsModal}
+                onClose={handlePermissionsClose}
+            />
         </>
     );
 }

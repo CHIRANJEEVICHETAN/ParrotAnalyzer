@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, StyleSheet, Platform, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, StyleSheet, Platform, StatusBar, Modal, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../context/ThemeContext';
@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import BottomNav from '../../components/BottomNav';
 import { groupAdminNavItems } from './utils/navigationItems';
+import React, { useState, useEffect } from 'react';
 
 interface SettingsItem {
     icon: string;
@@ -21,27 +22,38 @@ export default function GroupAdminSettings() {
     const { theme, toggleTheme } = ThemeContext.useTheme();
     const { logout } = AuthContext.useAuth();
     const router = useRouter();
+    const [showLogoutModal, setShowLogoutModal] = useState(false);
+    const [modalAnimation] = useState(new Animated.Value(0));
+    
+    useEffect(() => {
+        if (showLogoutModal) {
+            Animated.timing(modalAnimation, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            }).start();
+        } else {
+            Animated.timing(modalAnimation, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+            }).start();
+        }
+    }, [showLogoutModal]);
 
-    const handleLogout = async () => {
-        Alert.alert(
-            'Logout',
-            'Are you sure you want to logout?',
-            [
-                {
-                    text: 'Cancel',
-                    style: 'cancel'
-                },
-                {
-                    text: 'Logout',
-                    style: 'destructive',
-                    onPress: async () => {
-                        await AsyncStorage.removeItem('userToken');
-                        logout();
-                        router.replace('/(auth)/signin');
-                    }
-                }
-            ]
-        );
+    const handleLogout = () => {
+        setShowLogoutModal(true);
+    };
+
+    const confirmLogout = async () => {
+        setShowLogoutModal(false);
+        try {
+          await logout();
+          router.replace("/(auth)/signin");
+        } catch (error) {
+          console.error("Error during logout:", error);
+          router.replace("/(auth)/signin");
+        }
     };
 
     const settingsSections = [
@@ -303,6 +315,74 @@ export default function GroupAdminSettings() {
         </ScrollView>
 
         <BottomNav items={groupAdminNavItems} />
+
+        <Modal
+            visible={showLogoutModal}
+            transparent
+            animationType="none"
+            onRequestClose={() => setShowLogoutModal(false)}
+        >
+            <Animated.View 
+                style={[
+                    styles.modalOverlay,
+                    {
+                        opacity: modalAnimation,
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    }
+                ]}
+            >
+                <Animated.View
+                    style={[
+                        styles.modalContainer,
+                        {
+                            opacity: modalAnimation,
+                            transform: [
+                                {
+                                    scale: modalAnimation.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: [0.9, 1],
+                                    }),
+                                },
+                            ],
+                            backgroundColor: theme === "dark" ? "#1F2937" : "#FFFFFF",
+                        },
+                    ]}
+                >
+                    <View className="items-center mb-2">
+                        <View className="w-16 h-16 rounded-full bg-red-100 items-center justify-center mb-4">
+                            <Ionicons name="log-out-outline" size={32} color="#EF4444" />
+                        </View>
+                        <Text className={`text-xl font-bold ${theme === "dark" ? "text-white" : "text-gray-900"}`}>
+                            Logout Confirmation
+                        </Text>
+                    </View>
+                    
+                    <Text className={`text-center my-4 px-4 ${theme === "dark" ? "text-gray-300" : "text-gray-600"}`}>
+                        Are you sure you want to logout from your account?
+                    </Text>
+                    
+                    <View className="flex-row mt-2 px-2">
+                        <TouchableOpacity
+                            onPress={() => setShowLogoutModal(false)}
+                            className={`flex-1 py-3 mr-2 rounded-xl ${theme === "dark" ? "bg-gray-700" : "bg-gray-200"}`}
+                        >
+                            <Text className={`text-center font-semibold ${theme === "dark" ? "text-white" : "text-gray-800"}`}>
+                                Cancel
+                            </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                            onPress={confirmLogout}
+                            className="flex-1 py-3 ml-2 rounded-xl bg-red-500"
+                        >
+                            <Text className="text-center text-white font-semibold">
+                                Logout
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </Animated.View>
+            </Animated.View>
+        </Modal>
       </View>
     );
 }
@@ -405,5 +485,23 @@ const styles = StyleSheet.create({
     versionText: {
         fontSize: 14,
         opacity: 0.7,
+    },
+    modalOverlay: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContainer: {
+        width: '85%',
+        padding: 20,
+        borderRadius: 20,
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 3,
+        },
+        shadowOpacity: 0.27,
+        shadowRadius: 4.65,
+        elevation: 6,
     },
 });

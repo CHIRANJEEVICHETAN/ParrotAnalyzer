@@ -224,7 +224,7 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
     try {
       if (method === "camera") {
         const result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ["images"],
           quality: 0.7,
           allowsEditing: true,
           base64: true,

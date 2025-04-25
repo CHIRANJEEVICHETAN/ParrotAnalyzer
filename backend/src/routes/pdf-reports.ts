@@ -57,27 +57,27 @@ router.get('/:type', verifyToken, async (req: CustomRequest, res: Response) => {
     const adminName = adminResult.rows[0]?.admin_name || 'Group Admin';
     
     // Get company details
-    const companyInfo = await getCompanyDetails(client, adminId);
+    const companyInfo = await getCompanyDetails(client, adminId.toString());
 
     let data;
     switch (type) {
       case 'expense':
-        data = await getExpenseReportData(client, adminId);
+        data = await getExpenseReportData(client, adminId.toString());
         break;
       case 'attendance':
-        data = await getAttendanceReportData(client, adminId);
+        data = await getAttendanceReportData(client, adminId.toString());
         break;
       case 'task':
-        data = await getTaskReportData(client, adminId);
+        data = await getTaskReportData(client, adminId.toString());
         break;
       case 'travel':
-        data = await getTravelReportData(client, adminId);
+        data = await getTravelReportData(client, adminId.toString());
         break;
       case 'performance':
-        data = await getPerformanceReportData(client, adminId);
+        data = await getPerformanceReportData(client, adminId.toString());
         break;
       case 'leave':
-        data = await getLeaveReportData(client, adminId);
+        data = await getLeaveReportData(client, adminId.toString());
         break;
       default:
         return res.status(400).json({ error: 'Invalid report type' });
@@ -777,13 +777,14 @@ async function getLeaveReportData(client: PoolClient, adminId: string) {
     WITH leave_stats AS (
       SELECT 
         COUNT(*) as total_leaves,
-        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_leaves,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_leaves,
-        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_leaves,
-        AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/3600) as avg_processing_time
-      FROM leave_requests
-      WHERE group_admin_id = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '12 months'
+        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_leaves,
+        COUNT(CASE WHEN lr.status = 'pending' THEN 1 END) as pending_leaves,
+        COUNT(CASE WHEN lr.status = 'rejected' THEN 1 END) as rejected_leaves,
+        AVG(EXTRACT(EPOCH FROM (lr.updated_at - lr.created_at))/3600) as avg_processing_time
+      FROM leave_requests lr
+      JOIN users u ON lr.user_id = u.id
+      WHERE u.group_admin_id = $1
+      AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
     )
     SELECT *
     FROM leave_stats`,
@@ -793,19 +794,21 @@ async function getLeaveReportData(client: PoolClient, adminId: string) {
   // Get leave type breakdown with calculated days
   const typeBreakdown = await client.query(`
     SELECT 
-      leave_type as type,
+      lt.name as type,
       COUNT(*) as count,
       SUM(
         CASE 
-          WHEN end_date >= start_date 
-          THEN (end_date - start_date) + 1
-          ELSE 0
+          WHEN lr.end_date >= lr.start_date 
+          THEN (lr.end_date - lr.start_date) + 1
+          ELSE lr.days_requested
         END
       ) as total_days
-    FROM leave_requests
-    WHERE group_admin_id = $1
-    AND created_at >= CURRENT_DATE - INTERVAL '12 months'
-    GROUP BY leave_type
+    FROM leave_requests lr
+    JOIN leave_types lt ON lr.leave_type_id = lt.id
+    JOIN users u ON lr.user_id = u.id
+    WHERE u.group_admin_id = $1
+    AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
+    GROUP BY lt.name
     ORDER BY count DESC`,
     [adminId]
   );
@@ -813,21 +816,22 @@ async function getLeaveReportData(client: PoolClient, adminId: string) {
   // Get monthly distribution
   const monthlyDistribution = await client.query(`
     SELECT 
-      TO_CHAR(start_date, 'Month YYYY') as month,
+      TO_CHAR(lr.start_date, 'Month YYYY') as month,
       COUNT(*) as count,
-      COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_count,
+      COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_count,
       SUM(
         CASE 
-          WHEN end_date >= start_date 
-          THEN (end_date - start_date) + 1
-          ELSE 0
+          WHEN lr.end_date >= lr.start_date 
+          THEN (lr.end_date - lr.start_date) + 1
+          ELSE lr.days_requested
         END
       ) as total_days
-    FROM leave_requests
-    WHERE group_admin_id = $1
-    AND created_at >= CURRENT_DATE - INTERVAL '12 months'
-    GROUP BY TO_CHAR(start_date, 'Month YYYY'), DATE_TRUNC('month', start_date)
-    ORDER BY DATE_TRUNC('month', start_date) DESC`,
+    FROM leave_requests lr
+    JOIN users u ON lr.user_id = u.id
+    WHERE u.group_admin_id = $1
+    AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
+    GROUP BY TO_CHAR(lr.start_date, 'Month YYYY'), DATE_TRUNC('month', lr.start_date)
+    ORDER BY DATE_TRUNC('month', lr.start_date) DESC`,
     [adminId]
   );
 
@@ -835,38 +839,63 @@ async function getLeaveReportData(client: PoolClient, adminId: string) {
   const employeeStats = await client.query(`
     WITH leave_counts AS (
       SELECT 
-        user_id,
+        lr.user_id,
         COUNT(*) as total_leaves,
-        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_leaves,
+        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_leaves,
         SUM(
           CASE 
-            WHEN end_date >= start_date 
-            THEN (end_date - start_date) + 1
-            ELSE 0
+            WHEN lr.end_date >= lr.start_date 
+            THEN (lr.end_date - lr.start_date) + 1
+            ELSE lr.days_requested
           END
         ) as total_days,
         json_agg(json_build_object(
-          'type', leave_type,
+          'type', lt.name,
           'count', 1,
-          'days', (end_date - start_date) + 1
+          'days', CASE 
+            WHEN lr.end_date >= lr.start_date 
+            THEN (lr.end_date - lr.start_date) + 1
+            ELSE lr.days_requested
+          END
         )) as leave_types
-      FROM leave_requests
-      WHERE group_admin_id = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '12 months'
-      GROUP BY user_id
+      FROM leave_requests lr
+      JOIN leave_types lt ON lr.leave_type_id = lt.id
+      JOIN users u ON lr.user_id = u.id
+      WHERE u.group_admin_id = $1
+      AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
+      GROUP BY lr.user_id
+    ),
+    leave_balance_data AS (
+      SELECT 
+        lb.user_id,
+        SUM(CASE WHEN lt.name ILIKE '%casual%' THEN (lb.total_days - lb.used_days - lb.pending_days) ELSE 0 END) as casual_leave_balance,
+        SUM(CASE WHEN lt.name ILIKE '%sick%' THEN (lb.total_days - lb.used_days - lb.pending_days) ELSE 0 END) as sick_leave_balance,
+        SUM(CASE WHEN lt.name ILIKE '%annual%' OR lt.name ILIKE '%privilege%' THEN (lb.total_days - lb.used_days - lb.pending_days) ELSE 0 END) as annual_leave_balance,
+        SUM(lb.total_days) as total_balance,
+        SUM(lb.used_days) as used_balance,
+        SUM(lb.pending_days) as pending_balance
+      FROM leave_balances lb
+      JOIN leave_types lt ON lb.leave_type_id = lt.id
+      JOIN users u ON lb.user_id = u.id
+      WHERE u.group_admin_id = $1
+      AND lb.year = EXTRACT(YEAR FROM CURRENT_DATE)
+      GROUP BY lb.user_id
     )
     SELECT 
       u.name as employee_name,
       COALESCE(lc.total_leaves, 0) as total_leaves,
       COALESCE(lc.approved_leaves, 0) as approved_leaves,
       COALESCE(lc.total_days, 0) as total_days,
-      COALESCE(lb.casual_leave, 0) as casual_leave_balance,
-      COALESCE(lb.sick_leave, 0) as sick_leave_balance,
-      COALESCE(lb.annual_leave, 0) as annual_leave_balance,
+      COALESCE(lb.casual_leave_balance, 0) as casual_leave_balance,
+      COALESCE(lb.sick_leave_balance, 0) as sick_leave_balance,
+      COALESCE(lb.annual_leave_balance, 0) as annual_leave_balance,
+      COALESCE(lb.total_balance, 0) as total_balance,
+      COALESCE(lb.used_balance, 0) as used_balance,
+      COALESCE(lb.pending_balance, 0) as pending_balance,
       COALESCE(lc.leave_types, '[]') as leave_types
     FROM users u
     LEFT JOIN leave_counts lc ON u.id = lc.user_id
-    LEFT JOIN leave_balances lb ON lb.group_admin_id = $1
+    LEFT JOIN leave_balance_data lb ON u.id = lb.user_id
     WHERE u.group_admin_id = $1
     AND u.role = 'employee'`,
     [adminId]
@@ -876,19 +905,20 @@ async function getLeaveReportData(client: PoolClient, adminId: string) {
   const recentLeaves = await client.query(`
     SELECT 
       u.name as employee_name,
-      l.leave_type as type,
-      l.start_date,
-      l.end_date,
+      lt.name as type,
+      lr.start_date,
+      lr.end_date,
       CASE 
-        WHEN l.end_date >= l.start_date 
-        THEN (l.end_date - l.start_date) + 1
+        WHEN lr.days_requested > 0 THEN lr.days_requested
+        WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
         ELSE 0
       END as days,
-      l.status
-    FROM leave_requests l
-    JOIN users u ON l.user_id = u.id
-    WHERE l.group_admin_id = $1
-    ORDER BY l.created_at DESC
+      lr.status
+    FROM leave_requests lr
+    JOIN users u ON lr.user_id = u.id
+    JOIN leave_types lt ON lr.leave_type_id = lt.id
+    WHERE u.group_admin_id = $1
+    ORDER BY lr.created_at DESC
     LIMIT 10`,
     [adminId]
   );
@@ -908,7 +938,7 @@ async function getLeaveReportData(client: PoolClient, adminId: string) {
       type: row.type,
       count: parseInt(row.count || '0'),
       totalDays: parseInt(row.total_days || '0'),
-      percentage: totalLeaves ? ((parseInt(row.count) / totalLeaves) * 100).toFixed(1) : '0'
+      percentage: totalLeaves ? Math.round((parseInt(row.count) / totalLeaves) * 100) : 0
     })),
     monthlyDistribution: monthlyDistribution.rows.map(row => ({
       month: row.month.trim(),
@@ -926,6 +956,9 @@ async function getLeaveReportData(client: PoolClient, adminId: string) {
         sick: parseInt(row.sick_leave_balance || '0'),
         annual: parseInt(row.annual_leave_balance || '0')
       },
+      totalBalance: parseInt(row.total_balance || '0'),
+      usedBalance: parseInt(row.used_balance || '0'),
+      pendingBalance: parseInt(row.pending_balance || '0'),
       leaveTypes: row.leave_types || []
     })),
     recentLeaves: recentLeaves.rows.map(row => ({

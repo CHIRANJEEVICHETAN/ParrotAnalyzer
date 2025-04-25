@@ -21,6 +21,15 @@ This document provides a comprehensive overview of the Parrot Analyzer API. It c
 13. [Additional Endpoints](#13-additional-endpoints)
     - [Schedule Management](#schedule-management)
     - [Notifications](#notifications)
+      - [General Notifications](#notifications)
+      - [Group Admin Notifications](#group-admin-notifications)
+        - [Task Assignment Notifications](#send-task-assignment-notification)
+        - [Leave Status Notifications](#send-leave-status-notification)
+        - [Management Notifications](#send-notification-to-management)
+      - [Management Notifications](#management-notifications)
+        - [User Notifications](#send-user-notifications)
+        - [Device Token Management](#device-token-management)
+        - [Notification Counts](#get-unread-notification-count)
     - [Super Admin Management](#super-admin-management)
     - [Group Admin Management](#group-admin-management)
     - [Employee Management](#employee-management)
@@ -908,6 +917,189 @@ Authorization: Bearer <token>
   - 404: Notification not found
   - 500: Failed to update notification
 
+### Group Admin Notifications
+
+#### Send Task Assignment Notification
+- *URL:* /api/group-admin-notifications/notify-task-assignment  
+- *Method:* POST  
+- *Description:* Sends a notification to an employee about a task assignment  
+- *Authentication:* Required (Group Admin)  
+- *Request Body:*
+  json
+  {
+    "employeeId": 123,
+    "taskDetails": {
+      "taskId": "456",
+      "title": "Complete Report",
+      "description": "Quarterly sales report",
+      "priority": "high",
+      "dueDate": "2024-03-30",
+      "isReassignment": false,
+      "formattedDueDate": "Mar 30, 2024"
+    }
+  }
+- *Response:*
+  json
+  {
+    "success": true,
+    "notificationId": 789
+  }
+- *Error Responses:*
+  - 400: Missing required parameters
+  - 401: Authentication required
+  - 403: Access restricted to group admins
+  - 500: Failed to send notification
+
+#### Send Leave Status Notification
+- *URL:* /api/group-admin-notifications/notify-leave-status  
+- *Method:* POST  
+- *Description:* Sends a notification about leave request status updates  
+- *Authentication:* Required (Group Admin)  
+- *Request Body:*
+  json
+  {
+    "employeeId": 123,
+    "status": "approved",
+    "leaveDetails": {
+      "start_date": "2024-03-25",
+      "end_date": "2024-03-27",
+      "leave_type_name": "Annual Leave",
+      "days_requested": 3
+    },
+    "reason": "Optional rejection reason"
+  }
+- *Response:*
+  json
+  {
+    "success": true,
+    "notificationId": 789
+  }
+- *Error Responses:*
+  - 400: Missing required parameters
+  - 401: Authentication required
+  - 403: Access restricted to group admins
+  - 500: Failed to send notification
+
+#### Send Notification to Management
+- *URL:* /api/group-admin-notifications/notify-admin  
+- *Method:* POST  
+- *Description:* Sends a notification to management personnel  
+- *Authentication:* Required (Group Admin)  
+- *Request Body:*
+  json
+  {
+    "title": "Leave Request Escalation",
+    "message": "Leave request requires your attention",
+    "type": "leave-escalation"
+  }
+- *Response:*
+  json
+  {
+    "success": true
+  }
+- *Error Responses:*
+  - 400: Missing required parameters
+  - 401: Authentication required
+  - 403: Access restricted to group admins
+  - 404: No management user found
+  - 500: Failed to send notification
+
+### Management Notifications
+
+#### Send User Notifications
+- *URL:* /api/management-notifications/send-users  
+- *Method:* POST  
+- *Description:* Sends notifications to specific users  
+- *Authentication:* Required (Management)  
+- *Request Body:*
+  json
+  {
+    "title": "Leave Request Status",
+    "message": "Your leave request has been processed",
+    "userIds": [123, 456],
+    "type": "leave-request-resolution",
+    "priority": "high",
+    "data": {
+      "screen": "/(dashboard)/employee/leave-insights",
+      "action": "approve",
+      "leaveId": 789
+    }
+  }
+- *Response:*
+  json
+  {
+    "success": true
+  }
+- *Error Responses:*
+  - 400: Missing required parameters
+  - 401: Authentication required
+  - 403: Access restricted to management
+  - 500: Failed to send notification
+
+#### Device Token Management
+
+##### Register Device Token
+- *URL:* /api/management-notifications/register-device  
+- *Method:* POST  
+- *Description:* Registers a device token for push notifications  
+- *Authentication:* Required  
+- *Request Body:*
+  json
+  {
+    "token": "expo-push-token",
+    "deviceType": "ios",
+    "deviceName": "iPhone 12"
+  }
+- *Response:*
+  json
+  {
+    "success": true,
+    "device": {
+      "id": 123,
+      "token": "expo-push-token",
+      "device_type": "ios",
+      "device_name": "iPhone 12"
+    }
+  }
+- *Error Responses:*
+  - 400: Token is required
+  - 401: Authentication required
+  - 500: Failed to register device
+
+##### Unregister Device Token
+- *URL:* /api/management-notifications/unregister-device  
+- *Method:* DELETE  
+- *Description:* Removes a device token from push notifications  
+- *Authentication:* Required  
+- *Request Body:*
+  json
+  {
+    "token": "expo-push-token"
+  }
+- *Response:*
+  json
+  {
+    "success": true
+  }
+- *Error Responses:*
+  - 400: Token is required
+  - 401: Authentication required
+  - 500: Failed to unregister device
+
+#### Get Unread Notification Count
+- *URL:* /api/management-notifications/unread-count  
+- *Method:* GET  
+- *Description:* Gets the count of unread notifications  
+- *Authentication:* Required  
+- *Response:*
+  json
+  {
+    "count": 5
+  }
+- *Error Responses:*
+  - 401: Authentication required
+  - 500: Failed to get unread count
+
 ---
 
 ### Super Admin Management
@@ -929,7 +1121,6 @@ Authorization: Bearer <token>
       "status": "active"
     }
   ]
-  
 - *Error Responses:*
   - 401: Authentication required
   - 403: Access denied. Super admin only.
@@ -947,7 +1138,6 @@ Authorization: Bearer <token>
   {
     "message": "User status updated successfully"
   }
-  
 - *Error Responses:*
   - 401: Authentication required
   - 403: Access denied. Super admin only.
@@ -979,7 +1169,6 @@ Authorization: Bearer <token>
       "shift_status": "active"
     }
   ]
-  
 - *Error Responses:*
   - 401: Authentication required
   - 403: Access denied. Group admin only.
@@ -1002,14 +1191,12 @@ Authorization: Bearer <token>
     "designation": "Sales Representative",
     "can_submit_expenses_anytime": true
   }
-  
 - *Response:*
   json
   {
     "id": "123",
     "message": "Employee created successfully"
   }
-  
 - *Error Responses:*
   - 400: Invalid input data
   - 401: Authentication required
@@ -1034,7 +1221,6 @@ Authorization: Bearer <token>
     "designation": "Sales Representative",
     "company_name": "Acme Inc"
   }
-  
 - *Error Responses:*
   - 401: Authentication required
   - 403: Access denied. Employee only.
@@ -1065,7 +1251,6 @@ Authorization: Bearer <token>
       "created_at": "2022-12-25T12:00:00Z"
     }
   ]
-  
 - *Error Responses:*
   - 401: Authentication required
   - 403: Access denied. Group admin only.
@@ -1084,13 +1269,11 @@ Authorization: Bearer <token>
     "status": "approved", // or "rejected"
     "rejection_reason": "Optional reason for rejection"
   }
-  
 - *Response:*
   json
   {
     "message": "Leave request status updated successfully"
   }
-  
 - *Error Responses:*
   - 400: Invalid status
   - 401: Authentication required
@@ -1117,7 +1300,6 @@ Authorization: Bearer <token>
     "used_sick": 2,
     "used_casual": 1
   }
-  
 - *Error Responses:*
   - 401: Authentication required
   - 500: Failed to fetch leave balance
@@ -1140,7 +1322,6 @@ Authorization: Bearer <token>
       "created_at": "2022-12-25T12:00:00Z"
     }
   ]
-  
 - *Error Responses:*
   - 401: Authentication required
   - 500: Failed to fetch leave history

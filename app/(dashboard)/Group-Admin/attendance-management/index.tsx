@@ -633,7 +633,14 @@ export default function AdminAttendanceManagement() {
                   },
                   {
                     label: 'Total Hours',
-                    value: `${Number(attendance.total_hours)?.toFixed(1) || '0.0'} hrs`,
+                    value: (() => {
+                      const hasActiveShift = attendance.shifts?.some(shift => !shift.shift_end);
+                      const hours = Number(attendance.total_hours);
+                      if (hasActiveShift || hours < 0) {
+                        return 'Ongoing';
+                      }
+                      return `${hours?.toFixed(1) || '0.0'} hrs`;
+                    })(),
                     icon: 'hourglass-outline'
                   },
                   {

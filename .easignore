@@ -9,7 +9,19 @@ backend/
 
 cursorUpdates/
 
+.cursorignore
+
 miscellaneous/
+
+documentation/
+
+database/
+
+.cursor/
+
+yarn.lock
+
+.vscode
 
 pacOld.json
 pacNew.json

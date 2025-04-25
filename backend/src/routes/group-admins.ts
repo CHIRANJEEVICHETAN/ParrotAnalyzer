@@ -164,25 +164,25 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
 router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    if (!['management', 'super-admin'].includes(req.user?.role || '')) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (!["management", "super-admin"].includes(req.user?.role || "")) {
+      return res.status(403).json({ error: "Access denied" });
     }
 
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ error: "No file uploaded" });
     }
 
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
     let companyId;
-    if (req.user?.role === 'super-admin') {
+    if (req.user?.role === "super-admin") {
       companyId = req.body.company_id;
       if (!companyId) {
-        return res.status(400).json({ error: 'Company ID is required' });
+        return res.status(400).json({ error: "Company ID is required" });
       }
     } else {
       const userResult = await client.query(
-        'SELECT company_id FROM users WHERE id = $1',
+        "SELECT company_id FROM users WHERE id = $1",
         [req.user?.id]
       );
       companyId = userResult.rows[0].company_id;
@@ -191,28 +191,31 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
     const fileContent = req.file.buffer.toString();
     const parsedRows: ParsedCSV = parse(fileContent, {
       skip_empty_lines: true,
-      trim: true
+      trim: true,
     });
 
     if (parsedRows.length < 2) {
-      return res.status(400).json({ error: 'File is empty or missing headers' });
+      return res
+        .status(400)
+        .json({ error: "File is empty or missing headers" });
     }
 
     // Check user limit before processing bulk creation
-    const { canAddUser, currentUserCount, userLimit, companyName } = await checkUserLimit(client, companyId);
+    const { canAddUser, currentUserCount, userLimit, companyName } =
+      await checkUserLimit(client, companyId);
     const newUsersCount = parsedRows.length - 1; // Subtract 1 for header row
 
     if (currentUserCount + newUsersCount > userLimit) {
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       return res.status(400).json({
-        error: 'User limit exceeded',
+        error: "User limit exceeded",
         details: {
           message: `Unable to create ${newUsersCount} group admins. Your company (${companyName}) would exceed its user limit.`,
           currentCount: currentUserCount,
           limit: userLimit,
           remainingSlots: userLimit - currentUserCount,
-          attemptedToAdd: newUsersCount
-        }
+          attemptedToAdd: newUsersCount,
+        },
       });
     }
 
@@ -222,29 +225,107 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
       headers[header.toLowerCase()] = index;
     });
 
+    // Validate required headers
+    const requiredHeaders = ["name", "email", "password", "gender"];
+    const missingHeaders = requiredHeaders.filter(
+      (header) => !(header in headers)
+    );
+    if (missingHeaders.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: "CSV file is missing required headers",
+        details: `Missing headers: ${missingHeaders.join(", ")}`,
+      });
+    }
+
+    // Check for duplicate emails in the CSV file
+    const emailSet = new Set();
+    const duplicateEmails: string[] = [];
+    for (let i = 1; i < parsedRows.length; i++) {
+      const email = parsedRows[i][headers["email"]]?.trim();
+      if (email) {
+        if (emailSet.has(email)) {
+          duplicateEmails.push(email);
+        } else {
+          emailSet.add(email);
+        }
+      }
+    }
+
+    if (duplicateEmails.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: "Duplicate emails found in CSV file",
+        details: duplicateEmails,
+      });
+    }
+
+    // Check for existing emails in the database
+    const emails = Array.from(emailSet);
+    if (emails.length > 0) {
+      const existingEmailsResult = await client.query(
+        `SELECT email FROM users WHERE email = ANY($1)`,
+        [emails]
+      );
+
+      if (existingEmailsResult.rows.length > 0) {
+        const existingEmails = existingEmailsResult.rows.map(
+          (row) => row.email
+        );
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "Emails already exist in the database",
+          details: existingEmails,
+        });
+      }
+    }
+
     const results = [];
     const errors = [];
+    let successCount = 0;
+
+    // Email validation regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     for (let i = 1; i < parsedRows.length; i++) {
       const row = parsedRows[i];
       try {
-        const groupAdmin = {
-          name: row[headers['name']]?.trim(),
-          email: row[headers['email']]?.trim(),
-          phone: row[headers['phone']]?.trim(),
-          password: row[headers['password']]?.trim(),
-          gender: row[headers['gender']]?.trim().toLowerCase()
-        };
-
-        if (!groupAdmin.name || !groupAdmin.email || !groupAdmin.password || !groupAdmin.gender) {
-          errors.push({ row: i + 1, error: 'Missing required fields' });
+        // Skip completely empty rows
+        if (row.every((cell) => !cell || cell.trim() === "")) {
           continue;
         }
 
-        // Validate gender value
-        const validGenders = ['male', 'female', 'other'];
-        if (!validGenders.includes(groupAdmin.gender)) {
-          errors.push({ row: i + 1, error: 'Invalid gender value' });
+        const groupAdmin = {
+          name: row[headers["name"]]?.trim(),
+          email: row[headers["email"]]?.trim(),
+          phone: row[headers["phone"]]?.trim(),
+          password: row[headers["password"]]?.trim(),
+          gender: row[headers["gender"]]?.trim().toLowerCase(),
+        };
+
+        // Validate required fields
+        const validationErrors = [];
+        if (!groupAdmin.name) validationErrors.push("Name is required");
+        if (!groupAdmin.email) validationErrors.push("Email is required");
+        else if (!emailRegex.test(groupAdmin.email))
+          validationErrors.push("Invalid email format");
+        if (!groupAdmin.password) validationErrors.push("Password is required");
+        else if (groupAdmin.password.length < 8)
+          validationErrors.push("Password must be at least 8 characters");
+        if (!groupAdmin.gender) validationErrors.push("Gender is required");
+        else {
+          const validGenders = ["male", "female", "other"];
+          if (!validGenders.includes(groupAdmin.gender)) {
+            validationErrors.push("Gender must be male, female, or other");
+          }
+        }
+
+        if (validationErrors.length > 0) {
+          errors.push({
+            row: i + 1,
+            error: validationErrors.join("; "),
+            email: groupAdmin.email || "N/A",
+          });
           continue;
         }
 
@@ -262,22 +343,83 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
             hashedPassword,
             companyId,
             groupAdmin.gender,
-            req.user?.id
+            req.user?.id,
           ]
         );
 
         results.push(result.rows[0]);
-      } catch (error) {
-        errors.push({ row: i + 1, error: 'Failed to create group admin' });
+        successCount++;
+      } catch (error: any) {
+        console.error(`Error processing row ${i + 1}:`, error);
+
+        let errorMessage = "Failed to create group admin";
+
+        // PostgreSQL error codes
+        if (error.code) {
+          switch (error.code) {
+            case "23505": // unique_violation
+              errorMessage = "Email already exists";
+              break;
+            case "23503": // foreign_key_violation
+              errorMessage = "Invalid reference (foreign key violation)";
+              break;
+            case "23502": // not_null_violation
+              errorMessage = "Missing required field";
+              break;
+            case "22001": // string_data_right_truncation
+              errorMessage = "Data too long for column";
+              break;
+            default:
+              errorMessage = `Database error: ${error.code}`;
+          }
+        }
+
+        // Include the original error detail if available
+        if (error.detail) {
+          errorMessage += ` - ${error.detail}`;
+        }
+
+        errors.push({
+          row: i + 1,
+          error: errorMessage,
+          email: row[headers["email"]]?.trim() || "N/A",
+        });
       }
     }
 
-    await client.query('COMMIT');
-    res.status(201).json({ success: results, errors });
-  } catch (error) {
+    if (successCount > 0) {
+      await client.query("COMMIT");
+      res.status(201).json({
+        success: results,
+        errors,
+        summary: {
+          total: parsedRows.length - 1,
+          success: successCount,
+          failed: errors.length,
+        },
+      });
+    } else if (errors.length > 0) {
+      await client.query("ROLLBACK");
+      res.status(400).json({
+        error: "Failed to create any group admins",
+        errors,
+        summary: {
+          total: parsedRows.length - 1,
+          success: 0,
+          failed: errors.length,
+        },
+      });
+    } else {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: "No valid data found in the CSV file" });
+    }
+  } catch (error: any) {
     await client.query('ROLLBACK');
     console.error('Error in bulk create:', error);
-    res.status(500).json({ error: 'Failed to process bulk creation' });
+    res.status(500).json({ 
+      error: 'Failed to process bulk creation',
+      details: error.message || 'Unknown server error'
+    });
   } finally {
     client.release();
   }

@@ -1,6 +1,10 @@
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
+
+const caPath = path.join(__dirname, 'ca.pem');
 
 
 dotenv.config();
@@ -8,8 +12,8 @@ dotenv.config();
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false
-  }
+    ca: fs.readFileSync(caPath).toString(),
+  },
 });
 
 // Database initialization functions

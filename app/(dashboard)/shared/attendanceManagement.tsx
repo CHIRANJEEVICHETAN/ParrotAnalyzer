@@ -131,16 +131,28 @@ export default function AttendanceManagement() {
           console.log(`Raw shift ${index + 1} times:`, {
             start: shift.shift_start,
             end: shift.shift_end,
+            expenses: shift.total_expenses,
+            distance: shift.total_distance
           });
         });
       });
 
       const data = response.data.reduce((acc: any, curr: AttendanceData) => {
         const localDate = format(new Date(curr.date), "yyyy-MM-dd");
+        
+        // Make sure shift expenses are properly preserved, whether ongoing or completed
+        const processedShifts = curr.shifts.map(shift => ({
+          ...shift,
+          total_expenses: parseNumber(shift.total_expenses), // Ensure proper parsing
+          total_distance: parseNumber(shift.total_distance), // Ensure proper parsing
+          total_hours: parseNumber(shift.total_hours) // Ensure proper parsing
+        }));
+        
         acc[localDate] = {
           ...curr,
           date: localDate,
-          shifts: curr.shifts,
+          shifts: processedShifts,
+          // Ensure all summary values are properly calculated
           total_hours: curr.total_hours,
           total_distance: curr.total_distance,
           total_expenses: curr.total_expenses,
@@ -153,13 +165,15 @@ export default function AttendanceManagement() {
       console.log("Processed attendance data:", data);
       (Object.values(data) as AttendanceData[]).forEach((day) => {
         day.shifts.forEach((shift, index) => {
-          console.log(`Processed shift ${index + 1} times:`, {
+          console.log(`Processed shift ${index + 1} details:`, {
             start: shift.shift_start,
             end: shift.shift_end,
             displayStart: shift.shift_start.substring(11, 19),
             displayEnd: shift.shift_end
               ? shift.shift_end.substring(11, 19)
               : "Ongoing",
+            expenses: shift.total_expenses,
+            distance: shift.total_distance
           });
         });
       });
@@ -179,15 +193,20 @@ export default function AttendanceManagement() {
 
   const calculateMonthStats = (data: AttendanceData[]) => {
     const stats = data.reduce(
-      (acc, curr) => ({
-        totalDays: acc.totalDays + 1,
-        totalHours:
-          acc.totalHours +
-          (parseFloat(curr.total_hours?.toString() || "0") || 0),
-        totalExpenses:
-          acc.totalExpenses +
-          (parseFloat(curr.total_expenses?.toString() || "0") || 0),
-      }),
+      (acc, curr) => {
+        // Parse and sum total expenses and hours for each day
+        // Ensure we're adding numbers, not strings
+        const dayExpenses = parseNumber(curr.total_expenses);
+        const dayHours = parseNumber(curr.total_hours);
+        
+        console.log(`Day expenses for ${curr.date}: ${dayExpenses}`);
+        
+        return {
+          totalDays: acc.totalDays + 1,
+          totalHours: acc.totalHours + dayHours,
+          totalExpenses: acc.totalExpenses + dayExpenses,
+        };
+      },
       { totalDays: 0, totalHours: 0, totalExpenses: 0 }
     );
 
@@ -258,9 +277,16 @@ export default function AttendanceManagement() {
   const parseNumber = (value: string | number | null): number => {
     if (value === null || value === undefined) return 0;
     if (typeof value === "string") {
-      return parseFloat(value) || 0;
+      const parsedValue = parseFloat(value);
+      console.log(`Parsing string value: ${value} => ${parsedValue || 0}`);
+      return parsedValue || 0;
     }
-    return value || 0;
+    if (typeof value === "number") {
+      console.log(`Already a number: ${value}`);
+      return value || 0;
+    }
+    console.log(`Unhandled value type: ${typeof value}, value: ${value}`);
+    return 0;
   };
 
   return (
@@ -487,10 +513,14 @@ export default function AttendanceManagement() {
                     }`}
                   >
                     ₹
-                    {parseNumber(
-                      attendanceData[format(selectedDate, "yyyy-MM-dd")]
-                        .total_expenses
-                    )?.toFixed(2) || "0.00"}
+                    {(() => {
+                      const expenseValue = parseNumber(
+                        attendanceData[format(selectedDate, "yyyy-MM-dd")]
+                          .total_expenses
+                      );
+                      console.log(`Displaying total expenses: ${expenseValue}`);
+                      return expenseValue.toFixed(2) || "0.00";
+                    })()}
                   </Text>
                 </View>
               </View>
@@ -565,10 +595,11 @@ export default function AttendanceManagement() {
                       },
                       {
                         label: "Expenses",
-                        value: `₹${
-                          parseNumber(shift.total_expenses)?.toFixed(2) ||
-                          "0.00"
-                        }`,
+                        value: `₹${(() => {
+                          const expValue = parseNumber(shift.total_expenses);
+                          console.log(`Rendering shift expenses: ${expValue}`);
+                          return expValue.toFixed(2) || "0.00";
+                        })()}`,
                         icon: "cash-outline" as keyof typeof Ionicons.glyphMap,
                       },
                     ].map((detail, detailIndex) => (

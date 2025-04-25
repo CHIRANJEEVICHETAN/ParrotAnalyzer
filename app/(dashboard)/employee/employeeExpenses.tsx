@@ -30,6 +30,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Modal from "react-native-modal";
+import numberToWords from "./components/NumberToWords";
 
 interface TravelDetail {
   id: number;
@@ -132,10 +133,10 @@ const calculateAverageSpeed = (
 };
 
 // Helper function to convert number to words
-const numberToWords = (num: number) => {
-  // Add implementation or use a library like 'number-to-words'
-  return "Implementation needed"; // Placeholder
+const convertNumberToWords = (num: number): string => {
+  return numberToWords(num);
 };
+
 
 export default function EmployeeExpenses() {
   const { theme } = ThemeContext.useTheme();
@@ -189,6 +190,7 @@ export default function EmployeeExpenses() {
   const [companyName, setCompanyName] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   // Calculated fields
   const totalExpenses = React.useMemo(() => {
@@ -374,6 +376,50 @@ export default function EmployeeExpenses() {
       setIsSubmitting(true);
       console.log("Starting expense submission...");
 
+      // First check if user can submit expenses anytime
+      const userPermissionsResponse = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/permissions`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      const canSubmitAnytime =
+        userPermissionsResponse.data?.permissions?.includes(
+          "can_submit_expenses_anytime"
+        ) || false;
+
+      // Only check for active shift if user cannot submit anytime
+      if (!canSubmitAnytime) {
+        // Check for active shift
+        const shiftStatus = await AsyncStorage.getItem(
+          `${user?.role}-shiftStatus`
+        );
+        console.warn("shiftStatus", shiftStatus);
+        if (!shiftStatus) {
+          setShowSuccessModal(false); // Ensure success modal is hidden
+          Alert.alert(
+            "No Active Shift",
+            "You must have an active shift to submit expenses. Please start a shift first.",
+            [{ text: "OK", style: "default" }]
+          );
+          setIsSubmitting(false);
+          return;
+        }
+
+        const { isActive } = JSON.parse(shiftStatus);
+        if (!isActive) {
+          setShowSuccessModal(false); // Ensure success modal is hidden
+          Alert.alert(
+            "No Active Shift",
+            "You must have an active shift to submit expenses. Please start a shift first.",
+            [{ text: "OK", style: "default" }]
+          );
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       // Validate employee details first
       if (
         !formData.employeeName ||
@@ -437,8 +483,13 @@ export default function EmployeeExpenses() {
       formDataToSend.append("tollCharges", formData.tollCharges);
       formDataToSend.append("otherExpenses", formData.otherExpenses);
       formDataToSend.append("advanceTaken", formData.advanceTaken);
-      formDataToSend.append("totalAmount", totalExpenses.toString());
-      formDataToSend.append("amountPayable", amountPayable.toString());
+      
+      // Use calculateTotalAmount and calculateAmountPayable which include saved expenses
+      const calculatedTotalAmount = calculateTotalAmount();
+      const calculatedAmountPayable = calculateAmountPayable();
+      
+      formDataToSend.append("totalAmount", calculatedTotalAmount.toString());
+      formDataToSend.append("amountPayable", calculatedAmountPayable.toString());
 
       // Add supporting documents
       formData.supportingDocs.forEach((doc, index) => {
@@ -493,7 +544,7 @@ export default function EmployeeExpenses() {
           message: `📊 Expense Details:\n🗓️ Date: ${format(
             formData.date,
             "dd/MM/yyyy"
-          )}\n💵 Total Amount: ₹${calculateTotalAmount()}\n🚗 Travel: ${
+          )}\n💵 Total Amount: ₹${calculatedTotalAmount.toFixed(2)}\n🚗 Travel: ${
             formData.totalKilometers
           }km\n📍 Route: ${formData.routeTaken}\n\n💼 Department: ${
             formData.department
@@ -952,25 +1003,7 @@ export default function EmployeeExpenses() {
 
   // Add this function to handle document upload options
   const handleDocumentUpload = () => {
-    Alert.alert(
-      "Upload Document",
-      "Choose upload method",
-      [
-        {
-          text: "Take Photo",
-          onPress: () => captureImage(),
-        },
-        {
-          text: "Choose from Gallery",
-          onPress: () => pickDocument(),
-        },
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-      ],
-      { cancelable: true }
-    );
+    setShowUploadModal(true);
   };
 
   // Add function to capture image using camera
@@ -986,7 +1019,7 @@ export default function EmployeeExpenses() {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         quality: 0.8,
         allowsEditing: true,
       });
@@ -1922,7 +1955,7 @@ export default function EmployeeExpenses() {
                 { color: theme === "dark" ? "#FFFFFF" : "#111827" },
               ]}
             >
-              ₹ {totalExpenses.toFixed(2)}
+              ₹ {calculateTotalAmount().toFixed(2)}
             </Text>
           </View>
 
@@ -1930,7 +1963,7 @@ export default function EmployeeExpenses() {
             <Text
               style={[
                 styles.label,
-                { color: theme === "dark" ? "#9CA3AF" : "#6B7280" },
+                { color: theme === "dark" ? "#9CA3AF" : "#6B7280", marginTop: 10 },
               ]}
             >
               Advance Taken (₹)
@@ -1964,15 +1997,15 @@ export default function EmployeeExpenses() {
                 { color: theme === "dark" ? "#9CA3AF" : "#6B7280" },
               ]}
             >
-              Amount {amountPayable >= 0 ? "Payable" : "Receivable"}
+              Amount {calculateAmountPayable() >= 0 ? "Payable" : "Receivable"}
             </Text>
             <Text
               style={[
                 styles.summaryValue,
-                { color: amountPayable >= 0 ? "#10B981" : "#EF4444" },
+                { color: calculateAmountPayable() >= 0 ? "#10B981" : "#EF4444" },
               ]}
             >
-              ₹ {Math.abs(amountPayable).toFixed(2)}
+              ₹ {Math.abs(calculateAmountPayable()).toFixed(2)}
             </Text>
           </View>
 
@@ -1991,7 +2024,7 @@ export default function EmployeeExpenses() {
                 { color: theme === "dark" ? "#FFFFFF" : "#111827" },
               ]}
             >
-              {numberToWords(Math.abs(amountPayable))} Rupees Only
+              {convertNumberToWords(Math.abs(calculateAmountPayable()))} Rupees Only
             </Text>
           </View>
         </View>
@@ -2084,6 +2117,7 @@ export default function EmployeeExpenses() {
         </TouchableOpacity>
       </ScrollView>
 
+      {/* Success Modal */}
       <Modal
         isVisible={showSuccessModal}
         backdropOpacity={0.5}
@@ -2117,6 +2151,145 @@ export default function EmployeeExpenses() {
           >
             Expense claim submitted successfully
           </Text>
+        </View>
+      </Modal>
+
+      {/* Document Upload Modal */}
+      <Modal
+        isVisible={showUploadModal}
+        backdropOpacity={0.5}
+        animationIn="slideInUp"
+        animationOut="slideOutDown"
+        useNativeDriver
+        onBackdropPress={() => setShowUploadModal(false)}
+        style={styles.modal}
+      >
+        <View
+          style={[
+            styles.uploadModal,
+            { backgroundColor: theme === "dark" ? "#1F2937" : "#FFFFFF" },
+          ]}
+        >
+          <View style={styles.uploadModalHeader}>
+            <Text
+              style={[
+                styles.uploadModalTitle,
+                { color: theme === "dark" ? "#FFFFFF" : "#111827" },
+              ]}
+            >
+              Upload Document
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowUploadModal(false)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name="close"
+                size={24}
+                color={theme === "dark" ? "#9CA3AF" : "#6B7280"}
+              />
+            </TouchableOpacity>
+          </View>
+          
+          <Text
+            style={[
+              styles.uploadModalSubtitle,
+              { color: theme === "dark" ? "#9CA3AF" : "#6B7280" },
+            ]}
+          >
+            Choose upload method
+          </Text>
+          
+          <TouchableOpacity
+            style={[
+              styles.uploadOption,
+              { backgroundColor: theme === "dark" ? "#374151" : "#F3F4F6" },
+            ]}
+            onPress={() => {
+              setShowUploadModal(false);
+              captureImage();
+            }}
+          >
+            <View style={styles.uploadOptionIcon}>
+              <Ionicons
+                name="camera"
+                size={24}
+                color={theme === "dark" ? "#3B82F6" : "#2563EB"}
+              />
+            </View>
+            <View style={styles.uploadOptionText}>
+              <Text
+                style={[
+                  styles.uploadOptionTitle,
+                  { color: theme === "dark" ? "#FFFFFF" : "#111827" },
+                ]}
+              >
+                Take Photo
+              </Text>
+              <Text
+                style={[
+                  styles.uploadOptionDescription,
+                  { color: theme === "dark" ? "#9CA3AF" : "#6B7280" },
+                ]}
+              >
+                Use your camera to take a new photo
+              </Text>
+            </View>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[
+              styles.uploadOption,
+              { backgroundColor: theme === "dark" ? "#374151" : "#F3F4F6" },
+            ]}
+            onPress={() => {
+              setShowUploadModal(false);
+              pickDocument();
+            }}
+          >
+            <View style={styles.uploadOptionIcon}>
+              <Ionicons
+                name="images"
+                size={24}
+                color={theme === "dark" ? "#10B981" : "#047857"}
+              />
+            </View>
+            <View style={styles.uploadOptionText}>
+              <Text
+                style={[
+                  styles.uploadOptionTitle,
+                  { color: theme === "dark" ? "#FFFFFF" : "#111827" },
+                ]}
+              >
+                Choose from Gallery
+              </Text>
+              <Text
+                style={[
+                  styles.uploadOptionDescription,
+                  { color: theme === "dark" ? "#9CA3AF" : "#6B7280" },
+                ]}
+              >
+                Select images or documents from your device
+              </Text>
+            </View>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[
+              styles.cancelButton,
+              { borderColor: theme === "dark" ? "#4B5563" : "#E5E7EB" },
+            ]}
+            onPress={() => setShowUploadModal(false)}
+          >
+            <Text
+              style={[
+                styles.cancelButtonText,
+                { color: theme === "dark" ? "#9CA3AF" : "#6B7280" },
+              ]}
+            >
+              Cancel
+            </Text>
+          </TouchableOpacity>
         </View>
       </Modal>
     </KeyboardAvoidingView>
@@ -2450,5 +2623,75 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     lineHeight: 24,
+  },
+  uploadModal: {
+    width: "90%",
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  uploadModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 16,
+  },
+  uploadModalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  uploadModalSubtitle: {
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  uploadOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    width: "100%",
+  },
+  uploadOptionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#F3F4F620",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  uploadOptionText: {
+    flex: 1,
+  },
+  uploadOptionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
+  uploadOptionDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  cancelButton: {
+    padding: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+    width: "100%",
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: "500",
   },
 });
