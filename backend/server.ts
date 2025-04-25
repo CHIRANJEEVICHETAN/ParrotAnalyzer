@@ -117,13 +117,13 @@ app.use(
 app.use(errorLogger);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 8080;
+const PORT = parseInt(process.env.PORT ?? "8080", 10);
 
 // Initialize database and start server
 initDB()
   .then(() => initExpensesTable())
   .then(() => {
-    httpServer.listen(PORT, () => {
+    httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
       console.log("Available routes:");
       console.log("- /auth/*");
