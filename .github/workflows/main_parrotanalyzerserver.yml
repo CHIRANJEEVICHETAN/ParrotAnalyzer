@@ -26,7 +26,7 @@ jobs:
       - name: Write Firebase service account key
         run: |
           mkdir -p backend/src/config
-          printf '%s' "${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}" > backend/src/config/admin-service-key.json
+          echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 -d > backend/src/config/admin-service-key.json
 
       # Step 3: Log in to Docker Hub
       - name: Log in to Docker Hub
