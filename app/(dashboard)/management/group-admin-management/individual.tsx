@@ -230,24 +230,33 @@ export default function IndividualUpload() {
                   backgroundColor: theme === 'dark' ? '#374151' : '#F9FAFB',
                   borderColor: validationErrors[field.key] ? '#EF4444' : (theme === 'dark' ? '#4B5563' : '#D1D5DB'),
                   padding: 0,
-                  overflow: 'hidden'
+                  overflow: 'hidden',
+                  height: 56
                 }
               ]}>
                 <Picker
                   selectedValue={formData[field.key as keyof GroupAdminFormData]}
                   onValueChange={(value: string) => setFormData(prev => ({ ...prev, [field.key]: value }))}
-                  style={{ 
-                    color: theme === 'dark' ? '#F9FAFB' : '#111827',
-                    height: 48,
-                  }}
+                  style={[
+                    { 
+                      color: theme === 'dark' ? '#FFFFFF' : '#000000',
+                      backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF',
+                      height: 56,
+                    }
+                  ]}
                   dropdownIconColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                  mode="dropdown"
                 >
                   {field.options?.map(option => (
                     <Picker.Item 
                       key={option.value} 
                       label={option.label} 
                       value={option.value}
-                      color={option.value === '' ? (theme === 'dark' ? '#9CA3AF' : '#6B7280') : undefined}
+                      color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                      style={{
+                        backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF',
+                        fontSize: 16,
+                      }}
                     />
                   ))}
                 </Picker>

@@ -448,30 +448,44 @@ export default function AddCompany() {
                               styles.picker,
                               {
                                 color: theme === 'dark' ? '#FFFFFF' : '#000000',
+                                backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF',
                               },
                               Platform.OS === 'android' && { marginRight: 0 }
                             ]}
                             dropdownIconColor={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                            mode="dropdown"
                           >
                             <Picker.Item 
                               label="Select Gender" 
                               value="" 
                               color={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
+                              style={{
+                                backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF',
+                              }}
                             />
                             <Picker.Item 
                               label="Male" 
                               value="male" 
                               color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                              style={{
+                                backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF',
+                              }}
                             />
                             <Picker.Item 
                               label="Female" 
                               value="female" 
                               color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                              style={{
+                                backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF',
+                              }}
                             />
                             <Picker.Item 
                               label="Other" 
                               value="other" 
                               color={theme === 'dark' ? '#FFFFFF' : '#000000'}
+                              style={{
+                                backgroundColor: theme === 'dark' ? '#374151' : '#FFFFFF',
+                              }}
                             />
                           </Picker>
                         </View>

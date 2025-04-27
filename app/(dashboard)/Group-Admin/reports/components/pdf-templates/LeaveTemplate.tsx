@@ -50,13 +50,29 @@ const getLeaveTypeColor = (leaveType: string): string => {
 };
 
 export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateOptions): string => {
-  // Extract data from the analytics
-  const sortedLeaveTypes = [...data.leaveTypes].sort((a, b) => b.request_count - a.request_count);
+  console.log('Generating leave report with data structure:', {
+    hasLeaveTypes: Array.isArray(data.leaveTypes),
+    employeeStatsCount: data.employeeStats?.length || 0,
+    hasBalances: !!data.balances,
+    hasMetrics: !!data.metrics
+  });
+
+  // Extract data from the analytics with safe fallbacks
+  const sortedLeaveTypes = [...(data.leaveTypes || [])].sort((a, b) => b.request_count - a.request_count);
   
   // Calculate rejected counts (not directly available in the metrics)
-  const rejectedCount = data.metrics.total_requests - 
-                      data.metrics.approved_requests - 
-                      data.metrics.pending_requests;
+  const metrics = data.metrics || {
+    total_requests: 0,
+    approved_requests: 0,
+    pending_requests: 0,
+    total_employees_on_leave: 0,
+    approval_rate: 0,
+    total_leave_days: 0
+  };
+  
+  const rejectedCount = metrics.total_requests - 
+                      metrics.approved_requests - 
+                      metrics.pending_requests;
   
   // Group leave types for visualization purposes (optional)
   const groupLeavesByCategory = () => {
@@ -70,7 +86,7 @@ export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateO
     };
     
     // Dynamically categorize leave types
-    data.leaveTypes.forEach(lt => {
+    (data.leaveTypes || []).forEach(lt => {
       const name = lt.leave_type.toLowerCase();
       if (name.includes('casual') || name.includes('sick') || name.includes('annual') || 
           name.includes('privilege') || name.includes('cl') || name.includes('sl') || 
@@ -97,15 +113,15 @@ export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateO
       <div class="stats-grid">
         <div class="stat-box">
           <div class="stat-label">Total Requests</div>
-          <div class="stat-value">${data.metrics.total_requests}</div>
+          <div class="stat-value">${metrics.total_requests}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Approved</div>
-          <div class="stat-value">${data.metrics.approved_requests}</div>
+          <div class="stat-value">${metrics.approved_requests}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Pending</div>
-          <div class="stat-value">${data.metrics.pending_requests}</div>
+          <div class="stat-value">${metrics.pending_requests}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Rejected</div>
@@ -116,19 +132,19 @@ export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateO
       <div class="stats-grid" style="margin-top: 20px;">
         <div class="stat-box">
           <div class="stat-label">Approval Rate</div>
-          <div class="stat-value">${data.metrics.approval_rate}%</div>
+          <div class="stat-value">${metrics.approval_rate}%</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Total Leave Days</div>
-          <div class="stat-value">${data.metrics.total_leave_days}</div>
+          <div class="stat-value">${metrics.total_leave_days}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Employees on Leave</div>
-          <div class="stat-value">${data.metrics.total_employees_on_leave}</div>
+          <div class="stat-value">${metrics.total_employees_on_leave}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Total Types</div>
-          <div class="stat-value">${data.leaveTypes.length}</div>
+          <div class="stat-value">${data.leaveTypes?.length || 0}</div>
         </div>
       </div>
 
@@ -147,7 +163,8 @@ export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateO
         </thead>
         <tbody>
           ${sortedLeaveTypes.map(type => {
-            const percentage = Math.round((type.request_count / data.metrics.total_requests) * 100) || 0;
+            const percentage = metrics.total_requests > 0 ? 
+              Math.round((type.request_count / metrics.total_requests) * 100) : 0;
             return `
               <tr>
                 <td>
@@ -200,7 +217,7 @@ export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateO
           </tr>
         </thead>
         <tbody>
-          ${data.employeeStats.map(emp => `
+          ${(data.employeeStats || []).map(emp => `
             <tr>
               <td>${emp.employee_name}</td>
               <td>${emp.total_requests}</td>
@@ -229,7 +246,7 @@ export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateO
           </div>
           <div class="stat-box">
             <div class="stat-label">Employee Count</div>
-            <div class="stat-value">${data.metrics.total_employees_on_leave || 0}</div>
+            <div class="stat-value">${metrics.total_employees_on_leave || 0}</div>
           </div>
         </div>
         
@@ -244,7 +261,7 @@ export const generateLeaveReport = (data: LeaveAnalyticsData, options: TemplateO
             </tr>
           </thead>
           <tbody>
-            ${data.balances.leave_types_balances.map((balance, index) => `
+            ${(data.balances.leave_types_balances || []).map((balance, index) => `
               <tr>
                 <td>
                   <div style="display: flex; align-items: center;">

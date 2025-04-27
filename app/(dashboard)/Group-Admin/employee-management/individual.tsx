@@ -279,7 +279,10 @@ export default function CreateEmployee() {
                     backgroundColor: isDark ? '#374151' : '#F9FAFB',
                     padding: 0,
                     overflow: 'hidden',
-                    borderRadius: 8
+                    borderRadius: 8,
+                    height: 56,
+                    borderColor: validationErrors[field.key] ? '#EF4444' : (isDark ? '#4B5563' : '#D1D5DB'),
+                    borderWidth: 1
                   }
                 ]}>
                   <Picker
@@ -290,22 +293,25 @@ export default function CreateEmployee() {
                         setValidationErrors(prev => ({ ...prev, [field.key]: '' }));
                       }
                     }}
-                    style={{ 
-                      color: isDark ? '#F9FAFB' : '#111827',
-                      height: 48,
-                      paddingLeft: 12
-                    }}
+                    style={[
+                      { 
+                        color: isDark ? '#FFFFFF' : '#000000',
+                        backgroundColor: isDark ? '#374151' : '#FFFFFF',
+                        height: 56,
+                      }
+                    ]}
                     dropdownIconColor={isDark ? '#9CA3AF' : '#6B7280'}
+                    mode="dropdown"
                   >
                     {field.options?.map(option => (
                       <Picker.Item 
                         key={option.value} 
                         label={option.label} 
                         value={option.value}
-                        color={option.value === '' ? (isDark ? '#9CA3AF' : '#6B7280') : undefined}
-                        style={{ 
-                          color: isDark ? '#F9FAFB' : '#111827',
-                          paddingLeft: 12
+                        color={isDark ? '#FFFFFF' : '#000000'}
+                        style={{
+                          backgroundColor: isDark ? '#374151' : '#FFFFFF',
+                          fontSize: 16
                         }}
                       />
                     ))}

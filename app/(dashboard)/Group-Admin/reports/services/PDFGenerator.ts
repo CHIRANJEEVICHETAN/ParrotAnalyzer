@@ -29,8 +29,58 @@ export class PDFGenerator {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = response.data;
-      const html = await this.generateHTMLContent(section, data);
+      let processedData = response.data;
+      
+      // Check if we're getting metadata instead of actual data for leave reports
+      if (section.type === 'leave' && processedData.hasLeaveTypes !== undefined) {
+        console.log('Getting full leave analytics data...');
+        try {
+          // Get the full data rather than just metadata
+          const fullDataResponse = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/reports/leave-analytics`, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          if (fullDataResponse.data) {
+            // Prepare template data with proper structure and default values
+            processedData = {
+              leaveTypes: fullDataResponse.data.leaveTypes || [],
+              employeeStats: fullDataResponse.data.employeeStats || [],
+              balances: fullDataResponse.data.balances || {
+                total_leave_balance: 0,
+                total_leave_used: 0,
+                total_leave_pending: 0,
+                leave_types_balances: []
+              },
+              monthlyTrend: fullDataResponse.data.trend || [],
+              metrics: fullDataResponse.data.metrics || {
+                total_employees_on_leave: 0,
+                total_requests: 0,
+                approved_requests: 0,
+                pending_requests: 0,
+                approval_rate: 0,
+                total_leave_days: 0
+              },
+              companyInfo: response.data.companyInfo || {},
+              adminName: response.data.adminName || 'Group Admin'
+            };
+            
+            console.log('Processed leave data structure:', {
+              hasLeaveTypes: Array.isArray(processedData.leaveTypes),
+              employeeStatsCount: processedData.employeeStats?.length || 0,
+              hasBalances: !!processedData.balances,
+              hasMetrics: !!processedData.metrics
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching full leave analytics data:', error);
+          throw new Error('Failed to fetch leave report data. Please try again.');
+        }
+      }
+
+      const html = await this.generateHTMLContent(section, processedData);
 
       // Generate PDF
       const { uri } = await Print.printToFileAsync({

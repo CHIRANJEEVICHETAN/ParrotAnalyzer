@@ -171,7 +171,8 @@ export default function SuperAdminDashboard() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            className="space-x-4 gap-4"
+            contentContainerStyle={{ paddingRight: 24 }}
+            className="flex-row"
           >
             {[
               { label: "Active Users", value: "1,234", trend: "+12%" },
@@ -181,7 +182,7 @@ export default function SuperAdminDashboard() {
             ].map((stat, index) => (
               <View
                 key={index}
-                className={`p-4 space-x-2 gap-2 rounded-xl ${
+                className={`p-4 rounded-xl mr-4 min-w-[140px] ${
                   theme === "dark" ? "bg-gray-800" : "bg-white"
                 }`}
                 style={styles.statCard}

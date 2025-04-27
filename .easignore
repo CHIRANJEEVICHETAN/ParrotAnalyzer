@@ -19,7 +19,6 @@ database/
 
 .cursor/
 
-yarn.lock
 
 .vscode
 
