@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { initDB, initExpensesTable } from "./src/config/database";
+import { initDB } from "./src/config/database";
 import authRoutes from "./src/routes/auth";
 import expenseRoutes from "./src/routes/expenses";
 import companyRoutes from "./src/routes/companies";
@@ -125,7 +125,6 @@ httpServer.listen(PORT, "0.0.0.0", () => {
 
 // Initialize database and start server
 initDB()
-  .then(() => initExpensesTable())
   .then(() => {
     console.log("Available routes:");
     console.log("- /auth/*");

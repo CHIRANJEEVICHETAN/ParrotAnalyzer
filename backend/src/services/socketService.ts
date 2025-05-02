@@ -130,7 +130,7 @@ class LocationSocketService {
 
   private setupEventHandlers() {
     this.io.on("connection", (socket) => {
-      console.log(`User connected: ${socket.data.user.id}`);
+      console.log(`Socket connected: ${socket.id} - User: ${socket.data.user?.id} - Role: ${socket.data.user?.role}`);
 
       // Join appropriate rooms based on user role
       this.handleRoomJoining(socket);
@@ -141,6 +141,15 @@ class LocationSocketService {
       // Handle location updates
       socket.on("location:update", async (data: any) => {
         try {
+          // Add more detailed logging
+          console.log(`Received location update from user ${socket.data.user?.id}`, {
+            coords: data.latitude && data.longitude 
+              ? `${data.latitude.toFixed(6)},${data.longitude.toFixed(6)}`
+              : 'Invalid coordinates',
+            timestamp: new Date().toISOString(),
+            eventName: "location:update"
+          });
+
           // Ensure data has the userId
           const locationUpdate: LocationUpdate = {
             ...data,
@@ -165,6 +174,30 @@ class LocationSocketService {
               error
             );
           }
+        }
+      });
+
+      // Add a backup event name to handle any client misconfiguration
+      socket.on("employee:location_update", async (data: any) => {
+        try {
+          console.log(`Received location update via alternate event from user ${socket.data.user?.id}`, {
+            timestamp: new Date().toISOString(),
+            eventName: "employee:location_update"
+          });
+
+          // Forward to standard handler
+          const locationUpdate: LocationUpdate = {
+            ...data,
+            userId: socket.data.user.id,
+          };
+          await this.handleLocationUpdate(socket, locationUpdate);
+        } catch (error: any) {
+          await this.errorLogger.logError(
+            error,
+            "AlternateLocationUpdate",
+            socket.data.user.id,
+            { locationData: data }
+          );
         }
       });
 
@@ -649,26 +682,37 @@ class LocationSocketService {
           },
         };
 
-        // Broadcast to the employee's room which admins have joined
-        this.io
-          .to(`employee:${userId}`)
-          .emit("employee:location_update", employeeLocationData);
+        // Get list of subscribers for this employee
+        const subscribers = await this.getEmployeeSubscribers(userId);
+        
+        // Log detailed information about the broadcast
+        console.log(`Broadcasting location for employee ${userId} to:`, {
+          adminCount: subscribers.length,
+          roomCount: this.io.sockets.adapter.rooms.get(`employee:${userId}`)?.size || 0,
+          batteryLevel: location.batteryLevel,
+          isMoving: location.isMoving,
+          trackingActive: location.is_tracking_active,
+          timestamp: new Date().toISOString()
+        });
 
-        // Broadcast to group admin room if available
+        // Broadcast to all relevant rooms using SAME EVENT NAME to ensure consistency
+        
+        // 1. Broadcast to employee's own room for immediate UI updates
+        this.io.to(`employee:${userId}`).emit("employee:location_update", employeeLocationData);
+
+        // 2. Broadcast to group admin specific room for this employee
+        // NOTE: This is the key event that needs to match the admin subscription
+        this.io.to(`employee:${userId}`).emit("employee:location_update", employeeLocationData);
+
+        // 3. Broadcast to group admin room if available
         if (user.group_admin_id) {
-          this.io
-            .to(`admin:${user.group_admin_id}`)
-            .emit("employee:location_update", employeeLocationData);
-          this.io
-            .to(`group-admin:${user.group_admin_id}`)
-            .emit("employee:location_update", employeeLocationData);
+          this.io.to(`admin:${user.group_admin_id}`).emit("employee:location_update", employeeLocationData);
+          this.io.to(`group-admin:${user.group_admin_id}`).emit("employee:location_update", employeeLocationData);
         }
 
-        // Broadcast to company room if available
+        // 4. Broadcast to company room if available
         if (user.company_id) {
-          this.io
-            .to(`company:${user.company_id}`)
-            .emit("employee:location_update", employeeLocationData);
+          this.io.to(`company:${user.company_id}`).emit("employee:location_update", employeeLocationData);
         }
 
         // Cache in Redis with TTL
@@ -702,7 +746,14 @@ class LocationSocketService {
       }
     } catch (error) {
       console.error("Error broadcasting location update:", error);
-      throw error;
+      
+      // Don't throw error to prevent breaking the app flow
+      // Instead, log to error monitoring and continue
+      this.errorLogger.logError(
+        error instanceof Error ? error : new Error(String(error)), 
+        "BroadcastLocation", 
+        socket?.data?.user?.id
+      );
     }
   }
 
@@ -837,6 +888,58 @@ class LocationSocketService {
         locationData: data,
       });
       socket.emit("error", { message: error.message || "Failed to end shift" });
+    }
+  }
+
+  // Add this helper method to better track subscribers
+  private async getEmployeeSubscribers(employeeId: number): Promise<number[]> {
+    try {
+      // Get group admin and management for this employee
+      const userResult = await pool.query(
+        `SELECT 
+          u.group_admin_id, 
+          u.management_id,
+          u.company_id
+        FROM users u
+        WHERE u.id = $1`,
+        [employeeId]
+      );
+
+      if (userResult.rows.length === 0) {
+        return [];
+      }
+
+      const { group_admin_id, management_id, company_id } = userResult.rows[0];
+      const subscribers: number[] = [];
+
+      // Add group admin if exists
+      if (group_admin_id) {
+        subscribers.push(group_admin_id);
+      }
+
+      // Add management if exists
+      if (management_id) {
+        subscribers.push(management_id);
+      }
+
+      // Get super admins and company admins
+      const adminResult = await pool.query(
+        `SELECT id FROM users 
+         WHERE (role = 'Admin' OR role = 'SuperAdmin')
+         AND (company_id = $1 OR role = 'SuperAdmin')`,
+        [company_id]
+      );
+
+      // Add admin IDs
+      for (const row of adminResult.rows) {
+        subscribers.push(row.id);
+      }
+
+      console.log(`Found ${subscribers.length} subscribers for employee ${employeeId}`);
+      return subscribers;
+    } catch (error) {
+      console.error(`Error getting employee subscribers:`, error);
+      return [];
     }
   }
 }

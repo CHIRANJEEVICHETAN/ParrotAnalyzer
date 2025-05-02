@@ -1,9 +1,10 @@
 // Import environment variables directly
 import 'dotenv/config';
-import { ExpoConfig } from '@expo/config-types';
+import { ExpoConfig, ConfigContext } from 'expo/config';
 
 // Define the configuration as a function that returns the ExpoConfig
-export default (): ExpoConfig => ({
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...config,
   name: "Parrot Analyzer",
   slug: "parraotanalyzer",
   version: "1.1.0",
@@ -11,22 +12,20 @@ export default (): ExpoConfig => ({
   icon: "./assets/images/icon.png",
   scheme: "myapp",
   userInterfaceStyle: "automatic",
+  assetBundlePatterns: ['**/*'],
   newArchEnabled: true,
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.loginware.parrotanalyzer",
-    googleServicesFile: "./constants/GoogleService-Info.plist",
+    bundleIdentifier: 'com.parrotanalyzer.app',
+    buildNumber: '4',
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
-        "This app needs access to location to track users in real-time.",
+        'Parrot Analyzer needs your location to track attendance, calculate travel distance, and provide location-based insights.',
       NSLocationAlwaysAndWhenInUseUsageDescription:
-        "This app needs access to location to track users in real-time, even when the app is in the background.",
+        'Parrot Analyzer needs to access your location in the background to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.',
       NSLocationAlwaysUsageDescription:
-        "This app needs access to location to track users in real-time, even when the app is in the background.",
-      UIBackgroundModes: ["location", "fetch"],
-    },
-    config: {
-      googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
+        'Parrot Analyzer needs background location access to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.',
+      UIBackgroundModes: ['location', 'fetch'],
     },
   },
   android: {
@@ -42,22 +41,16 @@ export default (): ExpoConfig => ({
       },
     },
     permissions: [
-      "ACCESS_COARSE_LOCATION",
-      "ACCESS_FINE_LOCATION",
-      "ACCESS_BACKGROUND_LOCATION",
-      "FOREGROUND_SERVICE",
-      "WAKE_LOCK",
+      'ACCESS_COARSE_LOCATION',
+      'ACCESS_FINE_LOCATION',
+      'ACCESS_BACKGROUND_LOCATION',
+      'FOREGROUND_SERVICE',
+      'FOREGROUND_SERVICE_LOCATION',
+      'WAKE_LOCK',
+      'REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
     ],
-    // @ts-ignore: Expo prebuild supports `foregroundServices`
-    foregroundServices: [
-      {
-        tag: "background-location-tracking",
-        notificationTitle: "Parrot Analyzer is tracking your location",
-        notificationBody:
-          "To stop tracking, open the app and turn off tracking",
-        importance: "high",
-      },
-    ],
+    // @ts-ignore: foregroundServices is supported by Expo but not typed correctly
+    foregroundServices: ['location'],
   },
   web: {
     bundler: "metro",
@@ -103,17 +96,16 @@ export default (): ExpoConfig => ({
       "expo-location",
       {
         locationAlwaysAndWhenInUsePermission:
-          "Allow ParrotAnalyzer to use your location for real-time tracking.",
+          'Allow Parrot Analyzer to use your location to track attendance, calculate travel distance, and provide location-based insights.',
         locationAlwaysPermission:
-          "Allow ParrotAnalyzer to use your location in the background for real-time tracking.",
+          'Allow Parrot Analyzer to use your location in the background to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.',
         locationWhenInUsePermission:
-          "Allow ParrotAnalyzer to use your location.",
+          'Allow Parrot Analyzer to use your location to track attendance, calculate travel distance, and provide location-based insights.',
         isIosBackgroundLocationEnabled: true,
         isAndroidBackgroundLocationEnabled: true,
         isAndroidForegroundServiceEnabled: true,
       },
     ],
-    "expo-task-manager",
   ],
   experiments: {
     typedRoutes: true,
@@ -131,4 +123,7 @@ export default (): ExpoConfig => ({
     apiUrl: process.env.EXPO_PUBLIC_API_URL,
   },
   owner: "loginware",
+  runtimeVersion: {
+    policy: 'sdkVersion',
+  },
 });

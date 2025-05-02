@@ -29,6 +29,7 @@ import { useGeofencing } from "../../hooks/useGeofencing";
 import useLocationStore from "../../store/locationStore";
 import * as Location from "expo-location";
 import { useFocusEffect } from "@react-navigation/native";
+import { Location as AppLocation } from "../../types/liveTracking";
 
 interface ShiftData {
   date: string;
@@ -459,6 +460,35 @@ const getBatteryLevel = (location: any): number | undefined => {
   }
 
   return undefined;
+};
+
+// Create a helper function to convert EnhancedLocation to Location
+// Add this after the formatCoordinates function (around line 90)
+const convertToLocation = (enhancedLocation: any): AppLocation | null => {
+  if (!enhancedLocation) return null;
+  
+  // If it already has the format of our Location type
+  if (typeof enhancedLocation.latitude === 'number') {
+    return enhancedLocation as AppLocation;
+  }
+  
+  // If it has coords structure (EnhancedLocation), extract needed properties
+  if (enhancedLocation.coords) {
+    return {
+      latitude: enhancedLocation.coords.latitude,
+      longitude: enhancedLocation.coords.longitude,
+      accuracy: enhancedLocation.coords.accuracy || null,
+      altitude: enhancedLocation.coords.altitude || null,
+      altitudeAccuracy: enhancedLocation.coords.altitudeAccuracy || null,
+      heading: enhancedLocation.coords.heading || null,
+      speed: enhancedLocation.coords.speed || null,
+      timestamp: enhancedLocation.timestamp || Date.now(),
+      batteryLevel: enhancedLocation.batteryLevel,
+      isMoving: enhancedLocation.isMoving
+    };
+  }
+  
+  return null;
 };
 
 export default function EmployeeShiftTracker() {
@@ -1288,7 +1318,21 @@ export default function EmployeeShiftTracker() {
     setShowWarningModal(true);
   }, []);
 
-  // Update the validateLocationForShift function
+  // Add this helper function to safely get location
+  const safeGetCurrentLocation = async (): Promise<AppLocation | null> => {
+    try {
+      // Get the location from the hook
+      const locationResult = await getCurrentLocation();
+      
+      // Convert it to our app location format
+      return locationResult ? convertToLocation(locationResult) : null;
+    } catch (error) {
+      console.error("Error getting current location:", error);
+      return null;
+    }
+  };
+
+  // Update the validateLocationForShift function to use safeGetCurrentLocation
   const validateLocationForShift = async (): Promise<boolean> => {
     // Management and group-admin roles don't need location validation
     if (user?.role === 'management' || user?.role === 'group-admin') {
@@ -1308,22 +1352,22 @@ export default function EmployeeShiftTracker() {
       }
 
       // Try to use cached location first if it's recent enough (last 30 seconds)
-      let location = currentLocation;
+      let appLocation = currentLocation;
       if (
-        !location ||
-        !location.timestamp ||
-        new Date().getTime() - new Date(location.timestamp).getTime() > 30000
+        !appLocation ||
+        !appLocation.timestamp ||
+        new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000
       ) {
         // Get fresh location if cached one is old or missing
-        location = await getCurrentLocation();
+        const appLocation = await safeGetCurrentLocation();
       }
 
-      if (!location) {
+      if (!appLocation) {
         throw new Error("Unable to determine your current location");
       }
 
       // Check if location is within a geofence
-      const isInside = isLocationInAnyGeofence(location);
+      const isInside = isLocationInAnyGeofence(appLocation);
 
       // Implementation of new permission logic:
       // 1. If user is inside geofence: Allow regardless of permission
@@ -2439,7 +2483,8 @@ export default function EmployeeShiftTracker() {
                           const location = await getCurrentLocation();
                           if (location) {
                             // Update geofence status
-                            const isInside = isLocationInAnyGeofence(location);
+                            const locationForGeofenceCheck = convertToLocation(location) as AppLocation | null;
+                            const isInside = locationForGeofenceCheck !== null ? isLocationInAnyGeofence(locationForGeofenceCheck) : false;
                             console.log(
                               "Location enabled, updated geofence status:",
                               { isInside, location }

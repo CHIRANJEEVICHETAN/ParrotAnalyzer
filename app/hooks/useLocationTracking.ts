@@ -92,12 +92,15 @@ export function useLocationTracking({
               
               if (diff < hourInMs) {
                 setCurrentLocation({
-                  latitude: lastLocation.latitude,
-                  longitude: lastLocation.longitude,
-                  accuracy: lastLocation.accuracy,
-                  altitude: lastLocation.altitude,
-                  heading: lastLocation.heading,
-                  speed: lastLocation.speed,
+                  coords: {
+                    latitude: lastLocation.latitude,
+                    longitude: lastLocation.longitude,
+                    accuracy: lastLocation.accuracy,
+                    altitude: lastLocation.altitude || null,
+                    altitudeAccuracy: lastLocation.altitudeAccuracy || null,
+                    heading: lastLocation.heading || null,
+                    speed: lastLocation.speed || null,
+                  },
                   timestamp: lastLocation.timestamp,
                   batteryLevel: lastLocation.batteryLevel,
                   isMoving: lastLocation.isMoving
@@ -287,12 +290,15 @@ export function useLocationTracking({
                 try {
                   const lastLocation = JSON.parse(lastLocationStr);
                   setCurrentLocation({
-                    latitude: lastLocation.latitude,
-                    longitude: lastLocation.longitude,
-                    accuracy: lastLocation.accuracy,
-                    altitude: lastLocation.altitude,
-                    heading: lastLocation.heading,
-                    speed: lastLocation.speed,
+                    coords: {
+                      latitude: lastLocation.latitude,
+                      longitude: lastLocation.longitude,
+                      accuracy: lastLocation.accuracy,
+                      altitude: lastLocation.altitude || null,
+                      altitudeAccuracy: lastLocation.altitudeAccuracy || null,
+                      heading: lastLocation.heading || null,
+                      speed: lastLocation.speed || null,
+                    },
                     timestamp: lastLocation.timestamp,
                     batteryLevel: lastLocation.batteryLevel,
                     isMoving: lastLocation.isMoving,
@@ -376,21 +382,38 @@ export function useLocationTracking({
     (location: Location.LocationObject): LocationType => {
       const { coords, timestamp } = location;
 
-      // Format as our location type
+      // Format as our location type with the correct structure
       const processedLocation: LocationType = {
         latitude: coords.latitude,
         longitude: coords.longitude,
         accuracy: coords.accuracy,
-        altitude: coords.altitude,
-        heading: coords.heading,
-        speed: coords.speed,
+        altitude: coords.altitude || null,
+        altitudeAccuracy: coords.altitudeAccuracy || null,
+        heading: coords.heading || null,
+        speed: coords.speed || null,
         timestamp: new Date(timestamp).toISOString(),
         batteryLevel: undefined, // Will be added by the server
         isMoving: coords.speed !== null && coords.speed > 0.5, // Consider moving if speed > 0.5 m/s
       };
 
-      // Update stores
-      setCurrentLocation(processedLocation);
+      // Create enhanced location with coords property for setCurrentLocation
+      const enhancedLocation = {
+        coords: {
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy || 0,
+          altitude: coords.altitude || null,
+          altitudeAccuracy: coords.altitudeAccuracy || null,
+          heading: coords.heading || null,
+          speed: coords.speed || null,
+        },
+        timestamp: timestamp,
+        batteryLevel: processedLocation.batteryLevel,
+        isMoving: processedLocation.isMoving
+      };
+
+      // Update stores with correctly structured enhanced location
+      setCurrentLocation(enhancedLocation);
 
       // Add to history if user ID exists
       if (user && user.id) {
@@ -403,7 +426,29 @@ export function useLocationTracking({
           locations: [processedLocation], // Include the current location in the history
         };
 
-        addLocationToHistory(historyItem);
+        // Convert the history item for proper type handling
+        const historyItemForStore = {
+          coords: {
+            latitude: processedLocation.latitude,
+            longitude: processedLocation.longitude,
+            accuracy: processedLocation.accuracy || 0,
+            altitude: processedLocation.altitude || null,
+            altitudeAccuracy: null, // Not usually available in our history format
+            heading: processedLocation.heading || null,
+            speed: processedLocation.speed || null,
+          },
+          timestamp: typeof processedLocation.timestamp === 'string' 
+            ? new Date(processedLocation.timestamp).getTime() 
+            : processedLocation.timestamp || Date.now(),
+          id: historyItem.id,
+          userId: historyItem.userId,
+          sessionId: historyItem.sessionId,
+          startTime: historyItem.startTime,
+          batteryLevel: processedLocation.batteryLevel,
+          isMoving: processedLocation.isMoving
+        };
+
+        addLocationToHistory(historyItemForStore);
       }
 
       // Send to server if connected
@@ -542,7 +587,7 @@ export function useLocationTracking({
   ]);
 
   // Get current location once
-  const getCurrentLocation = useCallback(async (): Promise<LocationType | null> => {
+  const getCurrentLocation = useCallback(async (): Promise<Location.LocationObject | null> => {
     try {
       // Check permissions first
       const hasPermission = await requestPermissions();
@@ -556,7 +601,25 @@ export function useLocationTracking({
         accuracy: accuracyMap[locationAccuracy]
       });
       
-      return processLocation(location);
+      // Create the enhanced location
+      const enhancedLocation = {
+        coords: {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          accuracy: location.coords.accuracy || 0,
+          altitude: location.coords.altitude || null,
+          altitudeAccuracy: location.coords.altitudeAccuracy || null,
+          heading: location.coords.heading || null,
+          speed: location.coords.speed || null,
+        },
+        timestamp: location.timestamp
+      };
+      
+      // Process and update state
+      processLocation(location);
+      
+      // Return the original location object for compatibility
+      return location;
     } catch (error: any) {
       const errorMsg = error.message || 'Failed to get current location';
       setError(errorMsg);

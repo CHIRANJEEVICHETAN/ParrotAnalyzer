@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { Location, ShiftLocation } from '../types/liveTracking';
+import { Location as AppLocation, ShiftLocation } from '../types/liveTracking';
 import { useLocationTracking } from './useLocationTracking';
 import { useSocket } from './useSocket';
 import { useGeofencing } from './useGeofencing';
+import * as ExpoLocation from 'expo-location';
 
 interface UseShiftManagementOptions {
   onShiftStart?: (shiftData: ShiftLocation) => void;
@@ -14,6 +15,19 @@ interface UseShiftManagementOptions {
 }
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+// Helper function to convert from Expo LocationObject to our Location type
+const convertLocation = (location: ExpoLocation.LocationObject): AppLocation => {
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+    accuracy: location.coords.accuracy || undefined,
+    altitude: location.coords.altitude || undefined,
+    heading: location.coords.heading || undefined,
+    speed: location.coords.speed || undefined,
+    timestamp: location.timestamp,
+  };
+};
 
 export function useShiftManagement({
   onShiftStart,
@@ -26,7 +40,7 @@ export function useShiftManagement({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const { startShift: socketStartShift, endShift: socketEndShift } = useSocket();
+  const { isConnected, emitLocation, socket } = useSocket();
   const { getCurrentLocation } = useLocationTracking();
   const { isLocationInAnyGeofence } = useGeofencing();
 
@@ -73,11 +87,14 @@ export function useShiftManagement({
     
     try {
       // Get current location
-      const currentLocation = await getCurrentLocation();
+      const expoLocation = await getCurrentLocation();
       
-      if (!currentLocation) {
+      if (!expoLocation) {
         throw new Error('Unable to get current location. Please check your location settings.');
       }
+      
+      // Convert to our Location type
+      const currentLocation = convertLocation(expoLocation);
       
       // Check if in geofence
       const inGeofence = isLocationInAnyGeofence(currentLocation);
@@ -132,12 +149,14 @@ export function useShiftManagement({
   }, [isShiftActive, getCurrentLocation, isLocationInAnyGeofence, onError]);
 
   // Helper function to complete shift start
-  const completeShiftStart = useCallback(async (location: Location): Promise<void> => {
+  const completeShiftStart = useCallback(async (location: AppLocation): Promise<void> => {
     // Send to socket
-    socketStartShift({
-      latitude: location.latitude,
-      longitude: location.longitude
-    });
+    if (socket && isConnected) {
+      socket.emit('shift:start', {
+        latitude: location.latitude,
+        longitude: location.longitude
+      });
+    }
     
     // Also send to REST API for redundancy
     try {
@@ -173,7 +192,7 @@ export function useShiftManagement({
       console.error('Error starting shift via API:', error);
       throw error;
     }
-  }, [token, socketStartShift, onShiftStart]);
+  }, [token, socket, isConnected, onShiftStart]);
 
   // End the current shift
   const endShift = useCallback(async (): Promise<boolean> => {
@@ -187,11 +206,14 @@ export function useShiftManagement({
     
     try {
       // Get current location
-      const currentLocation = await getCurrentLocation();
+      const expoLocation = await getCurrentLocation();
       
-      if (!currentLocation) {
+      if (!expoLocation) {
         throw new Error('Unable to get current location. Please check your location settings.');
       }
+      
+      // Convert to our Location type
+      const currentLocation = convertLocation(expoLocation);
       
       // Check if in geofence
       const inGeofence = isLocationInAnyGeofence(currentLocation);
@@ -246,12 +268,14 @@ export function useShiftManagement({
   }, [isShiftActive, getCurrentLocation, isLocationInAnyGeofence, onError]);
 
   // Helper function to complete shift end
-  const completeShiftEnd = useCallback(async (location: Location): Promise<void> => {
+  const completeShiftEnd = useCallback(async (location: AppLocation): Promise<void> => {
     // Send to socket
-    socketEndShift({
-      latitude: location.latitude,
-      longitude: location.longitude
-    });
+    if (socket && isConnected) {
+      socket.emit('shift:end', {
+        latitude: location.latitude,
+        longitude: location.longitude
+      });
+    }
     
     // Also send to REST API for redundancy
     try {
@@ -292,7 +316,7 @@ export function useShiftManagement({
       console.error('Error ending shift via API:', error);
       throw error;
     }
-  }, [token, socketEndShift, onShiftEnd]);
+  }, [token, socket, isConnected, onShiftEnd]);
 
   // Get shift history
   const getShiftHistory = useCallback(async (

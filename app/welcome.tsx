@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import "./../app/utils/backgroundLocationTask";
 import { View, Text, TouchableOpacity, Animated, Image, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from './context/ThemeContext';

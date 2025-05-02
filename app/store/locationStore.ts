@@ -9,12 +9,13 @@ import {
   TrackingUser,
   GeofenceRegion
 } from '../types/liveTracking';
+import { LocationObject } from 'expo-location';
 
 // Extended interface to include LiveTracking state
 interface LocationState {
   // Current state
-  currentLocation: Location | null;
-  locationHistory: LocationHistory[];
+  currentLocation: EnhancedLocation | null;
+  locationHistory: EnhancedLocation[];
   trackingStatus: TrackingStatus;
   locationAccuracy: LocationAccuracy;
   batteryLevel: number;
@@ -42,8 +43,8 @@ interface LocationState {
   selectedUser: TrackingUser | null;
   
   // Actions
-  setCurrentLocation: (location: Location) => void;
-  addLocationToHistory: (location: LocationHistory) => void;
+  setCurrentLocation: (location: EnhancedLocation) => void;
+  addLocationToHistory: (location: EnhancedLocation) => void;
   clearLocationHistory: () => void;
   setTrackingStatus: (status: TrackingStatus) => void;
   setLocationAccuracy: (accuracy: LocationAccuracy) => void;
@@ -59,6 +60,39 @@ interface LocationState {
   // Live tracking actions (added for compatibility)
   setSelectedUser: (user: TrackingUser) => void;
   setTrackedUsers: (users: TrackingUser[]) => void;
+  
+  // Queue management
+  pendingLocations: EnhancedLocation[];
+  addPendingLocation: (location: EnhancedLocation) => void;
+  removePendingLocations: (locations: EnhancedLocation[]) => void;
+  clearPendingLocations: () => void;
+  
+  // Error tracking
+  lastError: string | null;
+  setLastError: (error: string | null) => void;
+  
+  // Stats
+  totalLocationsRecorded: number;
+  totalLocationsSent: number;
+  incrementTotalLocationsRecorded: () => void;
+  incrementTotalLocationsSent: (count: number) => void;
+  resetStats: () => void;
+}
+
+export interface EnhancedLocation extends LocationObject {
+  // Add standard location properties for direct access (backwards compatibility)
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  altitude?: number | null;
+  altitudeAccuracy?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  // Additional properties
+  batteryLevel?: number;
+  isMoving?: boolean;
+  address?: string;
+  recordedAt?: string;
 }
 
 const useLocationStore = create<LocationState>()(
@@ -94,14 +128,14 @@ const useLocationStore = create<LocationState>()(
       selectedUser: null,
       
       // Actions
-      setCurrentLocation: (location: Location) => {
+      setCurrentLocation: (location) => {
         set({
           currentLocation: location,
           lastUpdated: new Date().toISOString(),
         });
       },
       
-      addLocationToHistory: (location: LocationHistory) => {
+      addLocationToHistory: (location) => {
         const history = [...get().locationHistory];
         
         // Add to beginning of array
@@ -117,7 +151,7 @@ const useLocationStore = create<LocationState>()(
       
       clearLocationHistory: () => set({ locationHistory: [] }),
       
-      setTrackingStatus: (status: TrackingStatus) => {
+      setTrackingStatus: (status) => {
         set({ trackingStatus: status });
         
         // Reset error when tracking is started
@@ -169,6 +203,40 @@ const useLocationStore = create<LocationState>()(
       // Added for compatibility
       setSelectedUser: (user: TrackingUser) => set({ selectedUser: user }),
       setTrackedUsers: (users: TrackingUser[]) => set({ trackedUsers: users }),
+      
+      // Queue management
+      pendingLocations: [],
+      addPendingLocation: (location) => {
+        const pending = get().pendingLocations;
+        set({ 
+          pendingLocations: [...pending, location],
+          totalLocationsRecorded: get().totalLocationsRecorded + 1
+        });
+      },
+      removePendingLocations: (locations) => {
+        const pending = get().pendingLocations;
+        const locationTimestamps = locations.map(l => l.timestamp);
+        set({ 
+          pendingLocations: pending.filter(loc => !locationTimestamps.includes(loc.timestamp))
+        });
+      },
+      clearPendingLocations: () => set({ pendingLocations: [] }),
+      
+      // Error tracking
+      lastError: null,
+      setLastError: (error) => set({ lastError: error }),
+      
+      // Stats
+      totalLocationsRecorded: 0,
+      totalLocationsSent: 0,
+      incrementTotalLocationsRecorded: () => 
+        set({ totalLocationsRecorded: get().totalLocationsRecorded + 1 }),
+      incrementTotalLocationsSent: (count) => 
+        set({ totalLocationsSent: get().totalLocationsSent + count }),
+      resetStats: () => set({ 
+        totalLocationsRecorded: 0, 
+        totalLocationsSent: 0 
+      }),
     }),
     {
       name: 'location-storage',
@@ -183,6 +251,8 @@ const useLocationStore = create<LocationState>()(
         todayDistance: state.todayDistance,
         todayTimeTracked: state.todayTimeTracked,
         todayTimeInGeofence: state.todayTimeInGeofence,
+        totalLocationsRecorded: state.totalLocationsRecorded,
+        totalLocationsSent: state.totalLocationsSent
       }),
     }
   )

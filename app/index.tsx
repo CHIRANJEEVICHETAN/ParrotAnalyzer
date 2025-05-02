@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import "./utils/backgroundLocationTask";
+import "./../app/utils/backgroundLocationTask";
 import {
   View,
   Text,

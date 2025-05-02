@@ -21,6 +21,59 @@ router.post(
   locationTrackingController.storeBackgroundLocation
 );
 
+// General update endpoint for background location tracking tasks
+router.post(
+  "/update",
+  authenticateToken,
+  async (req: any, res) => {
+    try {
+      console.log("[/update] Received location update from background task");
+      
+      // Mark the request as coming from a background task
+      req.headers['x-background-update'] = 'true';
+      
+      // Add resilience for background updates
+      if (!req.body) {
+        console.error("[/update] No body received in request");
+        return res.status(200).json({
+          success: false,
+          message: "No location data provided",
+          timestamp: new Date()
+        });
+      }
+      
+      // Log the update for debugging
+      console.log("[/update] Location data received:", {
+        userId: req.user?.id,
+        coords: req.body.latitude && req.body.longitude 
+          ? `${req.body.latitude.toFixed(6)},${req.body.longitude.toFixed(6)}`
+          : 'Invalid coordinates',
+        accuracy: req.body.accuracy,
+        timestamp: req.body.timestamp,
+        isBackground: true,
+        batteryLevel: req.body.batteryLevel,
+        isMoving: req.body.isMoving
+      });
+      
+      // Add background flag to the request body
+      req.body.isBackground = true;
+      
+      // Forward to the background location handler
+      return locationTrackingController.storeBackgroundLocation(req, res);
+    } catch (error: any) {
+      console.error("[/update] Error processing background update:", error);
+      
+      // Always return 200 for background tasks to prevent retry cycles
+      return res.status(200).json({
+        success: false,
+        message: "Error processing location update",
+        error: error.message || "Unknown error",
+        timestamp: new Date()
+      });
+    }
+  }
+);
+
 // Get current user's tracking permissions
 router.get('/tracking-permissions', authenticateToken, async (req: any, res) => {
     try {

@@ -214,7 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Listen for token expiration events
-    const unsubscribe = EventEmitter.on("AUTH_TOKEN_EXPIRED", async () => {
+    const handler = async () => {
       Alert.alert(
         "Session Expired",
         "Your session has expired. Please login again to continue.",
@@ -257,10 +257,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           },
         ]
       );
-    });
+    };
+
+    EventEmitter.on("AUTH_TOKEN_EXPIRED", handler);
 
     return () => {
-      unsubscribe();
+      // Remove the listener correctly
+      EventEmitter.removeListener("AUTH_TOKEN_EXPIRED", handler);
     };
   }, []);
 

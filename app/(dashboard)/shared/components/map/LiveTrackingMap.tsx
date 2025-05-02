@@ -71,6 +71,9 @@ interface LiveTrackingMapProps {
   customGeofences?: GeofenceRegion[];
   geofences?: Geofence[];
   currentGeofence?: Geofence | null;
+  userRoutes?: Record<string, Array<{latitude: number, longitude: number}>>;
+  routeCoordinates?: Array<{latitude: number, longitude: number}>;
+  markerRefreshToggle?: boolean;
 }
 
 /**
@@ -112,6 +115,9 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
   customGeofences,
   geofences,
   currentGeofence,
+  userRoutes,
+  routeCoordinates,
+  markerRefreshToggle,
 }) => {
   // Theming
   const colorScheme = useColorScheme();
@@ -804,6 +810,148 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
     return `${days} ${days === 1 ? 'day' : 'days'} ago`;
   };
 
+  // Process user routes for polylines
+  const routesForDisplay = useMemo(() => {
+    try {
+      // Start with the routes passed directly via props
+      let routes: Record<string, Array<LatLng>> = {};
+      
+      // If routeCoordinates prop is provided (for employee view), create a route for current user
+      if (routeCoordinates && routeCoordinates.length > 1) {
+        // Validate coordinates before adding
+        const validCoordinates = routeCoordinates.filter(coord => 
+          coord && 
+          typeof coord.latitude === 'number' && 
+          typeof coord.longitude === 'number' &&
+          !isNaN(coord.latitude) && 
+          !isNaN(coord.longitude) &&
+          // Exclude points at 0,0 (likely defaults)
+          !(coord.latitude === 0 && coord.longitude === 0)
+        );
+        
+        if (validCoordinates.length > 1) {
+          routes['currentUser'] = validCoordinates;
+        }
+      }
+      
+      // If userRoutes is provided (for admin view), use those
+      if (userRoutes) {
+        // Process each user route to ensure valid coordinates
+        Object.keys(userRoutes).forEach(userId => {
+          const route = userRoutes[userId];
+          if (route && route.length > 1) {
+            // Validate coordinates
+            const validRoute = route.filter(coord => 
+              coord && 
+              typeof coord.latitude === 'number' && 
+              typeof coord.longitude === 'number' &&
+              !isNaN(coord.latitude) && 
+              !isNaN(coord.longitude) &&
+              // Exclude points at 0,0 (likely defaults)
+              !(coord.latitude === 0 && coord.longitude === 0)
+            );
+            
+            if (validRoute.length > 1) {
+              routes[userId] = validRoute;
+            }
+          }
+        });
+      }
+      
+      // If we don't have explicit routes but have userPaths from the store, use those
+      if (Object.keys(routes).length === 0 && userPaths && showUserPaths) {
+        // Transform userPaths to the format needed for polylines
+        Object.keys(userPaths).forEach(userId => {
+          const path = userPaths[userId];
+          if (path && path.length > 1) {
+            // Validate coordinates
+            const validPath = path
+              .filter((point: any) => 
+                point && 
+                typeof point.latitude === 'number' && 
+                typeof point.longitude === 'number' &&
+                !isNaN(point.latitude) && 
+                !isNaN(point.longitude) &&
+                // Exclude points at 0,0 (likely defaults)
+                !(point.latitude === 0 && point.longitude === 0)
+              )
+              .map((point: any) => ({
+                latitude: point.latitude, 
+                longitude: point.longitude
+              }));
+              
+            if (validPath.length > 1) {
+              routes[userId] = validPath;
+            }
+          }
+        });
+      }
+      
+      // Apply route simplification to avoid having too many points on longer routes
+      // Only keep every nth point for routes with many points (improves performance)
+      Object.keys(routes).forEach(userId => {
+        const route = routes[userId];
+        if (route && route.length > 100) {
+          const simplifyFactor = Math.floor(route.length / 100);
+          if (simplifyFactor > 1) {
+            const simplified = route.filter((_, index) => index % simplifyFactor === 0 || index === route.length - 1);
+            routes[userId] = simplified;
+          }
+        }
+      });
+      
+      return routes;
+    } catch (error) {
+      console.error('Error processing routes for display:', error);
+      return {};
+    }
+  }, [routeCoordinates, userRoutes, userPaths, showUserPaths]);
+
+  // Select colors for routes
+  const getRouteColor = useCallback((userId: string) => {
+    // If this is the selected user or the current user's route, use a highlighted color
+    if (userId === currentSelectedUserId || userId === 'currentUser') {
+      return '#3b82f6'; // bright blue
+    }
+    
+    // If colors are provided via props, use those
+    if (pathStrokeColors && pathStrokeColors[userId]) {
+      return pathStrokeColors[userId];
+    }
+    
+    // Default colors based on user ID (generates consistent colors for the same user)
+    const colors = [
+      '#3b82f6', // blue
+      '#ef4444', // red
+      '#10b981', // green
+      '#f59e0b', // orange
+      '#8b5cf6', // purple
+      '#ec4899', // pink
+    ];
+    
+    // Hash the userId to get a consistent index
+    const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return colors[hash % colors.length];
+  }, [currentSelectedUserId, pathStrokeColors]);
+
+  // Add helper to get stroke width based on selection state
+  const getRouteStrokeWidth = useCallback((userId: string) => {
+    // If this is the selected user or current user's route, make it thicker
+    if (userId === currentSelectedUserId || userId === 'currentUser') {
+      return 5; // Thicker line for selected routes
+    }
+    return 3; // Default line thickness
+  }, [currentSelectedUserId]);
+
+  // Add helper to get z-index for routes
+  const getRouteZIndex = useCallback((userId: string) => {
+    // Higher z-index for selected routes ensures they appear on top
+    if (userId === currentSelectedUserId || userId === 'currentUser') {
+      return 10;
+    }
+    return 5;
+  }, [currentSelectedUserId]);
+
   return (
     <View style={[
       styles.container, 
@@ -916,6 +1064,25 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
             return renderCustomMarker(user);
           }
           
+          // Skip users with invalid coordinates
+          if (!user.location || 
+              typeof user.location.latitude !== 'number' ||
+              typeof user.location.longitude !== 'number' ||
+              isNaN(user.location.latitude) || 
+              isNaN(user.location.longitude) ||
+              (user.location.latitude === 0 && user.location.longitude === 0)) {
+            console.warn('Skipping marker for user with invalid location:', user.id);
+            return null;
+          }
+          
+          // Enhanced marker size for better visibility
+          const markerSize = user.id === currentSelectedUserId ? 42 : 36; 
+          
+          // Enhanced marker color based on status
+          const markerColor = user.id === currentSelectedUserId ? 
+              '#f97316' : // Orange for selected
+              (user.isActive ? '#3b82f6' : '#9ca3af'); // Blue for active, gray for inactive
+          
           return (
             <LocationMarker
               key={`user-${user.id}`}
@@ -930,36 +1097,34 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
               trackedUserId={user.id}
               isSelected={user.id === currentSelectedUserId}
               onPress={() => handleMarkerPress(user)}
-              zIndex={user.id === currentSelectedUserId ? 2 : 1}
+              zIndex={user.id === currentSelectedUserId ? 5 : 1}
               employeeLabel={user.employeeLabel || user.name}
               employeeNumber={user.employeeNumber}
               deviceInfo={user.deviceInfo}
+              size={markerSize}
+              color={markerColor}
             />
           );
         })}
         
         {/* Render user paths if enabled */}
-        {showUserPaths && userPaths && Object.entries(userPaths).map(([userId, coordinates]) => {
-          // Skip if no coordinates or user is not selected (when a user is selected)
-          if (!coordinates || (isUserSelected && userId !== currentSelectedUserId)) {
-            return null;
+        {showUserPaths && Object.keys(routesForDisplay).map(userId => {
+          const route = routesForDisplay[userId];
+          if (route && route.length > 1) {
+            const isSelected = userId === currentSelectedUserId || userId === 'currentUser';
+            return (
+              <Polyline
+                key={`path-${userId}-${route.length}`}
+                coordinates={route}
+                strokeWidth={getRouteStrokeWidth(userId)}
+                strokeColor={getRouteColor(userId)}
+                lineCap="round"
+                lineJoin="round"
+                zIndex={getRouteZIndex(userId)}
+              />
+            );
           }
-          
-          // Get color for this user's path
-          const color = pathStrokeColors?.[userId] || 
-            (userId === currentSelectedUserId ? primaryColor : secondaryColor);
-          
-          return (
-            <Polyline
-              key={`path-${userId}`}
-              coordinates={coordinates as LatLng[]}
-              strokeColor={color}
-              strokeWidth={3}
-              lineDashPattern={[0]}
-              lineCap="round"
-              lineJoin="round"
-            />
-          );
+          return null;
         })}
         
         {/* Render geofences if enabled */}

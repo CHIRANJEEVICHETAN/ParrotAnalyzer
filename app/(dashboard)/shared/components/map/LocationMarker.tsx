@@ -32,7 +32,7 @@ const LocationMarker: React.FC<LocationMarkerProps> = ({
   title,
   description,
   color,
-  size = 32,
+  size = 36,
   isActive = true,
   batteryLevel,
   showBatteryIndicator = false,
@@ -51,7 +51,7 @@ const LocationMarker: React.FC<LocationMarkerProps> = ({
   const selectedColor = useThemeColor("#f97316", "#f97316");
 
   // Marker color based on active status and provided color
-  const markerColor = color || (isActive ? primaryColor : "#9ca3af");
+  const markerColor = color || (isActive ? "#3b82f6" : "#9ca3af");
 
   // Enhanced display name for the marker (for title when clicked)
   const displayName = employeeLabel || title || "";
@@ -79,28 +79,37 @@ const LocationMarker: React.FC<LocationMarkerProps> = ({
       description={enhancedDescription}
       onPress={onPress}
       tracksViewChanges={false}
-      zIndex={zIndex}
+      zIndex={isSelected ? 5 : zIndex}
+      anchor={{x: 0.5, y: 0.5}}
     >
       <View style={styles.markerContainer}>
-        {/* Main marker - slightly bigger */}
-        <View
-          style={[
-            styles.marker,
-            {
-              width: size,
-              height: size,
-              backgroundColor: markerColor,
-              borderColor: isSelected ? selectedColor : backgroundColor,
-              borderWidth: isSelected ? 2 : 1,
-            },
-          ]}
-        >
-          <Ionicons
-            name={isActive ? "location" : "location-outline"}
-            size={size * 0.6}
-            color={backgroundColor}
-          />
+        <View style={styles.markerShadow}>
+          <View
+            style={[
+              styles.marker,
+              {
+                width: isSelected ? size + 6 : size,
+                height: isSelected ? size + 6 : size,
+                backgroundColor: markerColor,
+                borderColor: isSelected ? selectedColor : backgroundColor,
+                borderWidth: isSelected ? 3 : 2,
+              },
+            ]}
+          >
+            <Ionicons
+              name={isActive ? "location" : "location-outline"}
+              size={size * 0.6}
+              color={backgroundColor}
+            />
+          </View>
         </View>
+
+        {isSelected && (
+          <View style={[
+            styles.selectedRing,
+            {borderColor: selectedColor}
+          ]} />
+        )}
       </View>
     </Marker>
   );
@@ -110,17 +119,32 @@ const styles = StyleSheet.create({
   markerContainer: {
     alignItems: "center",
     justifyContent: "center",
+    width: 50,
+    height: 50,
+  },
+  markerShadow: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.5,
+    elevation: 6,
   },
   marker: {
     borderRadius: 100,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
+    elevation: 6,
   },
+  selectedRing: {
+    position: 'absolute',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: '#f97316',
+    top: -1,
+    left: -1,
+  }
 });
 
 export default memo(LocationMarker); 

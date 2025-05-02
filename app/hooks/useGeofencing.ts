@@ -17,6 +17,29 @@ interface UseGeofencingOptions {
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
+// Define the calculateDistance function near the top of the file
+const calculateDistance = (
+  lat1: number, 
+  lon1: number, 
+  lat2: number, 
+  lon2: number
+): number => {
+  // Calculate distance using Haversine formula
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+  
+  const a = 
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) *
+    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 export function useGeofencing({
   onGeofenceEnter,
   onGeofenceExit,
@@ -89,44 +112,120 @@ export function useGeofencing({
     return geofences.find(g => g.id === currentGeofenceId) || null;
   }, [geofences, currentGeofenceId, isInGeofence]);
 
-  // Check if a location is inside any geofence
-  const isLocationInAnyGeofence = useCallback((location: Location): boolean => {
-    if (!geofences.length) return false;
+  // Add a helper function to extract coordinates from either location type
+  // This should be added before the isLocationInAnyGeofence function
+  const extractCoordinates = (location: any): { latitude: number, longitude: number } | null => {
+    if (!location) return null;
     
-    // Simple point-in-circle check
+    // For EnhancedLocation from Expo
+    if (location.coords && typeof location.coords.latitude === 'number' && typeof location.coords.longitude === 'number') {
+      return {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      };
+    }
+    
+    // For our App's Location type
+    if (typeof location.latitude === 'number' && typeof location.longitude === 'number') {
+      return {
+        latitude: location.latitude,
+        longitude: location.longitude
+      };
+    }
+    
+    return null;
+  };
+
+  // Update the isLocationInAnyGeofence function with safer type handling
+  const isLocationInAnyGeofence = useCallback((location: any): boolean => {
+    if (!geofences || !geofences.length) return false;
+    
+    const coords = extractCoordinates(location);
+    if (!coords) return false;
+    
     return geofences.some(geofence => {
-      // Only support circle geofences for client-side checking
-      if (geofence.coordinates.type !== 'Point') return false;
+      // Get coordinates based on geofence type - handle both formats
+      let lat: number | undefined;
+      let lng: number | undefined;
       
-      const [longitude, latitude] = geofence.coordinates.coordinates as number[];
+      // Handle different geofence coordinate formats
+      if (geofence.coordinates && typeof geofence.coordinates === 'object') {
+        if (geofence.coordinates.type === 'Point' && Array.isArray(geofence.coordinates.coordinates)) {
+          // Format from API - ensure we have coordinates array
+          const coordinates = geofence.coordinates.coordinates;
+          if (coordinates.length >= 2) {
+            // Safely handle possible number arrays
+            const lngValue = coordinates[0];
+            const latValue = coordinates[1];
+            if (typeof lngValue === 'number' && typeof latValue === 'number') {
+              lng = lngValue;
+              lat = latValue;
+            }
+          }
+        }
+      }
       
-      // Ensure radius is a number
-      const radius = typeof geofence.radius === 'string' 
-        ? parseFloat(geofence.radius) 
-        : geofence.radius;
+      // Try alternate property names that might exist on various geofence objects
+      if (lat === undefined || lng === undefined) {
+        // These properties might exist directly on the geofence object in some formats
+        const tryProps = [
+          // Try standard properties
+          { lat: 'latitude', lng: 'longitude' },
+          // Try alternate casing
+          { lat: 'Latitude', lng: 'Longitude' },
+          // Try abbreviated
+          { lat: 'lat', lng: 'lng' }
+        ];
+        
+        for (const props of tryProps) {
+          const latValue = (geofence as any)[props.lat];
+          const lngValue = (geofence as any)[props.lng];
+          
+          if (typeof latValue === 'number' && typeof lngValue === 'number') {
+            lat = latValue;
+            lng = lngValue;
+            break;
+          }
+        }
+      }
       
-      if (isNaN(radius) || radius <= 0) {
-        console.warn('Invalid geofence radius:', radius, geofence.id);
+      // If we still don't have coordinates, try to extract from name or log warning
+      if ((lat === undefined || lng === undefined) && (geofence as any).name) {
+        console.warn(`Unable to get coordinates from geofence: ${(geofence as any).name}`);
         return false;
       }
       
-      // Calculate distance using Haversine formula
-      const R = 6371e3; // Earth radius in meters
-      const φ1 = (location.latitude * Math.PI) / 180;
-      const φ2 = (latitude * Math.PI) / 180;
-      const Δφ = ((latitude - location.latitude) * Math.PI) / 180;
-      const Δλ = ((longitude - location.longitude) * Math.PI) / 180;
+      // If we have valid coordinates, use them
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        // Get radius - handle string or number
+        let radius: number;
+        const radiusValue = (geofence as any).radius;
+        
+        if (typeof radiusValue === 'string') {
+          radius = parseFloat(radiusValue);
+        } else if (typeof radiusValue === 'number') {
+          radius = radiusValue;
+        } else {
+          console.warn('Invalid geofence radius type:', typeof radiusValue);
+          return false;
+        }
+        
+        if (isNaN(radius) || radius <= 0) {
+          console.warn('Invalid geofence radius value:', radius);
+          return false;
+        }
+        
+        const distance = calculateDistance(
+          coords.latitude,
+          coords.longitude,
+          lat,
+          lng
+        );
+        
+        return distance <= radius;
+      }
       
-      const a = 
-        Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-        Math.cos(φ1) * Math.cos(φ2) *
-        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-      
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c;
-      
-      // Check if inside radius
-      return distance <= radius;
+      return false;
     });
   }, [geofences]);
 

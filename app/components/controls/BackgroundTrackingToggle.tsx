@@ -22,6 +22,7 @@ import {
 } from "../../utils/backgroundLocationTask";
 import BatteryOptimizationHelper from "../../utils/batteryOptimizationHelper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTracking } from "../../context/TrackingContext";
 
 // Map location accuracy levels to Expo accuracy constants
 const accuracyMap = {
@@ -77,6 +78,12 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
     updateIntervalSeconds,
   } = useLocationStore();
 
+  // Add the tracking context
+  const { 
+    toggleBackgroundTracking: contextToggleBackgroundTracking,
+    checkTrackingStatus
+  } = useTracking();
+
   // Local state for switch state and loading state
   const [isEnabled, setIsEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -85,20 +92,6 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
   useEffect(() => {
     // Initial check
     checkBackgroundTrackingStatus();
-
-    // Optional: Add AppState listener if needed for foreground sync
-    /*
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        console.log("App became active, re-checking background status...");
-        checkBackgroundTrackingStatus();
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-    */
   }, []); // Empty dependency array ensures this runs only on mount
 
   // Check if background tracking is currently active
@@ -108,8 +101,8 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
     try {
       console.log("Checking background tracking status...");
 
-      // Use the imported function to check if the task is actually registered
-      const isActive = await isBackgroundLocationTrackingActive();
+      // Use the context method instead of direct function call
+      const isActive = await checkTrackingStatus();
       console.log(`Background tracking task registered: ${isActive}`);
 
       // Only update UI if there's a mismatch to avoid unnecessary re-renders
@@ -167,7 +160,7 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
     }
   };
 
-  // Toggle background tracking on/off
+  // Modified to use the TrackingContext for toggling
   const toggleBackgroundTracking = async () => {
     // Capture app state at the moment of the toggle attempt
     const currentAppState = AppState.currentState;
@@ -265,6 +258,7 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
                 },
               ]
             );
+            return;
           } else {
             Alert.alert(
               "Background Location Required",
@@ -323,8 +317,8 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
                 },
               ]
             );
+            return;
           }
-          return;
         }
       }
 
@@ -358,7 +352,7 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
     }
   };
 
-  // Extract the actual processing to a separate function for better organization
+  // Updated to use the TrackingContext
   const processBackgroundTracking = async (isEnabled: boolean) => {
     try {
       // For Android, check battery optimization
@@ -366,11 +360,11 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
         await BatteryOptimizationHelper.promptForBatteryOptimizationDisable();
       }
 
-      // Handle the actual background tracking operations
-      const operationSuccess = await handleBackgroundTrackingToggle(isEnabled);
+      // Use the context method instead of direct function calls
+      const operationSuccess = await contextToggleBackgroundTracking(isEnabled);
 
       // After attempting the operation, always check the real status
-      const finalActualStatus = await isBackgroundLocationTrackingActive();
+      const finalActualStatus = await checkTrackingStatus();
       console.log(
         `Operation attempted: ${
           isEnabled ? "start" : "stop"
@@ -420,7 +414,7 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
 
       // On error, ensure UI reflects the actual state
       try {
-        const actualStateOnError = await isBackgroundLocationTrackingActive();
+        const actualStateOnError = await checkTrackingStatus();
         setIsEnabled(actualStateOnError);
         setBackgroundTrackingEnabled(actualStateOnError);
         await AsyncStorage.setItem(
@@ -445,36 +439,6 @@ const BackgroundTrackingToggle: React.FC<BackgroundTrackingToggleProps> = ({
       );
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  // Helper function to handle the actual background tracking operations
-  const handleBackgroundTrackingToggle = async (
-    isEnabled: boolean
-  ): Promise<boolean> => {
-    try {
-      if (isEnabled) {
-        // Start background tracking
-        return await startBackgroundLocationTracking({
-          timeInterval: updateIntervalSeconds
-            ? updateIntervalSeconds * 1000
-            : 30000, // Use store value or default to 30 seconds
-          distanceInterval: 10, // or if moved 10 meters
-          accuracy:
-            locationAccuracy !== undefined
-              ? accuracyMap[locationAccuracy]
-              : Location.Accuracy.Balanced,
-        });
-      } else {
-        // Stop background tracking
-        return await stopBackgroundLocationTracking();
-      }
-    } catch (error) {
-      console.error(
-        `Error ${isEnabled ? "starting" : "stopping"} background tracking:`,
-        error
-      );
-      return false;
     }
   };
 
