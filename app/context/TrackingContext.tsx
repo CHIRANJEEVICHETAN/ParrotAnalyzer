@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppState, Platform, Alert } from 'react-native';
+import { AppState, Platform, Alert, AppStateStatus } from 'react-native';
 import useLocationStore from '../store/locationStore';
 import { 
   BACKGROUND_LOCATION_TASK, 
@@ -83,8 +83,65 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     isAndroid: Platform.OS === 'android'
   });
   
+  // Add refs for state management
+  const isInitializingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const lastAppStateRef = useRef(AppState.currentState);
+  const lastLocationUpdateRef = useRef(0);
+  const MIN_LOCATION_UPDATE_INTERVAL = 3000; // 3 seconds minimum between updates
+  
+  // Handler for app state changes with fixes for excessive updates
+  const handleAppStateChange = useCallback(async (nextAppState: AppStateStatus) => {
+    if (!isMountedRef.current) return;
+    
+    // Avoid redundant app state change handling
+    if (nextAppState === lastAppStateRef.current) return;
+    
+    // Only process changes between background/inactive <-> active
+    if (
+      (lastAppStateRef.current.match(/inactive|background/) && nextAppState === 'active') ||
+      (lastAppStateRef.current === 'active' && nextAppState.match(/inactive|background/))
+    ) {
+      console.log(`App state changed: ${lastAppStateRef.current} -> ${nextAppState}`);
+      
+      lastAppStateRef.current = nextAppState;
+      
+      // App is now in foreground
+      if (nextAppState === 'active') {
+        setIsForegroundActive(true);
+        
+        // Check if tracking should be active (with debounce)
+        const now = Date.now();
+        if (now - lastLocationUpdateRef.current > MIN_LOCATION_UPDATE_INTERVAL) {
+          lastLocationUpdateRef.current = now;
+          
+          if (backgroundTrackingEnabled) {
+            // Verify background tracking is running
+            const isActive = await isBackgroundLocationTrackingActive();
+            
+            if (!isActive && trackingStatus === TrackingStatus.ACTIVE) {
+              console.log('Background tracking should be active but is not, restarting...');
+              restartBackgroundTracking();
+            }
+          }
+        }
+      } else {
+        // App is now in background
+        setIsForegroundActive(false);
+      }
+    } else {
+      // Still update the ref
+      lastAppStateRef.current = nextAppState;
+    }
+  }, [backgroundTrackingEnabled, trackingStatus]);
+  
   // Initialize tracking on app start
   useEffect(() => {
+    // Prevent duplicate initialization
+    if (isInitializingRef.current) return;
+    isInitializingRef.current = true;
+    isMountedRef.current = true;
+    
     const initializeTracking = async () => {
       try {
         console.log('Initializing tracking context...');
@@ -170,8 +227,19 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     
     // Monitor app state changes
     const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => subscription.remove();
-  }, []);
+    
+    // Set initial foreground state
+    setIsForegroundActive(AppState.currentState === 'active');
+    
+    // Cleanup function
+    return () => {
+      isMountedRef.current = false;
+      subscription.remove();
+      
+      // Clean up any active connections or listeners
+      console.log('Cleaning up TrackingContext on unmount');
+    };
+  }, [handleAppStateChange]);
   
   // Get device info on mount
   useEffect(() => {
@@ -295,98 +363,6 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, []);
-  
-  // Modify handleAppStateChange to include platform-specific behavior
-  const handleAppStateChange = useCallback(async (nextAppState: string) => {
-    console.log(`App state changed: ${nextAppState}`);
-    
-    if (nextAppState === 'active') {
-      // App came to foreground
-      setIsForegroundActive(true);
-      
-      // Check if tracking should be active
-      const storedTrackingStatus = await AsyncStorage.getItem('trackingStatus');
-      
-      if (storedTrackingStatus === TrackingStatus.ACTIVE) {
-        // Check if background tracking should be active
-        if (backgroundTrackingEnabled) {
-          const isActive = await checkTrackingStatus();
-          
-          if (!isActive) {
-            console.log('Background tracking should be active but is not, restarting');
-            await restartBackgroundTracking();
-          } else {
-            console.log('Background tracking is active as expected');
-          }
-        }
-      }
-      
-      // Android-specific: check for battery optimization on each foreground
-      if (Platform.OS === 'android' && deviceInfo.needsBatteryOptimization) {
-        // Check when we last prompted
-        const lastPrompt = await AsyncStorage.getItem('last_battery_optimization_prompt');
-        const now = Date.now();
-        
-        // Only prompt once a week
-        if (!lastPrompt || (now - parseInt(lastPrompt)) > 7 * 24 * 60 * 60 * 1000) {
-          const hasAsked = await BatteryOptimizationHelper.hasAskedForBatteryOptimization();
-          
-          if (!hasAsked) {
-            // Show reminder to disable battery optimization
-            setTimeout(async () => {
-              await BatteryOptimizationHelper.promptForBatteryOptimizationDisable();
-              await AsyncStorage.setItem('last_battery_optimization_prompt', now.toString());
-            }, 5000); // Delay to not interrupt app startup
-          }
-        }
-      }
-    } else if (nextAppState.match(/inactive|background/)) {
-      // App went to background
-      setIsForegroundActive(false);
-      
-      // Check if tracking is active, ensure background tracking is enabled if needed
-      if (trackingStatus === TrackingStatus.ACTIVE && backgroundTrackingEnabled) {
-        const isActive = await isBackgroundLocationTrackingActive();
-        
-        if (!isActive) {
-          console.log('Activating background tracking before app goes to background');
-          
-          // Get stored config or use defaults
-          const configStr = await AsyncStorage.getItem('trackingConfig');
-          const config = configStr ? JSON.parse(configStr) : {
-            timeInterval: 30000,
-            distanceInterval: 10,
-            accuracy: Location.Accuracy.Balanced
-          };
-          
-          await startBackgroundLocationTracking(config);
-        }
-      }
-      
-      // iOS-specific: restart significant changes tracking when going to background
-      if (Platform.OS === 'ios' && trackingStatus === TrackingStatus.ACTIVE) {
-        const { status } = await Location.getBackgroundPermissionsAsync();
-        
-        if (status === 'granted') {
-          try {
-            // Restart significant changes to ensure it's running
-            await Location.stopLocationUpdatesAsync('ios-significant-change').catch(() => {});
-            
-            await Location.startLocationUpdatesAsync('ios-significant-change', {
-              accuracy: Location.Accuracy.Balanced,
-              showsBackgroundLocationIndicator: true,
-              activityType: Location.ActivityType.AutomotiveNavigation,
-              pausesUpdatesAutomatically: false
-            });
-            
-            console.log('iOS significant location changes restarted for background mode');
-          } catch (error) {
-            console.error('Error restarting iOS significant location changes:', error);
-          }
-        }
-      }
-    }
-  }, [trackingStatus, backgroundTrackingEnabled, deviceInfo]);
   
   const checkTrackingStatus = useCallback(async (): Promise<boolean> => {
     try {

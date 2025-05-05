@@ -20,6 +20,12 @@ interface UseSocketOptions {
   onError?: (error: string) => void;
 }
 
+// Add a singleton socket instance to prevent multiple connections
+let globalSocket: Socket | null = null;
+let socketRefCount = 0;
+let lastConnectionAttempt = 0;
+const CONNECTION_THROTTLE_TIME = 1000; // Limit connections to once per second
+
 export function useSocket({
   onConnect,
   onDisconnect,
@@ -28,14 +34,15 @@ export function useSocket({
   onError,
 }: UseSocketOptions = {}) {
   const { token, user } = useAuth();
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [socket, setSocket] = useState<Socket | null>(globalSocket);
+  const [isConnected, setIsConnected] = useState(globalSocket?.connected || false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<Socket | null>(globalSocket);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const disconnectTimeRef = useRef<number | null>(null);
   const connectionAttempts = useRef<number>(0);
+  const isMountedRef = useRef<boolean>(true);
 
   // Add state to track if reconnection is in progress
   const isReconnectingRef = useRef<boolean>(false);
@@ -49,16 +56,40 @@ export function useSocket({
   
   // Enhanced connection setup with retries and error handling
   const setupConnection = useCallback(async () => {
-    if (!token || isReconnectingRef.current) return;
+    if (!token || isReconnectingRef.current || !isMountedRef.current) return;
+    
+    // Throttle connection attempts
+    const now = Date.now();
+    if (now - lastConnectionAttempt < CONNECTION_THROTTLE_TIME) {
+      console.log('[useSocket] Throttling connection attempt, too many requests');
+      return;
+    }
+    lastConnectionAttempt = now;
     
     try {
       isReconnectingRef.current = true;
       connectionAttempts.current += 1;
       
+      // If we already have a global socket and it's connected, use that
+      if (globalSocket && globalSocket.connected) {
+        console.log('[useSocket] Reusing existing global socket connection');
+        socketRef.current = globalSocket;
+        if (isMountedRef.current) {
+          setSocket(globalSocket);
+          setIsConnected(true);
+          setConnectionError(null);
+        }
+        isReconnectingRef.current = false;
+        if (onConnect) onConnect();
+        return globalSocket;
+      }
+      
       // Clean up existing socket if one exists
-      if (socketRef.current && socketRef.current.connected) {
-        console.log('Closing existing socket connection before reconnect');
-        socketRef.current.close();
+      if (globalSocket) {
+        console.log('[useSocket] Closing existing socket connection before reconnect');
+        globalSocket.removeAllListeners();
+        globalSocket.close();
+        globalSocket = null;
       }
       
       // Set up socket connection
@@ -70,30 +101,38 @@ export function useSocket({
         auth: { token },
         transports: ['websocket'],
         reconnection: true,
-        reconnectionAttempts: 10,
-        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 2000,
         reconnectionDelayMax: 10000,
         timeout: 20000,
         autoConnect: true,
         forceNew: true,
       });
       
+      // Store as global singleton
+      globalSocket = socketInstance;
+      socketRefCount++;
+      
       // Setup event handlers
       socketInstance.on('connect', () => {
         console.log(`[useSocket] Connected to socket server with ID: ${socketInstance.id}`);
-        setIsConnected(true);
-        setConnectionError(null);
+        if (isMountedRef.current) {
+          setIsConnected(true);
+          setConnectionError(null);
+        }
         connectionAttempts.current = 0;
         isReconnectingRef.current = false;
     
         // Set the socket reference
         socketRef.current = socketInstance;
-        setSocket(socketInstance);
+        if (isMountedRef.current) {
+          setSocket(socketInstance);
+        }
         
         // Store connection time
         AsyncStorage.setItem('lastSocketConnectTime', Date.now().toString());
         
-        if (onConnect) onConnect();
+        if (onConnect && isMountedRef.current) onConnect();
         
         // Process any queued updates that failed while offline
         processQueuedUpdates();
@@ -101,16 +140,18 @@ export function useSocket({
       
       socketInstance.on('disconnect', (reason) => {
         console.log(`[useSocket] Disconnected from socket server: ${reason}`);
-        setIsConnected(false);
+        if (isMountedRef.current) {
+          setIsConnected(false);
+        }
         disconnectTimeRef.current = Date.now();
         
-        if (onDisconnect) onDisconnect();
+        if (onDisconnect && isMountedRef.current) onDisconnect();
         
         // Store the disconnect reason for diagnostics
         AsyncStorage.setItem('lastSocketDisconnectReason', reason);
         
         // Don't attempt to auto-reconnect if the app is in the background
-        if (appStateRef.current === 'active') {
+        if (appStateRef.current === 'active' && isMountedRef.current) {
           // Only handle if we're still mounted
           scheduleReconnect();
         }
@@ -119,29 +160,39 @@ export function useSocket({
       socketInstance.on('connect_error', (error) => {
         isReconnectingRef.current = false;
         console.error(`[useSocket] Connection error: ${error.message}`);
-        setConnectionError(error.message);
+        if (isMountedRef.current) {
+          setConnectionError(error.message);
+          // Update UI state for reporting
+          setReconnectAttempts(prev => prev + 1);
+          setLastReconnectTime(new Date());
+          if (onError) onError(error.message);
+        }
         
         // Store the connection error for diagnostics
         AsyncStorage.setItem('lastSocketConnectionError', error.message);
         
-        // Update UI state for reporting
-        setReconnectAttempts(prev => prev + 1);
-        setLastReconnectTime(new Date());
-        
-        if (onError) onError(error.message);
-        
-        // Schedule reconnect with backoff
-        scheduleReconnect();
+        // Schedule reconnect with backoff if still mounted
+        if (isMountedRef.current) {
+          scheduleReconnect();
+        }
       });
       
       // Handle location updates from server
       if (onLocationUpdate) {
-        socketInstance.on('location:update', onLocationUpdate);
+        socketInstance.on('location:update', (data) => {
+          if (isMountedRef.current && onLocationUpdate) {
+            onLocationUpdate(data);
+          }
+        });
       }
       
       // Handle geofence transitions from server
       if (onGeofenceTransition) {
-        socketInstance.on('geofence:transition', onGeofenceTransition);
+        socketInstance.on('geofence:transition', (data) => {
+          if (isMountedRef.current && onGeofenceTransition) {
+            onGeofenceTransition(data);
+          }
+        });
       }
       
       // Return the socket instance
@@ -150,12 +201,15 @@ export function useSocket({
       isReconnectingRef.current = false;
       const errorMessage = error.message || 'Failed to connect to socket server';
       console.error(`[useSocket] Error setting up connection: ${errorMessage}`);
-      setConnectionError(errorMessage);
+      if (isMountedRef.current) {
+        setConnectionError(errorMessage);
+        if (onError) onError(errorMessage);
+      }
       
-      if (onError) onError(errorMessage);
-      
-      // Schedule reconnect with backoff
-      scheduleReconnect();
+      // Schedule reconnect with backoff if still mounted
+      if (isMountedRef.current) {
+        scheduleReconnect();
+      }
       
       return null;
     }
@@ -163,10 +217,12 @@ export function useSocket({
   
   // Schedule reconnect with exponential backoff
   const scheduleReconnect = useCallback(() => {
+    if (!isMountedRef.current) return;
+    
     // Clear any existing reconnect timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
-      }
+    }
       
     // Calculate backoff time (max 30 seconds)
     const backoffTime = Math.min(1000 * Math.pow(2, connectionAttempts.current), 30000);
@@ -174,6 +230,8 @@ export function useSocket({
     
     // Schedule reconnect
     reconnectTimeoutRef.current = setTimeout(async () => {
+      if (!isMountedRef.current) return;
+      
       // Check if we're online before attempting to reconnect
       try {
         const networkState = await Network.getNetworkStateAsync();
@@ -182,17 +240,23 @@ export function useSocket({
           setupConnection();
         } else {
           console.log('[useSocket] Network unavailable, skipping reconnect attempt');
-          scheduleReconnect(); // Reschedule for later
+          if (isMountedRef.current) {
+            scheduleReconnect(); // Reschedule for later
+          }
         }
       } catch (error) {
-        console.error('[useSocket] Error checking network state:', error);
-        setupConnection(); // Try anyway
+        if (isMountedRef.current) {
+          console.error('[useSocket] Error checking network state:', error);
+          setupConnection(); // Try anyway
+        }
       }
     }, backoffTime);
   }, [setupConnection]);
   
   // Process any queued updates that failed while offline
   const processQueuedUpdates = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       // Get auth token for HTTP requests
       const token = await SecureStore.getItemAsync('auth_token');
@@ -208,7 +272,7 @@ export function useSocket({
       EventEmitter.emit('socketReconnected');
     } catch (error) {
       console.error('[useSocket] Error processing queued updates:', error);
-          }
+    }
   }, []);
   
   // Get optimal update interval based on battery level and charging state
@@ -238,147 +302,101 @@ export function useSocket({
   
   // Initialize socket connection
   useEffect(() => {
-    if (token) {
+    isMountedRef.current = true;
+    
+    if (token && !socket) {
       setupConnection();
+    } else if (socket) {
+      // If we already have a socket, ensure we're properly connected to it
+      setIsConnected(socket.connected);
     }
     
-    // Cleanup socket on unmount
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      
-      // Store connection state for potential recovery
-      AsyncStorage.setItem('socketWasConnected', socketRef.current?.connected ? 'true' : 'false');
-      
-      if (socketRef.current) {
-        console.log('[useSocket] Cleaning up socket connection');
-        socketRef.current.off('connect');
-        socketRef.current.off('disconnect');
-        socketRef.current.off('connect_error');
-        
-        // Don't disconnect if this is just a component unmount
-        // The socket should persist across navigation
-        // socketRef.current.disconnect();
-      }
-    };
-  }, [token, setupConnection]);
-  
-  // Monitor app state changes
-  useEffect(() => {
-    // Function to handle app state changes
+    // Handle app state changes for this component
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
-      // Skip if no real change
-      if (appStateRef.current === nextAppState) return;
+      // Only process if component is still mounted
+      if (!isMountedRef.current) return;
       
-      console.log(`[useSocket] App state changed: ${appStateRef.current} -> ${nextAppState}`);
-      
-      // App came to foreground
-      if (nextAppState === 'active') {
-        // Check if we were previously disconnected
-        const disconnectDuration = disconnectTimeRef.current
-          ? Date.now() - disconnectTimeRef.current
-          : null;
+      // When app comes back to foreground
+      if (
+        appStateRef.current.match(/inactive|background/) && 
+        nextAppState === 'active'
+      ) {
+        console.log('App returned to foreground, checking socket connection status');
         
-        if (disconnectDuration && disconnectDuration > 60000) {
-          console.log(`[useSocket] App was inactive for ${disconnectDuration / 1000}s, checking connection...`);
-        }
-        
-        // Check if socket is connected, reconnect if needed
+        // Check if socket is connected
         if (socketRef.current && !socketRef.current.connected) {
-          console.log('[useSocket] Socket disconnected while app was inactive, reconnecting...');
           setupConnection();
-        } else if (!socketRef.current) {
-          console.log('[useSocket] No socket instance, creating new connection...');
-          setupConnection();
-        } else {
-          console.log('[useSocket] Socket already connected after app became active');
-          
-          // Process queued updates anyway in case we have pending data
-          processQueuedUpdates();
         }
       }
-      // App went to background
-      else if (nextAppState.match(/inactive|background/)) {
-        // Store the fact that we're going to background
-        AsyncStorage.setItem('lastSocketBackgroundTime', Date.now().toString());
-        
-        // Don't disconnect the socket when going to background
-        // This allows background tracking to continue using the socket
-        console.log('[useSocket] App going to background, socket will be maintained');
-      }
       
-      // Update state reference
+      // Update app state reference
       appStateRef.current = nextAppState;
     };
     
-    // Register app state change listener
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    
-    // Clean up listener
-    return () => {
-      subscription.remove();
-    };
-  }, [setupConnection, processQueuedUpdates]);
-  
-  // Monitor network connectivity changes
-  useEffect(() => {
-    let isMonitoring = true;
-    
-    // Function to check network state periodically
+    // Network state check function
     const checkNetworkState = async () => {
-      if (!isMonitoring) return;
+      if (!isMountedRef.current) return;
       
       try {
         const networkState = await Network.getNetworkStateAsync();
-        const isConnected = networkState.isConnected && networkState.isInternetReachable;
-
-        // Skip if no real change in connectivity
-        if (lastNetworkStateRef.current === isConnected) {
-          // Schedule next check
-          setTimeout(checkNetworkState, 5000);
-      return;
-    }
-    
-        lastNetworkStateRef.current = isConnected ?? false;
+        const isNetworkAvailable = Boolean(
+          networkState.isConnected && networkState.isInternetReachable
+        );
         
-        if (isConnected) {
-          console.log('[useSocket] Network connection restored');
+        // Only act if network state has changed
+        if (lastNetworkStateRef.current !== isNetworkAvailable) {
+          lastNetworkStateRef.current = isNetworkAvailable;
           
-          // Check if socket is connected, reconnect if needed
-          if (socketRef.current && !socketRef.current.connected) {
-            console.log('[useSocket] Socket disconnected, reconnecting after network restoration...');
-            setupConnection();
-          } else if (!socketRef.current) {
-            console.log('[useSocket] No socket instance, creating new connection after network restoration...');
+          console.log(`[useSocket] Network state changed: ${isNetworkAvailable ? 'available' : 'unavailable'}`);
+          
+          // If network becomes available but socket is disconnected, try to reconnect
+          if (isNetworkAvailable && socketRef.current && !socketRef.current.connected) {
             setupConnection();
           }
-        } else {
-          console.log('[useSocket] Network connection lost');
-          // Just log, we'll automatically try to reconnect when network is available again
-        }
-        
-        // Schedule next check
-        if (isMonitoring) {
-          setTimeout(checkNetworkState, 5000);
         }
       } catch (error) {
         console.error('[useSocket] Error checking network state:', error);
-        // Schedule next check even on error
-        if (isMonitoring) {
-          setTimeout(checkNetworkState, 10000); // Longer delay on error
-        }
       }
     };
     
-    // Start monitoring
-    checkNetworkState();
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
     
-    // Clean up function
+    // Set up network state monitoring
+    const checkNetworkInterval = setInterval(() => {
+      if (isMountedRef.current) {
+        checkNetworkState();
+      }
+    }, 30000); // Check every 30 seconds
+    
+    // Cleanup socket on unmount
     return () => {
-      isMonitoring = false;
+      console.log('[useSocket] Cleaning up socket connection');
+      isMountedRef.current = false;
+      
+      subscription.remove();
+      clearInterval(checkNetworkInterval);
+      
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
+      // Decrement reference count and only remove listeners when no components use the socket
+      socketRefCount--;
+      if (socketRefCount <= 0) {
+        socketRefCount = 0;
+        
+        // Don't close the socket on component unmount, just clean up component-specific listeners
+        // The socket will be reused by other components or cleaned up when the app is terminated
+        if (socketRef.current) {
+          if (onConnect) socketRef.current.off('connect', onConnect);
+          if (onDisconnect) socketRef.current.off('disconnect', onDisconnect);
+          if (onLocationUpdate) socketRef.current.off('location:update', onLocationUpdate);
+          if (onGeofenceTransition) socketRef.current.off('geofence:transition', onGeofenceTransition);
+        }
+      }
     };
-  }, [setupConnection]);
+  }, [token, setupConnection, socket]);
   
   // Function to emit location update
   const emitLocation = useCallback(

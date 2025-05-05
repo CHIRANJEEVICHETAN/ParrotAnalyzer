@@ -7,12 +7,27 @@ interface SocketState {
   socketId: string | null;
   connectedAt: string | null;
   
+  // Connection management
+  referenceCount: number;
+  sessionId: string | null;
+  lastNetworkState: boolean | null;
+  
   // Actions
   setConnected: (socketId: string) => void;
   setDisconnected: () => void;
   setReconnecting: () => void;
   resetRetryCount: () => void;
   incrementRetryCount: () => void;
+  
+  // Reference counting
+  addReference: () => number;
+  removeReference: () => number;
+  
+  // Network management
+  setNetworkState: (isAvailable: boolean) => void;
+  
+  // Session management
+  setSessionId: (sessionId: string) => void;
 }
 
 const useSocketStore = create<SocketState>((set, get) => ({
@@ -23,6 +38,11 @@ const useSocketStore = create<SocketState>((set, get) => ({
   },
   socketId: null,
   connectedAt: null,
+  
+  // Connection management
+  referenceCount: 0,
+  sessionId: null,
+  lastNetworkState: null,
   
   // Actions
   setConnected: (socketId: string) => set({
@@ -62,7 +82,31 @@ const useSocketStore = create<SocketState>((set, get) => ({
       ...get().status,
       reconnectAttempts: get().status.reconnectAttempts + 1
     }
-  })
+  }),
+  
+  // Reference counting methods
+  addReference: () => {
+    const newCount = get().referenceCount + 1;
+    set({ referenceCount: newCount });
+    return newCount;
+  },
+  
+  removeReference: () => {
+    const current = get().referenceCount;
+    const newCount = Math.max(0, current - 1);
+    set({ referenceCount: newCount });
+    return newCount;
+  },
+  
+  // Network management
+  setNetworkState: (isAvailable: boolean) => {
+    set({ lastNetworkState: isAvailable });
+  },
+  
+  // Session management
+  setSessionId: (sessionId: string) => {
+    set({ sessionId });
+  }
 }));
 
 export default useSocketStore; 

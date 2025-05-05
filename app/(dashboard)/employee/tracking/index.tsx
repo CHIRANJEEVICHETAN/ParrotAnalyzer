@@ -422,6 +422,7 @@ export default function EmployeeTrackingScreen() {
   const locationSubscription = useRef<Location.LocationSubscription | null>(
     null
   );
+  const appStateSubscription = useRef<any>(null);
   const periodicUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const updateQueueRef = useRef<LocationObject[]>([]);
   const isMountedRef = useRef(true);
@@ -431,6 +432,8 @@ export default function EmployeeTrackingScreen() {
   const locationHistoryRef = useRef<
     Array<{ latitude: number; longitude: number }>
   >([]);
+  // Add reconnect timeout ref
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Add this near other state declarations
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -894,24 +897,30 @@ export default function EmployeeTrackingScreen() {
 
   // Update the immediate location updates effect with proper type handling for debounce
   useEffect(() => {
-    // Only send updates when there's a significant change and we're actively tracking
-    if (
-      currentLocation &&
-      socket &&
-      socket.connected &&
-      trackingStatus === TrackingStatus.ACTIVE &&
-      !isProcessingUpdate
-    ) {
-      // Type-safe debounce implementation
-      const debouncedUpdate = debounce(() => {
-        if (!isMountedRef.current) return;
-
+    // Only process location updates when there's a significant change and we're actively tracking
+    const processLocation = () => {
+      if (
+        currentLocation &&
+        socket &&
+        socket.connected &&
+        trackingStatus === TrackingStatus.ACTIVE &&
+        !isProcessingUpdate &&
+        isMountedRef.current
+      ) {
         // Validate location data before sending
         if (!validateLocationData(currentLocation)) {
           console.warn("Skipping location update due to invalid data");
           return;
         }
-
+        
+        // Check if update is too frequent
+        const now = Date.now();
+        if (lastUpdateTimeRef.current && now - lastUpdateTimeRef.current < 3000) {
+          return; // Skip if less than 3 seconds since last update
+        }
+        
+        lastUpdateTimeRef.current = now;
+        
         socket.emit("location:update", {
           latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
@@ -933,16 +942,26 @@ export default function EmployeeTrackingScreen() {
         });
 
         // Update last location timestamp
-        lastLocationUpdateRef.current = Date.now();
-      }, 3000);
-
-      debouncedUpdate();
-
-      return () => {
-        // Clear any pending timeout
-        clearTimeout(debouncedUpdate as unknown as NodeJS.Timeout);
-      };
+        lastLocationUpdateRef.current = now;
+      }
+    };
+    
+    // Debounced version of processLocation
+    const debouncedProcessLocation = debounce(processLocation, 3000);
+    
+    // Call the debounced function when currentLocation changes
+    if (trackingStatus === TrackingStatus.ACTIVE && currentLocation) {
+      debouncedProcessLocation();
     }
+    
+    // Clean up debounce on unmount
+    return () => {
+      // @ts-ignore - TypeScript doesn't know about the internal timer
+      if (debouncedProcessLocation.clear) {
+        // @ts-ignore
+        debouncedProcessLocation.clear();
+      }
+    };
   }, [
     currentLocation,
     trackingStatus,
@@ -955,8 +974,154 @@ export default function EmployeeTrackingScreen() {
     currentGeofence,
   ]);
 
+  // Add a cleanup effect to ensure tracking stops when component unmounts
+  useEffect(() => {
+    // Set mount flag
+    isMountedRef.current = true;
+
+    return () => {
+      console.log(
+        "EmployeeTrackingScreen unmounting - cleaning up UI resources only"
+      );
+      isMountedRef.current = false;
+
+      // Clear foreground tracking intervals
+      if (periodicUpdateIntervalRef.current) {
+        clearInterval(periodicUpdateIntervalRef.current);
+        periodicUpdateIntervalRef.current = null;
+        console.log("Foreground heartbeat interval cleared on unmount");
+      }
+
+      // Clear any other timeouts and intervals
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
+      // Clear update queue
+      setUpdateQueue([]);
+      
+      // DON'T stop tracking when component unmounts
+      // Background tracking should continue
+    };
+  }, []);
+
+  // Optimize initialization effect
+  useEffect(() => {
+    isMountedRef.current = true;
+    let hasStartedInit = false;
+
+    const initializeTracking = async () => {
+      // Prevent double initialization
+      if (hasStartedInit || hasInitializedRef.current) {
+        console.log(
+          "Tracking already initialized or initialization in progress, skipping..."
+        );
+        return;
+      }
+      
+      hasStartedInit = true;
+
+      try {
+        // Check if we have a stored initialization state
+        const storedInitState = await AsyncStorage.getItem(
+          "tracking_initialized"
+        );
+        const appState = await AsyncStorage.getItem("app_state");
+
+        if (storedInitState === "true" && appState === "active") {
+          console.log(
+            "Tracking already initialized and app is active, skipping..."
+          );
+          hasInitializedRef.current = true;
+          setHasInitialized(true);
+          return;
+        }
+
+        // Run initialization in background after UI is ready
+        InteractionManager.runAfterInteractions(async () => {
+          try {
+            if (!isMountedRef.current) return;
+
+            await checkPermissions();
+            
+            // Get current location once
+            await getCurrentLocation();
+            
+            // Check background tracking status
+            await updateBackgroundTrackingStatus();
+
+            // Generate a unique tracking session ID if not exists
+            if (!trackingSessionId && isMountedRef.current) {
+              const newSessionId = `session_${Date.now()}_${Math.random()
+                .toString(36)
+                .substring(2, 9)}`;
+              setTrackingSessionId(newSessionId);
+              await AsyncStorage.setItem(
+                "current_tracking_session_id",
+                newSessionId
+              );
+            }
+
+            // Set initialization flags
+            if (isMountedRef.current) {
+              lastLocationUpdateRef.current = Date.now();
+              hasInitializedRef.current = true;
+              setHasInitialized(true);
+              await AsyncStorage.setItem("tracking_initialized", "true");
+              await AsyncStorage.setItem("app_state", "active");
+              console.log("Tracking initialized successfully");
+            }
+          } catch (error) {
+            console.error("Error in background initialization:", error);
+            if (isMountedRef.current) {
+              showToast(
+                "Error initializing tracking. Please try again.",
+                "error"
+              );
+            }
+          } finally {
+            hasStartedInit = false;
+          }
+        });
+      } catch (error) {
+        console.error("Error initializing tracking:", error);
+        hasStartedInit = false;
+        
+        if (isMountedRef.current) {
+          showToast("Error initializing tracking. Please try again.", "error");
+        }
+      }
+    };
+
+    // Only initialize once when component mounts
+    initializeTracking();
+
+    // Add app state change listener to handle background/foreground transitions
+    const subscription = AppState.addEventListener(
+      "change",
+      async (nextAppState) => {
+        if (!isMountedRef.current) return;
+        
+        if (nextAppState === "active") {
+          await AsyncStorage.setItem("app_state", "active");
+        } else if (nextAppState.match(/inactive|background/)) {
+          await AsyncStorage.setItem("app_state", "background");
+          
+          // Don't reset initialization flags when going to background
+          // This prevents unnecessary re-initialization when returning to this screen
+        }
+      }
+    );
+
+    return () => {
+      isMountedRef.current = false;
+      subscription.remove();
+    };
+  }, []);
+
   // Move sendPeriodicUpdate outside the useEffect to make it accessible to the startForegroundTracking function
-  const sendPeriodicUpdate = async () => {
+  const sendPeriodicUpdate = useCallback(async () => {
     if (
       trackingStatus === TrackingStatus.ACTIVE &&
       socket &&
@@ -965,9 +1130,19 @@ export default function EmployeeTrackingScreen() {
       isMountedRef.current
     ) {
       try {
+        // Throttle updates to at most one every 3 seconds
+        const now = Date.now();
+        if (lastPeriodicUpdateRef.current && now - lastPeriodicUpdateRef.current < 3000) {
+          return; // Skip update if too frequent
+        }
+        
+        lastPeriodicUpdateRef.current = now;
+        
         if (validateLocationData(currentLocation)) {
           socket.emit("location:update", {
-            ...currentLocation,
+            latitude: currentLocation.coords.latitude,
+            longitude: currentLocation.coords.longitude,
+            accuracy: currentLocation.coords.accuracy,
             timestamp: new Date().toISOString(),
             batteryLevel: batteryLevel,
             isMoving:
@@ -984,24 +1159,49 @@ export default function EmployeeTrackingScreen() {
             sessionId: trackingSessionId,
           });
           
-          lastLocationUpdateRef.current = Date.now();
+          lastLocationUpdateRef.current = now;
         }
       } catch (error) {
         console.error("Error in periodic update:", error);
       }
     }
-  };
+  }, [
+    trackingStatus,
+    socket,
+    currentLocation,
+    batteryLevel,
+    user?.id,
+    trackingSessionId,
+    isInGeofence,
+    currentGeofence,
+  ]);
 
   // Use a more efficient periodic update with reduced frequency
   useEffect(() => {
     let updateInterval: NodeJS.Timeout | null = null;
 
     if (trackingStatus === TrackingStatus.ACTIVE && isMountedRef.current) {
-      // Send updates every 10 seconds - this is a backup for missed location changes
-      updateInterval = setInterval(sendPeriodicUpdate, 10000);
+      // Immediately clear any existing interval to prevent duplicates
+      if (periodicUpdateIntervalRef.current) {
+        clearInterval(periodicUpdateIntervalRef.current);
+        periodicUpdateIntervalRef.current = null;
+      }
+      
+      // Send updates every 10 seconds - increased from previous settings
+      updateInterval = setInterval(() => {
+        // Only proceed if component is still mounted
+        if (isMountedRef.current) {
+          sendPeriodicUpdate();
+        }
+      }, 10000);
+      
+      // Store the interval in ref for cleanup
+      periodicUpdateIntervalRef.current = updateInterval;
 
-      // Still send an initial update immediately
-      sendPeriodicUpdate();
+      // Still send an initial update immediately, but only if we have location data
+      if (currentLocation) {
+        sendPeriodicUpdate();
+      }
     }
 
     return () => {
@@ -1011,15 +1211,8 @@ export default function EmployeeTrackingScreen() {
     };
   }, [
     trackingStatus,
-    socket,
+    sendPeriodicUpdate,
     currentLocation,
-    batteryLevel,
-    user?.id,
-    trackingSessionId,
-    updateQueue.length,
-    isProcessingUpdate,
-    isInGeofence,
-    currentGeofence,
   ]);
 
   // Update background tracking status periodically
@@ -1103,9 +1296,14 @@ export default function EmployeeTrackingScreen() {
       }
     );
 
+    // Store subscription in ref for cleanup
+    appStateSubscription.current = subscription;
+
     return () => {
       // Ensure we properly clean up the subscription
-      subscription.remove();
+      if (appStateSubscription.current) {
+        appStateSubscription.current.remove();
+      }
     };
   }, [trackingStatus]);
 
@@ -1159,11 +1357,13 @@ export default function EmployeeTrackingScreen() {
         // Starting tracking
         setTrackingStatus(TrackingStatus.ACTIVE);
         
-        // Start foreground tracking first
+        // Start foreground tracking
         startForegroundTracking();
+        // Start location updates with throttling
+        startLocationUpdates();
         
         // If background tracking is enabled, ensure it's running through the context
-        if (backgroundTrackingEnabled) {
+        if (backgroundTrackingEnabled && toggleBackgroundTracking) {
           const success = await toggleBackgroundTracking(true);
           if (!success) {
             console.error("Failed to activate background tracking from context");
@@ -1172,6 +1372,9 @@ export default function EmployeeTrackingScreen() {
         
         // Update global tracking state
         await AsyncStorage.setItem('trackingStatus', TrackingStatus.ACTIVE);
+        
+        // Immediately get current location
+        getCurrentLocation();
       } 
       else if (trackingStatus === TrackingStatus.ACTIVE) {
         // Pausing tracking
@@ -1180,6 +1383,13 @@ export default function EmployeeTrackingScreen() {
         // Pause foreground tracking
         if (periodicUpdateIntervalRef.current) {
           clearInterval(periodicUpdateIntervalRef.current);
+          periodicUpdateIntervalRef.current = null;
+        }
+        
+        // Stop location updates subscription
+        if (locationSubscription.current) {
+          locationSubscription.current.remove();
+          locationSubscription.current = null;
         }
         
         // Update global tracking state
@@ -1191,9 +1401,14 @@ export default function EmployeeTrackingScreen() {
         
         // Resume foreground updates
         startForegroundTracking();
+        // Restart location updates
+        startLocationUpdates();
         
         // Update global tracking state
         await AsyncStorage.setItem('trackingStatus', TrackingStatus.ACTIVE);
+        
+        // Immediately get current location
+        getCurrentLocation();
       }
     } catch (error) {
       console.error('Error in toggleTracking:', error);
@@ -1364,45 +1579,6 @@ export default function EmployeeTrackingScreen() {
       return false;
     }
   };
-
-  // Add a cleanup effect to ensure tracking stops when component unmounts
-  useEffect(() => {
-    // Set mount flag
-    isMountedRef.current = true;
-
-    return () => {
-      console.log(
-        "EmployeeTrackingScreen unmounting - cleaning up UI resources only"
-      );
-      isMountedRef.current = false;
-
-      // Clear foreground tracking intervals
-      if (periodicUpdateIntervalRef.current) {
-        clearInterval(periodicUpdateIntervalRef.current);
-        periodicUpdateIntervalRef.current = null;
-        console.log("Foreground heartbeat interval cleared on unmount");
-      }
-
-      // DON'T stop tracking when component unmounts - remove this code
-      // We want tracking to continue when navigating away
-      /*
-      // Only stop FOREGROUND tracking if it was active when unmounting
-      // We capture the status at the time the cleanup function is defined
-      const statusOnUnmount = trackingStatus;
-      if (statusOnUnmount === TrackingStatus.ACTIVE) {
-        console.log("Stopping active FOREGROUND tracking on unmount");
-        // Assuming stopTracking() handles only foreground
-        stopTracking().catch((error) => {
-          console.error(
-            "Error stopping foreground tracking on unmount:",
-            error
-          );
-        });
-      }
-      */
-    };
-    // Only re-run cleanup if trackingStatus changes, to stop foreground tracking correctly
-  }, [trackingStatus]);
 
   // Replace handleStopTracking with this version
   const handleStopTracking = () => {
@@ -1791,6 +1967,87 @@ export default function EmployeeTrackingScreen() {
       }, 500);
     }
   };
+
+  // Cleanup function to handle unmounting properly
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      console.log('Tracking component unmounting, performing cleanup');
+      isMountedRef.current = false;
+      // Clear all intervals
+      if (periodicUpdateIntervalRef.current) {
+        clearInterval(periodicUpdateIntervalRef.current);
+        periodicUpdateIntervalRef.current = null;
+      }
+      
+      // Cancel location subscription
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+      
+      // Clear reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
+      // Reset queue
+      updateQueueRef.current = [];
+      
+      // Clean up any app state listeners
+      if (appStateSubscription.current) {
+        appStateSubscription.current.remove();
+      }
+    };
+  }, []);
+
+  // Start location updates with throttling
+  const startLocationUpdates = useCallback(async () => {
+    if (locationSubscription.current) {
+      console.log('Location subscription already active, removing first');
+      locationSubscription.current.remove();
+      locationSubscription.current = null;
+    }
+
+    try {
+      // Use a lower frequency than before - 10 seconds is usually sufficient
+      const updateInterval = 10000; // 10 seconds
+      
+      // Appropriately set accuracy based on user settings
+      const accuracy = Location.Accuracy.Highest;
+      
+      // Configure the subscription with throttling built in
+      const subscription = await Location.watchPositionAsync(
+        {
+          accuracy,
+          timeInterval: updateInterval,
+          distanceInterval: 10, // meters
+        },
+        (newLocation) => {
+          // Avoid processing if component unmounted or process already in progress
+          if (!isMountedRef.current) return;
+          
+          // Throttle updates
+          const now = Date.now();
+          if (lastLocationUpdateRef.current && 
+              now - lastLocationUpdateRef.current < 3000) { // 3 second minimum between updates
+            console.log('Throttling location update');
+            return;
+          }
+          lastLocationUpdateRef.current = now;
+          
+          handleLocationUpdate(newLocation);
+        }
+      );
+
+      locationSubscription.current = subscription;
+      console.log('Started location updates with throttling');
+    } catch (error) {
+      console.error('Error starting location updates:', error);
+      setError(`Location tracking error: ${String(error)}`);
+    }
+  }, [handleLocationUpdate, setError]);
 
   return (
     <View style={[styles.container, { backgroundColor }]}>
