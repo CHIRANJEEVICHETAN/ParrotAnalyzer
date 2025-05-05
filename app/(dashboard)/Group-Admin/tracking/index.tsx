@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,7 @@ import { Point, cleanRoute, getRouteStats, formatDistance } from "../../../utils
 
 import LiveTrackingMap from "../../shared/components/map/LiveTrackingMap";
 import { showTokenDebugAlert } from "../../../utils/tokenDebugger";
+import BottomSheet, { BottomSheetFlatList } from '@gorhom/bottom-sheet';
 
 // Add the MAX_ROUTE_POINTS constant to limit memory usage
 const MAX_ROUTE_POINTS = 500;
@@ -153,6 +154,218 @@ export default function GroupAdminTrackingDashboard() {
   const [locationCache, setLocationCache] = useState<{ [key: string]: string }>(
     {}
   );
+
+  // Get the map store hooks
+  const {
+    setUserLocation,
+    currentRegion: mapRegion,
+    setCurrentRegion: setMapRegion,
+    userLocation,
+  } = useMapStore();
+
+  // Add bottom sheet ref and snap points
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['25%', '50%', '85%'], []);
+
+  // Add callback for sheet changes
+  const handleSheetChanges = useCallback((index: number) => {
+    console.log('handleSheetChanges', index);
+  }, []);
+
+  // Handle navigating to a specific employee
+  const handleGoToEmployee = useCallback((employee: TrackingUser) => {
+    if (employee && employee.location) {
+      // Set selected user
+      setSelectedUserId(employee.id);
+      
+      // Update map region to focus on this employee
+      const newRegion = {
+        latitude: employee.location.latitude,
+        longitude: employee.location.longitude,
+        latitudeDelta: 0.005,  // Zoomed in for employee view
+        longitudeDelta: 0.005,
+      };
+      
+      // Update map region
+      setMapRegion(newRegion);
+    }
+  }, [setMapRegion]);
+
+  // Add renderItem function for FlatList
+  const renderItem = useCallback(({ item: user }: { item: TrackingUser }) => {
+    const isSelected = selectedUserId === user.id;
+    const routeDistance = routeStats[user.id]?.formattedDistance || '0 m';
+    const routeDuration = routeStats[user.id]?.duration || 0;
+    
+    let formattedDuration = '0 min';
+    if (routeDuration >= 3600) {
+      const hours = Math.floor(routeDuration / 3600);
+      const minutes = Math.floor((routeDuration % 3600) / 60);
+      formattedDuration = `${hours}h ${minutes}m`;
+    } else if (routeDuration >= 60) {
+      formattedDuration = `${Math.floor(routeDuration / 60)}m`;
+    } else {
+      formattedDuration = `${Math.round(routeDuration)}s`;
+    }
+
+    return (
+      <TouchableOpacity
+        key={user.id}
+        style={[
+          styles.employeeItem,
+          isSelected && styles.selectedEmployeeItem,
+          { backgroundColor: cardColor }
+        ]}
+        onPress={() => handleGoToEmployee(user)}
+      >
+        {/* Status Badge */}
+        <View 
+          style={[
+            styles.statusBadge, 
+            { 
+              position: 'absolute',
+              top: 10, 
+              right: 10,
+              backgroundColor: user.isActive 
+                ? 'rgba(16, 185, 129, 0.15)' 
+                : 'rgba(239, 68, 68, 0.15)',
+              paddingVertical: 4,
+              paddingHorizontal: 10,
+              borderRadius: 6
+            }
+          ]}
+        >
+          <Text style={{
+            fontSize: 12,
+            fontWeight: '600',
+            color: user.isActive ? '#065f46' : '#b91c1c',
+          }}>
+            {user.isActive ? 'Active' : 'Inactive'}
+          </Text>
+        </View>
+
+        {/* Left Side Content */}
+        <View style={styles.employeeInfo}>
+          {/* Employee Name and ID row */}
+          <View style={styles.employeeHeader}>
+            <View style={[styles.statusDot, { backgroundColor: user.isActive ? "#10b981" : "#ef4444" }]} />
+            <Text 
+              style={[styles.employeeName, { color: textColor }]} 
+              numberOfLines={1}
+            >
+              {user.name || 'Employee'}
+            </Text>
+            {user.employeeNumber && (
+              <Text style={[styles.employeeNumber, { color: textColor }]}>
+                #{user.employeeNumber}
+              </Text>
+            )}
+          </View>
+          
+          {/* Device Info */}
+          <View className='mb-1' style={styles.detailRow}>
+            <View style={styles.iconTextRow}>
+              <Ionicons 
+                name="phone-portrait-outline" 
+                size={16} 
+                color={primaryColor} 
+                style={styles.detailIcon} 
+              />
+              <Text 
+                style={[styles.detailText, { color: textColor }]} 
+                numberOfLines={1}
+              >
+                {user.deviceInfo || 'Unknown Device'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Location */}
+          <View className='mb-1' style={styles.detailRow}>
+            <View style={styles.iconTextRow}>
+              <Ionicons 
+                name="location-outline" 
+                size={16} 
+                color={primaryColor} 
+                style={styles.detailIcon} 
+              />
+              <LocationName 
+                latitude={user.location.latitude}
+                longitude={user.location.longitude}
+                style={[styles.detailText, { color: textColor }]}
+              />
+            </View>
+          </View>
+            
+          {/* Last Updated */}
+          <View className='mb-1' style={styles.detailRow}>
+            <View style={styles.iconTextRow}>
+              <Ionicons 
+                name="time-outline" 
+                size={16} 
+                color={primaryColor} 
+                style={styles.detailIcon} 
+              />
+              <Text 
+                style={[styles.detailText, { color: textColor }]} 
+                numberOfLines={1}
+              >
+                {formatLastUpdated(user.lastUpdated)}
+              </Text>
+            </View>
+          </View>
+            
+          {/* Battery Level */}
+          <View className='mb-1' style={styles.detailRow}>
+            <View style={styles.iconTextRow}>
+              <Ionicons 
+                name={getBatteryIconName(user.batteryLevel) as any} 
+                size={16} 
+                color={getBatteryColor(user.batteryLevel)} 
+                style={styles.detailIcon} 
+              />
+              <Text 
+                style={[styles.detailText, { color: getBatteryTextColor(user.batteryLevel, textColor) }]}
+                numberOfLines={1}
+              >
+                {user.batteryLevel !== undefined ? `${Math.round(user.batteryLevel)}%` : 'Unknown'}
+              </Text>
+            </View>
+          </View>
+            
+          {/* User Path (optional) */}
+          {showUserPaths && (
+            <View className='mb-1' style={styles.detailRow}>
+              <View style={styles.iconTextRow}>
+                <Ionicons 
+                  name="footsteps-outline" 
+                  size={16} 
+                  color={primaryColor} 
+                  style={styles.detailIcon} 
+                />
+                <Text 
+                  style={[styles.detailText, { color: textColor }]} 
+                  numberOfLines={1}
+                >
+                  {routeDistance} ({formattedDuration})
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+        
+        {/* Right side - Locate button */}
+        <View style={styles.employeeActions}>
+          <TouchableOpacity
+            style={[styles.locateButton, { backgroundColor: primaryColor }]}
+            onPress={() => handleGoToEmployee(user)}
+          >
+            <Ionicons name="locate-outline" size={20} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  }, [selectedUserId, cardColor, textColor, primaryColor, showUserPaths, routeStats, handleGoToEmployee]);
 
   // Add a useEffect to check tracking status when the component mounts
   useEffect(() => {
@@ -373,121 +586,6 @@ export default function GroupAdminTrackingDashboard() {
       clearInterval(cleanupInterval);
     };
   }, [cleanupOldRoutes]);
-
-  // Get the map store hooks
-  const {
-    setUserLocation,
-    currentRegion: mapRegion,
-    setCurrentRegion: setMapRegion,
-    userLocation,
-  } = useMapStore();
-
-  // Handle navigating to a specific employee
-  const handleGoToEmployee = useCallback((employee: TrackingUser) => {
-    if (employee && employee.location) {
-      // Set selected user
-      setSelectedUserId(employee.id);
-      
-      // Update map region to focus on this employee
-      const newRegion = {
-        latitude: employee.location.latitude,
-        longitude: employee.location.longitude,
-        latitudeDelta: 0.005,  // Zoomed in for employee view
-        longitudeDelta: 0.005,
-      };
-      
-      // Update map region
-      setMapRegion(newRegion);
-    }
-  }, [setMapRegion]);
-
-  // Add the route stats to display in the employee item details
-  const renderEmployeeItem = useCallback(
-    (employee: TrackingUser) => {
-      const isSelected = selectedUserId === employee.id;
-      const routeDistance = routeStats[employee.id]?.formattedDistance || '0 m';
-      const routeDuration = routeStats[employee.id]?.duration || 0;
-      
-      let formattedDuration = '0 min';
-      if (routeDuration >= 3600) {
-        const hours = Math.floor(routeDuration / 3600);
-        const minutes = Math.floor((routeDuration % 3600) / 60);
-        formattedDuration = `${hours}h ${minutes}m`;
-      } else if (routeDuration >= 60) {
-        formattedDuration = `${Math.floor(routeDuration / 60)}m`;
-      } else {
-        formattedDuration = `${Math.round(routeDuration)}s`;
-      }
-        
-      return (
-        <TouchableOpacity
-          key={employee.id}
-          style={[
-            styles.employeeItem,
-            isSelected && styles.selectedEmployeeItem,
-            { backgroundColor: cardColor }
-          ]}
-          onPress={() => setSelectedUserId(isSelected ? undefined : employee.id)}
-        >
-          <View style={styles.employeeInfo}>
-            <View style={styles.employeeHeader}>
-              <View style={[styles.statusDot, { backgroundColor: employee.isActive ? "#10b981" : "#ef4444" }]} />
-              <Text style={[styles.employeeName, { color: textColor }]}>
-                {employee.name}
-              </Text>
-            </View>
-            
-            <View style={styles.employeeDetails}>
-              <View style={styles.detailRow}>
-                <Ionicons name="navigate" size={14} color={primaryColor} style={styles.detailIcon} />
-                <Text style={[styles.detailText, { color: textColor }]}>
-                  {employee.location.latitude.toFixed(6)}, {employee.location.longitude.toFixed(6)}
-                </Text>
-              </View>
-              
-              <View style={styles.detailRow}>
-                <Ionicons name="time-outline" size={14} color={primaryColor} style={styles.detailIcon} />
-                <Text style={[styles.detailText, { color: textColor }]}>
-                  {formatLastUpdated(employee.lastUpdated)}
-                </Text>
-              </View>
-              
-              <View style={styles.detailRow}>
-                <Ionicons 
-                  name={getBatteryIconName(employee.batteryLevel) as any} 
-                  size={14} 
-                  color={getBatteryColor(employee.batteryLevel)} 
-                  style={styles.detailIcon} 
-                />
-                <Text style={[styles.detailText, { color: getBatteryTextColor(employee.batteryLevel, textColor) }]}>
-                  {employee.batteryLevel !== undefined ? `${Math.round(employee.batteryLevel)}%` : 'Unknown'}
-                </Text>
-              </View>
-              
-              {showUserPaths && (
-                <View style={styles.detailRow}>
-                  <Ionicons name="footsteps-outline" size={14} color={primaryColor} style={styles.detailIcon} />
-                  <Text style={[styles.detailText, { color: textColor }]}>
-                    {routeDistance} ({formattedDuration})
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-          
-          <View style={styles.employeeActions}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: primaryColor }]}
-              onPress={() => handleGoToEmployee(employee)}
-            >
-              <Ionicons name="locate-outline" size={20} color="#ffffff" />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      );
-    },
-    [selectedUserId, cardColor, textColor, primaryColor, showUserPaths, routeStats, handleGoToEmployee]
-  );
 
   // Load initial data
   useEffect(() => {
@@ -1101,39 +1199,21 @@ export default function GroupAdminTrackingDashboard() {
         </View>
       </View>
 
-      {/* Employee List Section */}
-      <View
-        style={[
-          styles.trackedEmployeesContainer,
-          { backgroundColor: cardColor },
-        ]}
+      {/* Replace the trackedEmployeesContainer with BottomSheet */}
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={1}
+        snapPoints={snapPoints}
+        onChange={handleSheetChanges}
+        style={styles.bottomSheet}
+        handleIndicatorStyle={styles.bottomSheetIndicator}
+        backgroundStyle={[{ backgroundColor: cardColor }]}
       >
         <View style={styles.employeeListHeader}>
-          <View
-            style={[
-              styles.headerRow,
-              {
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                paddingHorizontal: 8,
-              },
-            ]}
-          >
-            <View
-              style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
-            >
+          <View style={styles.headerRow}>
+            <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
               <Text
-                style={[
-                  styles.sectionTitle,
-                  {
-                    color: textColor,
-                    fontSize: 16,
-                    fontWeight: "700",
-                    flexShrink: 1,
-                    marginRight: 5,
-                  },
-                ]}
+                style={[styles.sectionTitle, { color: textColor }]}
                 numberOfLines={1}
               >
                 Tracked Employees ({filteredUsers.length})
@@ -1144,15 +1224,7 @@ export default function GroupAdminTrackingDashboard() {
                 style={[
                   styles.headerButton,
                   filterActive && styles.headerButtonActive,
-                  {
-                    backgroundColor: useThemeColor("#f8fafc", "#1e293b"),
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 8,
-                    paddingVertical: 6,
-                    borderRadius: 8,
-                    width: 80,
-                  },
+                  { backgroundColor: useThemeColor("#f8fafc", "#1e293b") }
                 ]}
                 onPress={() => setFilterActive(!filterActive)}
               >
@@ -1165,36 +1237,14 @@ export default function GroupAdminTrackingDashboard() {
                 <Text
                   style={[
                     styles.headerButtonText,
-                    {
-                      color: filterActive ? "#3b82f6" : textColor,
-                      fontSize: 12,
-                    },
+                    { color: filterActive ? "#3b82f6" : textColor }
                   ]}
                 >
                   Active
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.headerButton,
-                  {
-                    backgroundColor: "#7c3aed",
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 8,
-                    paddingVertical: 6,
-                    borderRadius: 8,
-                    shadowColor: "#000",
-                    shadowOffset: {
-                      width: 0,
-                      height: 2,
-                    },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 3,
-                    elevation: 3,
-                    width: 80,
-                  },
-                ]}
+                style={[styles.headerButton, { backgroundColor: "#7c3aed" }]}
                 onPress={goToAnalytics}
               >
                 <Ionicons
@@ -1203,18 +1253,15 @@ export default function GroupAdminTrackingDashboard() {
                   color="#ffffff"
                   style={{ marginRight: 2 }}
                 />
-                <Text style={[styles.headerButtonTextWhite, { fontSize: 12 }]}>
-                  Analytics
-                </Text>
+                <Text style={styles.headerButtonTextWhite}>Analytics</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Search Bar */}
           <View
             style={[
               styles.searchContainer,
-              { backgroundColor: useThemeColor("#f1f5f9", "#1e293b") },
+              { backgroundColor: useThemeColor("#f1f5f9", "#1e293b") }
             ]}
           >
             <Ionicons name="search" size={20} color={textColor} />
@@ -1233,8 +1280,11 @@ export default function GroupAdminTrackingDashboard() {
           </View>
         </View>
 
-        <ScrollView
-          style={styles.employeeList}
+        <BottomSheetFlatList
+          data={filteredUsers}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.employeeListContent}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1242,10 +1292,8 @@ export default function GroupAdminTrackingDashboard() {
               tintColor={textColor}
             />
           }
-        >
-          {filteredUsers.map((user) => renderEmployeeItem(user))}
-        </ScrollView>
-      </View>
+        />
+      </BottomSheet>
 
       {/* Selected Employee Detail Card */}
       {selectedUser && (
@@ -1570,9 +1618,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     marginRight: 6,
   },
   statusText: {
@@ -1752,9 +1800,9 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
   employeeItem: {
-    padding: 12,
-    marginHorizontal: 16,
-    marginVertical: 6,
+    padding: 16,
+    marginHorizontal: 10,
+    marginVertical: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(0, 0, 0, 0.1)",
@@ -1762,35 +1810,74 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
-    elevation: 2,
+    elevation: 4,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: 150,
+    width: '95%',
   },
   employeeInfo: {
     flex: 1,
+    paddingRight: 16,
   },
   employeeHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 12,
     gap: 8,
   },
   employeeDetails: {
-    gap: 8,
+    gap: 12,
+  },
+  iconTextRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   detailIcon: {
     marginRight: 8,
+    width: 18,
   },
   detailText: {
     flex: 1,
+    fontSize: 14,
   },
   employeeActions: {
-    flexDirection: "row",
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingRight: 8,
+  },
+  locateButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
   },
   selectedEmployeeItem: {
     borderWidth: 2,
     borderColor: "#3b82f6",
+  },
+  bottomSheet: {
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: -4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  bottomSheetIndicator: {
+    backgroundColor: '#CBD5E1',
+    width: 32,
+  },
+  employeeListContent: {
+    paddingBottom: 32,
   },
 }); 

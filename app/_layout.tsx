@@ -13,6 +13,8 @@ import { TrackingProvider } from './context/TrackingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useLocationStore from './store/locationStore';
 import { useEffect } from 'react';
+import Constants from 'expo-constants';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // Define background task at app initialization
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
@@ -70,7 +72,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
       
       // Get API endpoint
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 
-                   await AsyncStorage.getItem('apiUrl') || 
+                   Constants.expoConfig?.extra?.apiUrl || 
                    'http://localhost:8080';
       
       // Send the update via HTTP
@@ -107,62 +109,64 @@ export default function RootLayout() {
   }, []);
   
   return (
-    <ThemeContext.ThemeProvider>
-      <AuthContext.AuthProvider>
-        <NotificationProvider>
-          <TrackingProvider>
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                animation: "fade",
-              }}
-            >
-              <Stack.Screen
-                name="index"
-                options={{
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeContext.ThemeProvider>
+        <AuthContext.AuthProvider>
+          <NotificationProvider>
+            <TrackingProvider>
+              <Stack
+                screenOptions={{
                   headerShown: false,
+                  animation: "fade",
                 }}
-              />
-              <Stack.Screen
-                name="welcome"
-                options={{
-                  headerShown: false,
-                }}
-              />
-              <Stack.Screen
-                name="(dashboard)"
-                options={{
-                  headerShown: false,
-                }}
-              />
-              <Stack.Screen
-                name="(dashboard)/employee/notifications"
-                options={{
-                  title: "Notifications",
-                }}
-              />
-              <Stack.Screen
-                name="(dashboard)/Group-Admin/notifications"
-                options={{
-                  title: "Notifications",
-                }}
-              />
-              <Stack.Screen
-                name="(dashboard)/management/notifications"
-                options={{
-                  title: "Notifications",
-                }}
-              />
-              <Stack.Screen
-                name="(dashboard)/test-notifications"
-                options={{
-                  title: "Test Notifications",
-                }}
-              />
-            </Stack>
-          </TrackingProvider>
-        </NotificationProvider>
-      </AuthContext.AuthProvider>
-    </ThemeContext.ThemeProvider>
+              >
+                <Stack.Screen
+                  name="index"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="welcome"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="(dashboard)"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="(dashboard)/employee/notifications"
+                  options={{
+                    title: "Notifications",
+                  }}
+                />
+                <Stack.Screen
+                  name="(dashboard)/Group-Admin/notifications"
+                  options={{
+                    title: "Notifications",
+                  }}
+                />
+                <Stack.Screen
+                  name="(dashboard)/management/notifications"
+                  options={{
+                    title: "Notifications",
+                  }}
+                />
+                <Stack.Screen
+                  name="(dashboard)/test-notifications"
+                  options={{
+                    title: "Test Notifications",
+                  }}
+                />
+              </Stack>
+            </TrackingProvider>
+          </NotificationProvider>
+        </AuthContext.AuthProvider>
+      </ThemeContext.ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
