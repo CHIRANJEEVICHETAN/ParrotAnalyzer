@@ -3,6 +3,7 @@ import { pool } from '../config/database';
 import { verifyToken } from '../middleware/auth';
 import { CustomRequest } from '../types';
 import { format } from 'date-fns';
+// import { sendAttendanceToSparrow, getEmployeeCode } from '../services/sparrowAttendanceService'; // Uncomment Later When needed
 
 const router = express.Router();
 
@@ -73,6 +74,12 @@ router.post('/shift/start', verifyToken, async (req: CustomRequest, res: Respons
       [req.user.id, localStartTime]
     );
 
+    // Send attendance to Sparrow Uncomment Later When needed
+    // const employeeCode = await getEmployeeCode(req.user.id);
+    // if (employeeCode) {
+    //   await sendAttendanceToSparrow([employeeCode]);
+    // }
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error starting shift:', error);
@@ -138,6 +145,12 @@ router.post('/shift/end', verifyToken, async (req: CustomRequest, res: Response)
          total_kilometers`,
       [localEndTime, currentExpenses, currentKilometers, activeShift.rows[0].id]
     );
+
+    // Send attendance to Sparrow Uncomment Later When needed
+    // const employeeCode = await getEmployeeCode(req.user.id);
+    // if (employeeCode) {
+    //   await sendAttendanceToSparrow([employeeCode]);
+    // }
 
     await client.query('COMMIT');
     res.json(result.rows[0]);

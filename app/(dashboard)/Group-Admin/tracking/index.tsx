@@ -16,6 +16,7 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons, Fontisto } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import axios from "axios";
+import { RFValue } from "react-native-responsive-fontsize";
 import { useAuth } from "../../../context/AuthContext";
 import { useColorScheme, useThemeColor } from "../../../hooks/useColorScheme";
 import { useGeofencing } from "../../../hooks/useGeofencing";
@@ -167,9 +168,13 @@ export default function GroupAdminTrackingDashboard() {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['25%', '50%', '85%'], []);
 
+  // Add state to track bottom sheet index
+  const [bottomSheetIndex, setBottomSheetIndex] = useState(1); // Default to middle position (index 1)
+
   // Add callback for sheet changes
   const handleSheetChanges = useCallback((index: number) => {
     console.log('handleSheetChanges', index);
+    setBottomSheetIndex(index);
   }, []);
 
   // Handle navigating to a specific employee
@@ -1071,6 +1076,36 @@ export default function GroupAdminTrackingDashboard() {
     }
   );
 
+  // Add a new function to refresh employee data
+  const handleRefreshEmployees = useCallback(() => {
+    setIsLoading(true);
+    Promise.all([
+      fetchEmployeeLocations(),
+      getCurrentLocation()
+    ]).then(() => {
+      refreshMarkers();
+    }).catch(error => {
+      console.error("Error refreshing employee data:", error);
+      Alert.alert("Error", "Failed to refresh employee locations");
+    }).finally(() => {
+      setIsLoading(false);
+    });
+  }, [fetchEmployeeLocations, getCurrentLocation, refreshMarkers]);
+
+  // Get the bottom position based on the sheet index
+  const getControlsBottomPosition = useCallback(() => {
+    if (bottomSheetIndex === 2) { // Fully expanded
+      return 250; // Higher position when sheet is expanded
+    } else if (bottomSheetIndex === 1) { // Middle position
+      if (__DEV__) {
+        return 420; // Middle position
+      } else {
+        return 380; // Default/collapsed position
+      }
+    }
+    return __DEV__ ? 220 : 160; // Default/collapsed position
+  }, [bottomSheetIndex]);
+
   return (
     <View style={[styles.container, { backgroundColor }]}>
       <Stack.Screen
@@ -1138,8 +1173,13 @@ export default function GroupAdminTrackingDashboard() {
           }
         })()}
 
-        {/* Map Overlay Controls */}
-        <View style={styles.mapControls}>
+        {/* Map Overlay Controls - With dynamic bottom position */}
+        <View 
+          style={[
+            styles.mapControls, 
+            { bottom: getControlsBottomPosition() }
+          ]}
+        >
           <View style={styles.controlWithLabel}>
             <TouchableOpacity
               style={[styles.controlButton, { backgroundColor: cardColor }]}
@@ -1181,6 +1221,24 @@ export default function GroupAdminTrackingDashboard() {
             </TouchableOpacity>
             <Text style={[styles.controlLabelText, { color: textColor }]}>
               Create
+            </Text>
+          </View>
+
+          {/* Add Refresh button */}
+          <View style={styles.controlWithLabel}>
+            <TouchableOpacity
+              style={[styles.controlButton, { backgroundColor: cardColor }]}
+              onPress={handleRefreshEmployees}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color={primaryColor} />
+              ) : (
+                <Ionicons name="refresh" size={20} color={textColor} />
+              )}
+            </TouchableOpacity>
+            <Text style={[styles.controlLabelText, { color: textColor }]}>
+              Refresh
             </Text>
           </View>
 
@@ -1561,7 +1619,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: RFValue(15),
     fontWeight: "700",
     flexShrink: 1,
     marginRight: 5,
