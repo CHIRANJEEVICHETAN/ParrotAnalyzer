@@ -37,6 +37,26 @@ const validatePassword = (password: string): PasswordValidation => {
   };
 };
 
+const ErrorMessage: React.FC<{ message: string; isDark: boolean }> = ({ message, isDark }) => {
+  if (!message) return null;
+  
+  return (
+    <View className="mt-2 mb-4 p-4 rounded-lg bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800">
+      <View className="flex-row items-center">
+        <Ionicons
+          name="alert-circle"
+          size={20}
+          color={isDark ? '#FCA5A5' : '#DC2626'}
+          style={{ marginRight: 8 }}
+        />
+        <Text className={`flex-1 ${isDark ? 'text-red-200' : 'text-red-700'}`}>
+          {message}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 export default function ForgotPassword() {
   const { theme } = ThemeContext.useTheme();
   const router = useRouter();
@@ -48,6 +68,7 @@ export default function ForgotPassword() {
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
   const [passwordValidation, setPasswordValidation] = useState<PasswordValidation>({
     hasMinLength: false,
     hasMaxLength: true,
@@ -63,21 +84,32 @@ export default function ForgotPassword() {
 
   const handleSendOTP = async () => {
     if (!email) {
-      Alert.alert('Error', 'Please enter your email address');
+      setError('Please enter your email address');
       return;
     }
 
     setIsLoading(true);
+    setError('');
     try {
       const response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/auth/forgot-password`, {
         email,
       });
 
-      Alert.alert('Success', 'OTP has been sent to your email');
       setStep('otp');
-    } catch (error) {
-      console.error('Error sending OTP:', error);
-      Alert.alert('Error', 'Failed to send OTP. Please try again.');
+    } catch (error: any) {
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 404) {
+          setError(`No account found with this email address` + `\n` + 'Please contact administrator');
+        } else if (error.response?.data?.error) {
+          setError(error.response.data.error);
+        } else if (!error.response) {
+          setError('Network error. Please check your internet connection');
+        } else {
+          setError('An unexpected error occurred. Please try again');
+        }
+      } else {
+        setError('Failed to send verification code. Please try again');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -85,11 +117,12 @@ export default function ForgotPassword() {
 
   const handleVerifyOTP = async () => {
     if (!otp) {
-      Alert.alert('Error', 'Please enter the OTP');
+      setError('Please enter the verification code');
       return;
     }
 
     setIsLoading(true);
+    setError('');
     try {
       const response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/auth/verify-otp`, {
         email,
@@ -97,9 +130,18 @@ export default function ForgotPassword() {
       });
 
       setStep('newPassword');
-    } catch (error) {
-      console.error('Error verifying OTP:', error);
-      Alert.alert('Error', 'Invalid OTP. Please try again.');
+    } catch (error: any) {
+      if (axios.isAxiosError(error)) {
+        if (error.response?.data?.error) {
+          setError(error.response.data.error);
+        } else if (!error.response) {
+          setError('Network error. Please check your internet connection');
+        } else {
+          setError('Invalid or expired verification code');
+        }
+      } else {
+        setError('Failed to verify code. Please try again');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -107,21 +149,22 @@ export default function ForgotPassword() {
 
   const handleResetPassword = async () => {
     if (!newPassword || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setError('Please fill in all password fields');
       return;
     }
 
     if (!isPasswordValid(passwordValidation)) {
-      Alert.alert('Error', 'Password does not meet security requirements');
+      setError('Password does not meet the security requirements');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      setError('Passwords do not match');
       return;
     }
 
     setIsLoading(true);
+    setError('');
     try {
       const response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/auth/reset-password`, {
         email,
@@ -129,12 +172,19 @@ export default function ForgotPassword() {
         newPassword,
       });
 
-      Alert.alert('Success', 'Password has been reset successfully', [
-        { text: 'OK', onPress: () => router.replace('/(auth)/signin') }
-      ]);
-    } catch (error) {
-      console.error('Error resetting password:', error);
-      Alert.alert('Error', 'Failed to reset password. Please try again.');
+      router.replace('/(auth)/signin');
+    } catch (error: any) {
+      if (axios.isAxiosError(error)) {
+        if (error.response?.data?.error) {
+          setError(error.response.data.error);
+        } else if (!error.response) {
+          setError('Network error. Please check your internet connection');
+        } else {
+          setError('Failed to reset password. Please try again');
+        }
+      } else {
+        setError('An unexpected error occurred. Please try again');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -209,6 +259,9 @@ export default function ForgotPassword() {
                 : 'Create a new password for your account'}
             </Text>
           </View>
+
+          {/* Error Message */}
+          <ErrorMessage message={error} isDark={isDark} />
 
           {/* Form */}
           <View className="space-y-8">

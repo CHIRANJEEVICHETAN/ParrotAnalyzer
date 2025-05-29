@@ -1411,7 +1411,7 @@ export default function GroupAdminTrackingDashboard() {
                 Battery
               </Text>
               <View style={styles.batteryContainer}>
-                <Fontisto
+                <Ionicons
                   name={getBatteryIconName(selectedUser.batteryLevel) as any}
                   size={16}
                   color={getBatteryColor(selectedUser.batteryLevel)}
@@ -1500,7 +1500,7 @@ const formatLastUpdated = (timestamp: number) => {
 const getBatteryIconName = (level: number | undefined): string => {
   const batteryLevel = level ?? 0;
   if (batteryLevel <= 10) {
-    return "battery-empty";
+    return "battery-dead";
   } else if (batteryLevel <= 30) {
     return "battery-quarter";
   } else if (batteryLevel <= 70) {
