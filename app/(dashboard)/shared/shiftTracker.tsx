@@ -30,6 +30,7 @@ import useLocationStore from "../../store/locationStore";
 import * as Location from "expo-location";
 import { useFocusEffect } from "@react-navigation/native";
 import { Location as AppLocation } from "../../types/liveTracking";
+import { AppState } from "react-native";
 
 interface ShiftData {
   date: string;
@@ -57,8 +58,8 @@ interface WarningMessage {
 }
 
 // Add notification-related constants
-const SHIFT_WARNING_TIME = 7 * 60 * 60 + 55 * 60 * 1000; // 7 hours 55 minutes in milliseconds
-const SHIFT_LIMIT_TIME = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+const SHIFT_WARNING_TIME_MS = 8 * 60 * 60 * 1000 + 55 * 60 * 1000; // 8 hours 55 minutes in milliseconds
+const SHIFT_LIMIT_TIME_MS = 9 * 60 * 60 * 1000; // 9 hours in milliseconds
 
 const NOTIFICATION_CHANNELS = {
   ACTIVE_SHIFT: "active-shift",
@@ -501,6 +502,7 @@ export default function EmployeeShiftTracker() {
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const rotateAnim = React.useRef(new Animated.Value(0)).current;
   const spinValue = React.useRef(new Animated.Value(0)).current;
+  const [addressRefreshAnim] = useState(new Animated.Value(0));
 
   // State
   const [isShiftActive, setIsShiftActive] = useState(false);
@@ -550,6 +552,7 @@ export default function EmployeeShiftTracker() {
   });
   const [locationCheckInterval, setLocationCheckInterval] =
     useState<NodeJS.Timeout | null>(null);
+  const [isAddressRefreshing, setIsAddressRefreshing] = useState(false);
 
   // Get the API endpoint based on user role
   const apiEndpoint = getApiEndpoint(user?.role || "employee");
@@ -645,6 +648,7 @@ export default function EmployeeShiftTracker() {
   useEffect(() => {
     loadShiftStatus();
     loadShiftHistoryFromBackend();
+    checkIfShiftAutoEnded(); // Add this line
   }, []);
 
   // Animation effects
@@ -681,6 +685,28 @@ export default function EmployeeShiftTracker() {
     }
   }, [isShiftActive]);
 
+  // Add this effect near other animation effects
+  useEffect(() => {
+    if (isAddressRefreshing) {
+      Animated.loop(
+        Animated.timing(addressRefreshAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      ).start();
+    } else {
+      addressRefreshAnim.setValue(0);
+    }
+  }, [isAddressRefreshing]);
+
+  // Add this with other interpolations
+  const addressRefreshRotate = addressRefreshAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   // Timer effect
   useEffect(() => {
     const timer = setInterval(() => {
@@ -697,11 +723,41 @@ export default function EmployeeShiftTracker() {
   const loadShiftStatus = async () => {
     try {
       const status = await AsyncStorage.getItem(`${user?.role}-shiftStatus`);
+      
       if (status) {
         const { isActive, startTime } = JSON.parse(status);
-        setIsShiftActive(isActive);
-        if (isActive && startTime) {
-          setShiftStart(new Date(startTime));
+        
+        if (isActive) {
+          // Before restoring from AsyncStorage, verify with backend that shift is still active
+          try {
+            const response = await axios.get(
+              `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/current`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            
+            if (response.data) {
+              // Shift is still active on backend, restore from AsyncStorage
+              setIsShiftActive(isActive);
+              if (isActive && startTime) {
+                setShiftStart(new Date(startTime));
+              }
+              
+              // Now that we've confirmed the shift is active, check for timer
+              checkExistingTimer();
+            } else {
+              // Shift was ended on backend but not in local storage
+              console.log('Shift not active on backend but active in AsyncStorage - fixing inconsistency');
+              await AsyncStorage.removeItem(`${user?.role}-shiftStatus`);
+              showInAppNotification('Your shift was automatically ended while you were offline', 'info');
+            }
+          } catch (error) {
+            console.error('Error verifying shift status with backend:', error);
+            // Fall back to local storage if we can't verify with backend
+            setIsShiftActive(isActive);
+            if (isActive && startTime) {
+              setShiftStart(new Date(startTime));
+            }
+          }
         }
       }
     } catch (error) {
@@ -918,57 +974,86 @@ export default function EmployeeShiftTracker() {
         activeShiftId
       );
 
-      // Schedule warning notification (7 hours 55 minutes)
-      const warningId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "⚠️ Shift Duration Warning",
-          body: "Your shift will reach 8 hours in 5 minutes. Please prepare to end your shift.",
-          priority: "max",
-          sound: true,
-          vibrate: [0, 500, 250, 500],
-          ...(Platform.OS === "android" && {
-            channelId: NOTIFICATION_CHANNELS.SHIFT_WARNING,
-          }),
-          ...(Platform.OS === "ios" && {
-            interruptionLevel: "timeSensitive",
-          }),
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          repeats: false,
-          seconds: SHIFT_WARNING_TIME / 1000,
-        },
-      });
+      // Calculate seconds from now until the warning should trigger
+      // Based on shift start time + warning offset
+      const now = new Date();
+      const shiftStartTime = shiftStart || now;
+      
+      // Calculate warning time: shift start + warning time (7h 55m)
+      const warningTime = new Date(shiftStartTime.getTime() + SHIFT_WARNING_TIME_MS);
+      const secondsUntilWarning = Math.max(
+        0, 
+        Math.floor((warningTime.getTime() - now.getTime()) / 1000)
+      );
+      
+      // Calculate limit time: shift start + limit time (9h)
+      const limitTime = new Date(shiftStartTime.getTime() + SHIFT_LIMIT_TIME_MS);
+      const secondsUntilLimit = Math.max(
+        0, 
+        Math.floor((limitTime.getTime() - now.getTime()) / 1000)
+      );
 
-      // Schedule limit notification (8 hours)
-      const limitId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "⛔ Shift Duration Limit Reached",
-          body: "You have completed 8 hours of work. Please end your shift now.",
-          priority: "max",
-          sound: true,
-          vibrate: [0, 1000, 500, 1000],
-          ...(Platform.OS === "android" && {
-            channelId: NOTIFICATION_CHANNELS.SHIFT_LIMIT,
-          }),
-          ...(Platform.OS === "ios" && {
-            interruptionLevel: "critical",
-          }),
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          repeats: false,
-          seconds: SHIFT_LIMIT_TIME / 1000,
-        },
-      });
+      // Initialize notification IDs
+      let warningId: string | undefined;
+      let limitId: string | undefined;
+
+      // Only schedule warning notification if shift just started or still has time before warning
+      if (secondsUntilWarning > 0) {
+        // Schedule warning notification (8 hours 55 minutes from shift start)
+        warningId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "⚠️ Shift Duration Warning",
+            body: "Your shift will reach 9 hours in 5 minutes. Please prepare to end your shift.",
+            priority: "max",
+            sound: true,
+            vibrate: [0, 500, 250, 500],
+            ...(Platform.OS === "android" && {
+              channelId: NOTIFICATION_CHANNELS.SHIFT_WARNING,
+            }),
+            ...(Platform.OS === "ios" && {
+              interruptionLevel: "timeSensitive",
+            }),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            repeats: false,
+            seconds: secondsUntilWarning,
+          },
+        });
+      }
+      
+      // Only schedule limit notification if shift just started or still has time before limit
+      if (secondsUntilLimit > 0) {
+        // Schedule limit notification (9 hours from shift start)
+        limitId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "⛔ Shift Duration Limit Reached",
+            body: "You have completed 9 hours of work. Please end your shift now.",
+            priority: "max",
+            sound: true,
+            vibrate: [0, 1000, 500, 1000],
+            ...(Platform.OS === "android" && {
+              channelId: NOTIFICATION_CHANNELS.SHIFT_LIMIT,
+            }),
+            ...(Platform.OS === "ios" && {
+              interruptionLevel: "critical",
+            }),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            repeats: false,
+            seconds: secondsUntilLimit,
+          },
+        });
+      }
 
       // Store all notification IDs
       await AsyncStorage.setItem(
         `${user?.role}-shiftNotifications`,
         JSON.stringify({
           activeShiftId,
-          warningId,
-          limitId,
+          warningId: warningId || null,
+          limitId: limitId || null,
         })
       );
     } catch (error) {
@@ -987,12 +1072,30 @@ export default function EmployeeShiftTracker() {
           notificationIdsString
         );
 
-        // Cancel all notifications
-        await Promise.all([
-          Notifications.cancelScheduledNotificationAsync(activeShiftId),
-          Notifications.cancelScheduledNotificationAsync(warningId),
-          Notifications.cancelScheduledNotificationAsync(limitId),
-        ]);
+        // Cancel all notifications, but only if they exist
+        const cancelPromises = [];
+        
+        if (activeShiftId) {
+          cancelPromises.push(
+            Notifications.cancelScheduledNotificationAsync(activeShiftId)
+          );
+        }
+        
+        if (warningId) {
+          cancelPromises.push(
+            Notifications.cancelScheduledNotificationAsync(warningId)
+          );
+        }
+        
+        if (limitId) {
+          cancelPromises.push(
+            Notifications.cancelScheduledNotificationAsync(limitId)
+          );
+        }
+
+        if (cancelPromises.length > 0) {
+          await Promise.all(cancelPromises);
+        }
 
         // Clear stored notification IDs
         await AsyncStorage.removeItem(`${user?.role}-shiftNotifications`);
@@ -1786,34 +1889,177 @@ export default function EmployeeShiftTracker() {
   });
 
   // Update the handleSetTimer function
-  const handleSetTimer = (hours: number) => {
-    const endTime = new Date(Date.now() + hours * 60 * 60 * 1000);
-    setTimerDuration(hours);
-    setTimerEndTime(endTime);
-    setShowTimerPicker(false);
+  const handleSetTimer = async (hours: number) => {
+    try {
+      // Show loading state immediately
+      setShowTimerPicker(false);
+      showInAppNotification("Setting up auto-end timer...", "info");
 
-    // Show confirmation modal
-    setModalData({
-      title: "Timer Set",
-      message: `Your shift will automatically end at ${format(
-        endTime,
-        "hh:mm a"
-      )}`,
-      type: "success",
-      showCancel: false,
-    });
-    setShowModal(true);
+      // Call the backend API to set the timer
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/shift-timer/shift/timer`,
+        { durationHours: hours },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-    // Set timeout to end shift
-    const timeoutId = setTimeout(() => {
-      if (isShiftActive) {
-        confirmEndShift();
+      if (response.data.success) {
+        // Update local state with the timer information
+        const endTime = new Date(response.data.timer.endTime);
+        setTimerDuration(hours);
+        setTimerEndTime(endTime);
+
+        // Show confirmation modal
+        setModalData({
+          title: "Timer Set",
+          message: `Your shift will automatically end at ${format(
+            endTime,
+            "hh:mm a"
+          )}. This will happen even if the app is closed.`,
+          type: "success",
+          showCancel: false,
+        });
+        setShowModal(true);
+        
+        showInAppNotification("Auto-end timer set successfully", "success");
+      } else {
+        showInAppNotification("Failed to set timer", "error");
       }
-    }, hours * 60 * 60 * 1000);
-
-    // Clear timeout if shift is ended manually
-    return () => clearTimeout(timeoutId);
+    } catch (error: any) {
+      console.error("Error setting timer:", error);
+      showInAppNotification(
+        error.response?.data?.error || "Failed to set timer",
+        "error"
+      );
+    }
   };
+
+  // Add function to cancel timer
+  const handleCancelTimer = async () => {
+    try {
+      showInAppNotification("Cancelling auto-end timer...", "info");
+      
+      // Call the backend API to cancel the timer
+      const response = await axios.delete(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/shift-timer/shift/timer`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (response.data.success) {
+        // Reset local state
+        setTimerDuration(null);
+        setTimerEndTime(null);
+        showInAppNotification("Auto-end timer cancelled", "success");
+      } else {
+        showInAppNotification("Failed to cancel timer", "error");
+      }
+    } catch (error: any) {
+      console.error("Error cancelling timer:", error);
+      showInAppNotification(
+        error.response?.data?.error || "Failed to cancel timer",
+        "error"
+      );
+    }
+  };
+
+  // Add function to check for existing timer when component mounts
+  const checkExistingTimer = async () => {
+    try {
+      // Only check if we don't have a timer set locally
+      if (!timerEndTime && isShiftActive) {
+        const response = await axios.get(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/shift-timer/shift/timer`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (response.data.success && response.data.timer) {
+          // Set local state based on server timer
+          const endTime = new Date(response.data.timer.endTime);
+          setTimerDuration(response.data.timer.durationHours);
+          setTimerEndTime(endTime);
+          
+          // Only show notification if the timer is still in the future
+          if (endTime > new Date()) {
+            showInAppNotification(
+              `Auto-end timer active: Shift will end at ${format(endTime, "hh:mm a")}`,
+              "info"
+            );
+          }
+        }
+      }
+    } catch (error) {
+      // Don't treat 404 (not found) as an error - this is an expected condition
+      if ((error as any).response && (error as any).response.status === 404) {
+        console.log("No active timer found - this is normal");
+        return; // No timer exists, which is fine
+      }
+      
+      // Log other errors that are actual problems
+      console.error("Error checking for existing timer:", error);
+    }
+  };
+
+  // Add useEffect to check for existing timer when shift becomes active
+  useEffect(() => {
+    if (isShiftActive) {
+      checkExistingTimer();
+    }
+  }, [isShiftActive]);
+
+  // Modify the timer UI section
+  {isShiftActive && !timerEndTime && (
+    <View className="mt-6">
+      <TouchableOpacity
+        onPress={() => setShowTimerPicker(true)}
+        className={`px-6 py-3 rounded-lg flex-row items-center justify-center ${
+          isDark ? "bg-blue-600" : "bg-blue-500"
+        }`}
+        style={{
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 3,
+          elevation: 2,
+        }}
+      >
+        <Ionicons name="timer-outline" size={24} color="white" />
+        <Text className="text-white font-semibold ml-2">
+          Set Auto-End Timer
+        </Text>
+      </TouchableOpacity>
+    </View>
+  )}
+
+  {timerEndTime && (
+    <View className="mt-4 items-center">
+      <Text
+        className={`text-sm ${
+          isDark ? "text-gray-400" : "text-gray-600"
+        }`}
+      >
+        Shift will end in
+      </Text>
+      <View className="flex-row items-center">
+        <Ionicons
+          name="timer-outline"
+          size={20}
+          color={isDark ? "#60A5FA" : "#3B82F6"}
+        />
+        <Text
+          className={`ml-2 font-semibold ${
+            isDark ? "text-blue-400" : "text-blue-600"
+          }`}
+        >
+          {format(timerEndTime, "hh:mm a")}
+        </Text>
+      </View>
+      <TouchableOpacity
+        onPress={handleCancelTimer}
+        className="mt-2 px-4 py-2 rounded-lg bg-red-500"
+      >
+        <Text className="text-white font-semibold">Cancel Timer</Text>
+      </TouchableOpacity>
+    </View>
+  )}
 
   // Add this near other useEffect hooks
   useEffect(() => {
@@ -1894,6 +2140,176 @@ export default function EmployeeShiftTracker() {
     
     updateAddress();
   }, [currentLocation]);
+
+  // Add this useEffect for cleanup when component unmounts
+  useEffect(() => {
+    // Return cleanup function
+    return () => {
+      // If shift is active when component unmounts, make sure to clean up resources
+      // but don't actually end the shift (that would happen through the UI)
+      if (isShiftActive) {
+        // Clean up any location monitoring resources
+        if (locationOffTimer) {
+          clearTimeout(locationOffTimer);
+        }
+
+        if (locationCheckInterval) {
+          clearInterval(locationCheckInterval);
+        }
+
+        if (locationWatchId) {
+          clearInterval(locationWatchId as any);
+        }
+      }
+    };
+  }, [isShiftActive, locationOffTimer, locationCheckInterval, locationWatchId]);
+
+  // Add this function after fetchRecentShifts
+  const checkIfShiftAutoEnded = async () => {
+    // Only check if we think we have an active shift
+    if (!isShiftActive || !shiftStart) {
+      return;
+    }
+
+    try {
+      // Check with backend if the shift is still active
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/current`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const currentShiftOnServer = response.data;
+      
+      // If we think shift is active but backend shows no active shift,
+      // the shift was likely auto-ended
+      if (!currentShiftOnServer) {
+        console.log('Detected auto-ended shift - updating UI');
+        
+        // Update local state
+        setIsShiftActive(false);
+        setShiftStart(null);
+        pulseAnim.setValue(1);
+        rotateAnim.setValue(0);
+        
+        // Clear shift status in AsyncStorage
+        await AsyncStorage.removeItem(`${user?.role}-shiftStatus`);
+        
+        // Cancel any notifications
+        await cancelShiftNotifications();
+        
+        // Reset timer state
+        setTimerDuration(null);
+        setTimerEndTime(null);
+        
+        // Show notification to user
+        showInAppNotification(
+          "Your shift was automatically ended by the timer", 
+          "info"
+        );
+        
+        // Refresh shift history data
+        await Promise.all([loadShiftHistoryFromBackend(), fetchRecentShifts()]);
+      }
+    } catch (error) {
+      console.error('Error checking if shift was auto-ended:', error);
+    }
+  };
+
+  // Add a useFocusEffect to check for auto-ended shifts when screen regains focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log("ShiftTracker screen focused - checking shift status");
+      checkIfShiftAutoEnded();
+      fetchAndUpdateGeofencePermissions();
+    }, [user, token])
+  );
+
+  // Add a periodic check during active shifts to detect auto-ended shifts
+  useEffect(() => {
+    // Only run this effect if a shift is active
+    if (!isShiftActive) {
+      return;
+    }
+    
+    // Check every minute if the shift was auto-ended
+    const autoEndCheckInterval = setInterval(() => {
+      checkIfShiftAutoEnded();
+    }, 60000); // Check every minute
+    
+    return () => {
+      clearInterval(autoEndCheckInterval);
+    };
+  }, [isShiftActive]);
+
+  // Add this near other useEffect hooks
+  useEffect(() => {
+    // Set up notification listeners for auto-ended shifts
+    const notificationReceivedListener = Notifications.addNotificationReceivedListener((notification) => {
+      // Check if this is a shift-end-auto notification
+      const data = notification.request.content.data;
+      if (data?.type === "shift-end-auto" && isShiftActive) {
+        console.log("Received auto-end notification - updating UI");
+        
+        // Update the UI immediately
+        setIsShiftActive(false);
+        setShiftStart(null);
+        pulseAnim.setValue(1);
+        rotateAnim.setValue(0);
+        
+        // Clear AsyncStorage
+        AsyncStorage.removeItem(`${user?.role}-shiftStatus`);
+        
+        // Reset timer state
+        setTimerDuration(null);
+        setTimerEndTime(null);
+        
+        // Refresh data
+        loadShiftHistoryFromBackend();
+        fetchRecentShifts();
+      }
+    });
+
+    // Clean up listener on unmount
+    return () => {
+      notificationReceivedListener.remove();
+    };
+  }, [isShiftActive]);
+
+  // Add this effect to handle app state changes
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      // When app comes to foreground from background
+      if (nextAppState === 'active' && isShiftActive) {
+        console.log('App came to foreground, checking if shift was auto-ended');
+        checkIfShiftAutoEnded();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isShiftActive]);
+
+  // Add this function before the return statement
+  const handleAddressRefresh = async () => {
+    try {
+      setIsAddressRefreshing(true);
+      const location = await getCurrentLocation();
+      
+      if (location) {
+        const appLocation = convertToLocation(location);
+        if (appLocation?.latitude && appLocation?.longitude) {
+          const address = await getLocationAddress(appLocation.latitude, appLocation.longitude);
+          setCurrentAddress(address);
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing address:', error);
+      showInAppNotification('Failed to update location', 'error');
+    } finally {
+      setIsAddressRefreshing(false);
+    }
+  };
 
   return (
     <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
@@ -1989,9 +2405,24 @@ export default function EmployeeShiftTracker() {
                 >
                   Current Position
                 </Text>
-                <Text className={`${isDark ? "text-white" : "text-gray-800"}`}>
-                  {currentAddress}
-                </Text>
+                <View className="flex-row items-center">
+                  <Text className={`${isDark ? "text-white" : "text-gray-800"}`}>
+                    {currentAddress}
+                  </Text>
+                  <TouchableOpacity 
+                    onPress={handleAddressRefresh}
+                    disabled={isAddressRefreshing}
+                    className="ml-2"
+                  >
+                    <Animated.View style={{ transform: [{ rotate: addressRefreshRotate }] }}>
+                      <Ionicons
+                        name="refresh-outline"
+                        size={16}
+                        color={isDark ? "#9CA3AF" : "#6B7280"}
+                      />
+                    </Animated.View>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <View>
@@ -2142,10 +2573,7 @@ export default function EmployeeShiftTracker() {
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={() => {
-                  setTimerDuration(null);
-                  setTimerEndTime(null);
-                }}
+                onPress={handleCancelTimer}
                 className="mt-2 px-4 py-2 rounded-lg bg-red-500"
               >
                 <Text className="text-white font-semibold">Cancel Timer</Text>

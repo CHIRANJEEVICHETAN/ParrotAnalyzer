@@ -87,6 +87,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     console.error("Background location task error:", error);
     // Log the error but don't terminate the task
+    try {
+      await AsyncStorage.setItem('lastTrackingError', JSON.stringify({
+        message: error.message || 'Unknown error',
+        timestamp: new Date().toISOString(),
+        type: 'task_error'
+      }));
+    } catch (storageError) {
+      console.error("Error storing tracking error:", storageError);
+    }
     return;
   }
 
@@ -123,11 +132,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
     const now = Date.now();
     const lastUpdateTimeStr = await AsyncStorage.getItem(LAST_UPDATE_TIME_KEY);
     const lastUpdateTime = lastUpdateTimeStr ? parseInt(lastUpdateTimeStr) : 0;
-
-    if (now - lastUpdateTime < MIN_UPDATE_INTERVAL) {
+    
+    // Ensure we don't update too frequently, but also make sure we don't drop 
+    // updates if it has been too long
+    const timeSinceLastUpdate = now - lastUpdateTime;
+    
+    if (timeSinceLastUpdate < MIN_UPDATE_INTERVAL) {
       console.log(
         `Rate limiting - skipping update (${Math.round(
-          (now - lastUpdateTime) / 1000
+          timeSinceLastUpdate / 1000
         )}s since last update)`
       );
 
@@ -163,6 +176,25 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
         console.log("No previous location found, queueing this one");
         await manageLocationQueue(location);
       }
+      
+      // Still update the last location in storage even if we don't send it
+      try {
+        await AsyncStorage.setItem("lastLocation", JSON.stringify({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          altitude: coords.altitude,
+          heading: coords.heading,
+          speed: coords.speed,
+          timestamp: timestamp,
+          updatedAt: new Date().toISOString(),
+          isBackground: true,
+        }));
+        console.log("Updated last location in storage (rate limited)");
+      } catch (storageError) {
+        console.error("Failed to update last location in storage:", storageError);
+      }
+      
       return;
     }
 
@@ -221,11 +253,23 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
     if (!networkState.isConnected || !networkState.isInternetReachable) {
       console.log("No network connection, queueing location update");
       await manageLocationQueue(location);
+      
+      // Still update last update time to prevent excessive queueing
+      await AsyncStorage.setItem(LAST_UPDATE_TIME_KEY, now.toString());
+      
+      // Update last location in storage
+      await AsyncStorage.setItem("lastLocation", JSON.stringify({
+        ...locationData,
+        savedAt: new Date().toISOString(),
+        hasNetworkConnectivity: false
+      }));
+      
       return;
     }
 
     // Try to send the location to the server via socket first
     const socketConnected = await ensureSocketConnection(apiUrl, token, userId);
+    let updateSent = false;
 
     // If socket is connected, send location update via socket
     if (socketConnected && socketInstance) {
@@ -246,10 +290,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           isMoving: typeof coords.speed === "number" && coords.speed > 0.5,
           isBackground: true,
           userId: userId,
+          is_tracking_active: true, // Always include tracking status
         };
 
+        // Try sending multiple ways to ensure delivery
         socketInstance.emit("location:update", validatedLocationData);
+        socketInstance.volatile.emit("background:location", validatedLocationData);
+        
         console.log("Background location update sent via socket");
+        updateSent = true;
 
         // Update the last update time
         await AsyncStorage.setItem(LAST_UPDATE_TIME_KEY, now.toString());
@@ -260,6 +309,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           JSON.stringify({
             ...validatedLocationData,
             savedAt: new Date().toISOString(),
+            sentVia: 'socket'
           })
         );
       } catch (socketError) {
@@ -268,20 +318,38 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           socketError
         );
         // Fall back to HTTP if socket fails
-        await sendLocationViaHttp(apiUrl, token, locationData);
+        try {
+          await sendLocationViaHttp(apiUrl, token, locationData);
+          updateSent = true;
+        } catch (httpError) {
+          console.error("HTTP fallback also failed:", httpError);
+        }
       }
     } else {
       // Send via HTTP API if socket is not connected
-      await sendLocationViaHttp(apiUrl, token, locationData);
+      try {
+        await sendLocationViaHttp(apiUrl, token, locationData);
+        updateSent = true;
+      } catch (httpError) {
+        console.error("Failed to send via HTTP API:", httpError);
+      }
+    }
+    
+    // If both methods failed, queue the location
+    if (!updateSent) {
+      console.log("Failed to send location update, queueing for later");
+      await manageLocationQueue(location);
     }
 
-    // Process queued locations if we have a connection
-    const queueStr = await AsyncStorage.getItem(LOCATION_QUEUE_KEY);
-    const queue = queueStr ? JSON.parse(queueStr) : [];
+    // Process queued locations if we have a connection and an update was sent successfully
+    if (updateSent) {
+      const queueStr = await AsyncStorage.getItem(LOCATION_QUEUE_KEY);
+      const queue = queueStr ? JSON.parse(queueStr) : [];
 
-    if (queue.length > 0) {
-      // Process queued locations (max 5 at a time)
-      await sendQueuedLocations(token, apiUrl, 5);
+      if (queue.length > 0) {
+        // Process queued locations (max 5 at a time)
+        await sendQueuedLocations(token, apiUrl, 5);
+      }
     }
 
     // Add to in-memory cache with minimal data for memory efficiency
@@ -298,8 +366,21 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
       // Remove oldest entries when cache gets too large
       locationCache = locationCache.slice(-LOCATION_CACHE_SIZE);
     }
-  } catch (taskError) {
+    
+    // Update health check timestamp
+    await AsyncStorage.setItem(LAST_HEALTH_CHECK_KEY, now.toString());
+    
+  } catch (taskError: any) {
     console.error("Error in background location task:", taskError);
+    try {
+      await AsyncStorage.setItem('lastTrackingError', JSON.stringify({
+        message: taskError.message || 'Unknown error',
+        timestamp: new Date().toISOString(),
+        type: 'processing_error'
+      }));
+    } catch (storageError) {
+      console.error("Error storing tracking error:", storageError);
+    }
     // Don't rethrow - we want the task to keep running even if there's an error
   }
 });
@@ -372,18 +453,32 @@ async function ensureSocketConnection(
       socketReconnectInterval = null;
     }
 
-    // Create a new socket connection
+    // Disconnect any existing socket that might be in a bad state
+    if (socketInstance) {
+      console.log("Disconnecting existing socket that is not connected");
+      socketInstance.disconnect();
+      socketInstance = null;
+    }
+
+    console.log(`Creating new socket connection to ${apiUrl}`);
+
+    // Create a new socket connection with improved options
     socketInstance = io(apiUrl, {
       transports: ["websocket"],
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      reconnectionAttempts: 10, // More attempts (increased from 5)
+      reconnectionDelay: 500, // Start with shorter delay (reduced from 1000)
+      reconnectionDelayMax: 5000, // But cap maximum delay
       timeout: 10000,
+      forceNew: true, // Force new connection to avoid reusing bad connections
       auth: {
         token: token,
       },
       query: {
         userId: userId,
+        isBackground: 'true', // Explicitly mark as background connection
+        platform: Platform.OS,
+        appState: 'background'
       },
     });
 
@@ -393,12 +488,26 @@ async function ensureSocketConnection(
       const connectionTimeout = setTimeout(() => {
         console.log("Socket connection timeout in background");
         resolve(false);
-      }, 5000);
+      }, 8000); // Longer timeout for background (increased from 5000)
 
       // Handle connection
       socketInstance.on("connect", () => {
         console.log("Socket connected for background tracking");
         clearTimeout(connectionTimeout);
+
+        // Set up heartbeat to keep connection alive
+        const heartbeatInterval = setInterval(() => {
+          if (socketInstance && socketInstance.connected) {
+            console.log("Sending socket heartbeat from background");
+            socketInstance.emit("heartbeat", { 
+              timestamp: new Date().toISOString(),
+              isBackground: true,
+              userId: userId
+            });
+          } else {
+            clearInterval(heartbeatInterval);
+          }
+        }, 45000); // Every 45 seconds
 
         // Set up reconnection interval for maintaining connection
         socketReconnectInterval = setInterval(() => {
@@ -415,7 +524,25 @@ async function ensureSocketConnection(
       socketInstance.on("connect_error", (error: any) => {
         console.error("Socket connection error in background:", error);
         clearTimeout(connectionTimeout);
+        
+        // More detailed error logging
+        if (error.message) {
+          console.error(`Socket error details: ${error.message}`);
+        }
+        
+        // Try reconnecting with HTTP fallback next time
         resolve(false);
+      });
+
+      // Handle disconnection
+      socketInstance.on("disconnect", (reason: string) => {
+        console.log(`Socket disconnected in background: ${reason}`);
+        
+        // If server initiated disconnect, try to reconnect
+        if (reason === 'io server disconnect' || reason === 'transport close') {
+          console.log("Attempting immediate reconnect after server disconnect");
+          socketInstance?.connect();
+        }
       });
 
       // Try to connect
@@ -537,15 +664,23 @@ export async function startBackgroundLocationTracking(
         accuracy: adaptiveParams.accuracy || options.accuracy || Location.Accuracy.BestForNavigation,
         timeInterval: adaptiveParams.timeInterval || options.timeInterval || 20000,
         distanceInterval: adaptiveParams.distanceInterval || options.distanceInterval || 5,
+        // Enhanced foreground service for Android
         foregroundService: {
           notificationTitle: "Parrot Analyzer is tracking your location",
           notificationBody: "To stop tracking, open the app and turn off tracking",
           notificationColor: "#3B82F6"
+          // Only using supported properties
+          // notificationChannelId, notificationPriority, displayOnLockScreen, enableWakeLock not supported in Expo SDK
         },
-        pausesUpdatesAutomatically: false,
-        showsBackgroundLocationIndicator: true,
-        activityType: Location.ActivityType.AutomotiveNavigation,
-        deferredUpdatesInterval: 0
+        // Optimize for background performance
+        pausesUpdatesAutomatically: false, // Prevent automatic pausing
+        showsBackgroundLocationIndicator: true, // Show indicator on iOS
+        activityType: Location.ActivityType.AutomotiveNavigation, // Use AutomotiveNavigation for better accuracy
+        deferredUpdatesInterval: 0, // Don't defer updates
+        // iOS-specific settings - commenting out unsupported properties
+        // allowsBackgroundLocationUpdates: true, // Not supported in Expo SDK
+        // mayShowUserSettingsDialog: true, // Not supported in Expo SDK
+        // useSignificantChanges: true, // Not supported in Expo SDK
       };
       
       console.log(`Using adaptive tracking parameters: interval=${locationOptions.timeInterval}ms, distance=${locationOptions.distanceInterval}m`);
@@ -555,15 +690,23 @@ export async function startBackgroundLocationTracking(
         accuracy: options.accuracy || Location.Accuracy.BestForNavigation,
         timeInterval: options.timeInterval || 20000,
         distanceInterval: options.distanceInterval || 5,
+        // Enhanced foreground service for Android
         foregroundService: {
           notificationTitle: "Parrot Analyzer is tracking your location",
           notificationBody: "To stop tracking, open the app and turn off tracking",
           notificationColor: "#3B82F6"
+          // Only using supported properties
+          // notificationChannelId, notificationPriority, displayOnLockScreen, enableWakeLock not supported in Expo SDK
         },
-        pausesUpdatesAutomatically: false,
-        showsBackgroundLocationIndicator: true,
-        activityType: Location.ActivityType.AutomotiveNavigation,
-        deferredUpdatesInterval: 0
+        // Optimize for background performance
+        pausesUpdatesAutomatically: false, // Prevent automatic pausing
+        showsBackgroundLocationIndicator: true, // Show indicator on iOS
+        activityType: Location.ActivityType.AutomotiveNavigation, // Use AutomotiveNavigation for better accuracy
+        deferredUpdatesInterval: 0, // Don't defer updates
+        // iOS-specific settings - commenting out unsupported properties
+        // allowsBackgroundLocationUpdates: true, // Not supported in Expo SDK
+        // mayShowUserSettingsDialog: true, // Not supported in Expo SDK
+        // useSignificantChanges: true, // Not supported in Expo SDK
       };
       
       console.log(`Using fixed tracking parameters: interval=${locationOptions.timeInterval}ms, distance=${locationOptions.distanceInterval}m`);
@@ -572,6 +715,9 @@ export async function startBackgroundLocationTracking(
     // Stop any existing tasks first
     if (await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK)) {
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        
+        // Small delay to ensure clean restart
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
     
     // Start the location updates task
@@ -584,9 +730,12 @@ export async function startBackgroundLocationTracking(
     await AsyncStorage.setItem('backgroundTrackingStartTime', new Date().toISOString());
     await AsyncStorage.setItem('trackingStatus', TrackingStatus.ACTIVE);
 
-    // On Android, explicitly request location updates via FusedLocationProvider
+    // Platform-specific optimizations
     if (Platform.OS === 'android') {
       await requestAndroidLocationUpdates();
+    } else if (Platform.OS === 'ios') {
+      // For iOS, start a "significant location changes" task as a backup
+      await setupiOSSignificantLocationTask();
     }
     
     // Start health check
@@ -609,6 +758,82 @@ export async function startBackgroundLocationTracking(
     }
     
     return false;
+  }
+}
+
+// Add helper for iOS significant location changes
+async function setupiOSSignificantLocationTask(): Promise<void> {
+  if (Platform.OS !== 'ios') return;
+  
+  try {
+    // Define a separate task for significant location changes
+    const SIGNIFICANT_CHANGE_TASK = 'significant-location-changes';
+    
+    // Check if task is already defined
+    if (!TaskManager.isTaskDefined(SIGNIFICANT_CHANGE_TASK)) {
+      TaskManager.defineTask(SIGNIFICANT_CHANGE_TASK, async ({ data, error }) => {
+        if (error) {
+          console.error('Significant location changes task error:', error);
+          return;
+        }
+        
+        if (!data) return;
+        
+        try {
+          const { locations } = data as { locations: Location.LocationObject[] };
+          if (!locations || locations.length === 0) return;
+          
+          console.log('Significant location change detected');
+          
+          // Check if background tracking should be active
+          const isEnabled = await AsyncStorage.getItem('backgroundTrackingEnabled');
+          
+          if (isEnabled === 'true') {
+            // Verify the main task is running
+            const isActive = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+            
+            if (!isActive) {
+              console.log('Main tracking task not active, attempting to restart from significant change');
+              
+              // Get stored config
+              const configStr = await AsyncStorage.getItem('trackingConfig');
+              const config = configStr ? JSON.parse(configStr) : {
+                timeInterval: 30000,
+                distanceInterval: 10,
+                accuracy: Location.Accuracy.Balanced
+              };
+              
+              // Try to restart the main tracking task
+              await startBackgroundLocationTracking(config);
+            }
+          }
+        } catch (err) {
+          console.error('Error in significant location changes task:', err);
+        }
+      });
+    }
+    
+    // Stop any existing significant changes task first
+    try {
+      if (await TaskManager.isTaskRegisteredAsync(SIGNIFICANT_CHANGE_TASK)) {
+        await Location.stopLocationUpdatesAsync(SIGNIFICANT_CHANGE_TASK);
+      }
+    } catch (e) {
+      // Ignore errors if the task wasn't running
+    }
+    
+    // Start the significant location changes task
+    await Location.startLocationUpdatesAsync(SIGNIFICANT_CHANGE_TASK, {
+      accuracy: Location.Accuracy.Balanced,
+      showsBackgroundLocationIndicator: true,
+      activityType: Location.ActivityType.AutomotiveNavigation,
+      pausesUpdatesAutomatically: false,
+      deferredUpdatesInterval: 0
+    });
+    
+    console.log('iOS significant location changes task started');
+  } catch (error) {
+    console.error('Error setting up iOS significant location changes task:', error);
   }
 }
 

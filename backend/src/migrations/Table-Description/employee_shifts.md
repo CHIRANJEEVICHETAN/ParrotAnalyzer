@@ -25,6 +25,7 @@ Represents a user's working shift with start/end times, GPS-based tracking, expe
 | `travel_time_minutes`  | `integer`                     | ✅       | `0`                                      | Travel time in minutes                |
 | `last_location_update` | `timestamp`                   | ✅       | —                                        | Last GPS update time                  |
 | `is_tracking_active`   | `boolean`                     | ✅       | `false`                                  | Whether tracking is active            |
+| `ended_automaticaly`   | `boolean`                     | ✅       | `false`                                  | Whether the shift ended automatically or not            |
 
 ---
 

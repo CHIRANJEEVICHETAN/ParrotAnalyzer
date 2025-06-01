@@ -7,25 +7,25 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Parrot Analyzer",
   slug: "parraotanalyzer",
-  version: "1.1.0",
+  version: "1.1.3",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "myapp",
   userInterfaceStyle: "automatic",
-  assetBundlePatterns: ['**/*'],
+  assetBundlePatterns: ["**/*"],
   newArchEnabled: true,
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.parrotanalyzer.app',
-    buildNumber: '4',
+    bundleIdentifier: "com.loginware.parrotanalyzer",
+    buildNumber: "4",
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
-        'Parrot Analyzer needs your location to track attendance, calculate travel distance, and provide location-based insights.',
+        "Parrot Analyzer needs your location to track attendance, calculate travel distance, and provide location-based insights.",
       NSLocationAlwaysAndWhenInUseUsageDescription:
-        'Parrot Analyzer needs to access your location in the background to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.',
+        "Parrot Analyzer needs to access your location in the background to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.",
       NSLocationAlwaysUsageDescription:
-        'Parrot Analyzer needs background location access to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.',
-      UIBackgroundModes: ['location', 'fetch'],
+        "Parrot Analyzer needs background location access to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.",
+      UIBackgroundModes: ["location", "fetch"],
     },
   },
   android: {
@@ -41,16 +41,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     },
     permissions: [
-      'ACCESS_COARSE_LOCATION',
-      'ACCESS_FINE_LOCATION',
-      'ACCESS_BACKGROUND_LOCATION',
-      'FOREGROUND_SERVICE',
-      'FOREGROUND_SERVICE_LOCATION',
-      'WAKE_LOCK',
-      'REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+      "ACCESS_COARSE_LOCATION",
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_BACKGROUND_LOCATION",
+      "FOREGROUND_SERVICE",
+      "FOREGROUND_SERVICE_LOCATION",
+      "WAKE_LOCK",
+      "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
     ],
     // @ts-ignore: foregroundServices is supported by Expo but not typed correctly
-    foregroundServices: ['location'],
+    foregroundServices: ["location"],
   },
   web: {
     bundler: "metro",
@@ -96,11 +96,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-location",
       {
         locationAlwaysAndWhenInUsePermission:
-          'Allow Parrot Analyzer to use your location to track attendance, calculate travel distance, and provide location-based insights.',
+          "Allow Parrot Analyzer to use your location to track attendance, calculate travel distance, and provide location-based insights.",
         locationAlwaysPermission:
-          'Allow Parrot Analyzer to use your location in the background to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.',
+          "Allow Parrot Analyzer to use your location in the background to track attendance, calculate travel distance, and provide location-based insights even when the app is closed.",
         locationWhenInUsePermission:
-          'Allow Parrot Analyzer to use your location to track attendance, calculate travel distance, and provide location-based insights.',
+          "Allow Parrot Analyzer to use your location to track attendance, calculate travel distance, and provide location-based insights.",
         isIosBackgroundLocationEnabled: true,
         isAndroidBackgroundLocationEnabled: true,
         isAndroidForegroundServiceEnabled: true,
@@ -124,6 +124,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   owner: "loginware",
   runtimeVersion: {
-    policy: 'sdkVersion',
+    policy: "sdkVersion",
   },
 });

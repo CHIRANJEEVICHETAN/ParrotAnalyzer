@@ -721,7 +721,7 @@ export default function EmployeeTrackingScreen() {
     return R * c; // Distance in meters
   }, []);
 
-  // Update mapProps definition
+  // Update mapProps definition to be more stable
   const mapProps = useMemo(
     () => ({
       showsUserLocation: true,
@@ -735,8 +735,21 @@ export default function EmployeeTrackingScreen() {
           }
         : undefined,
       onRegionChangeComplete: debouncedRegionChange,
+      // Add memoized geofences prop that won't change frequently
+      geofences: processedGeofences,
+      // Add memoized route coordinates
+      routeCoordinates: routeCoordinates.length > 0 ? routeCoordinates : undefined,
+      // Add currentGeofence
+      currentGeofence: currentGeofence,
     }),
-    [currentLocation, trackingStatus, debouncedRegionChange]
+    [
+      currentLocation, 
+      trackingStatus, 
+      debouncedRegionChange, 
+      processedGeofences,
+      routeCoordinates,
+      currentGeofence
+    ]
   );
 
   // Add state for accuracy settings modal
@@ -767,6 +780,13 @@ export default function EmployeeTrackingScreen() {
   // Update the handleLocationUpdate to use the processed location
   const handleLocationUpdate = useCallback(async (location: Location.LocationObject) => {
     try {
+      // Throttle updates - don't process if too soon after last update
+      const now = Date.now();
+      if (lastLocationUpdateRef.current && now - lastLocationUpdateRef.current < 2000) {
+        return; // Skip updates less than 2 seconds apart
+      }
+      lastLocationUpdateRef.current = now;
+
       if (!isValidLocationCoordinate(location.coords.latitude, location.coords.longitude)) {
         console.log('Invalid location coordinates, skipping update');
         return;
@@ -796,56 +816,65 @@ export default function EmployeeTrackingScreen() {
         timestamp: new Date(processedLocation.timestamp).getTime()
       };
 
-      // Check if we should add this to the route
-      setRouteCoordinates((prev) => {
-        // If no previous route or tracking is not active, start a new route
-        if (prev.length === 0 || trackingStatus !== TrackingStatus.ACTIVE) {
-          return trackingStatus === TrackingStatus.ACTIVE ? [newPoint] : [];
-        }
-
-        // Get the last point in the route
-        const lastPoint = prev[prev.length - 1];
-        
-        // Skip point if it's too close to the last one (less than 5 meters)
-        // This prevents cluttering the route with nearly identical points
-        if (lastPoint && 
-            calculateDistanceBetweenPoints(
-              lastPoint.latitude, 
-              lastPoint.longitude, 
-              newPoint.latitude, 
-              newPoint.longitude
-            ) < 5) {
-          return prev;
-        }
-
-        // Add the point to the route, enforcing a maximum size for memory efficiency
-        const MAX_ROUTE_POINTS = 500;
-        const newRoute = [...prev, newPoint];
-        
-        // If route is too long, trim it (keep the most recent points)
-        if (newRoute.length > MAX_ROUTE_POINTS) {
-          return newRoute.slice(-MAX_ROUTE_POINTS);
-        }
-        
-        return newRoute;
-      });
-
-      // Also update the location history
+      // Only update route on active tracking and sufficient movement
       if (trackingStatus === TrackingStatus.ACTIVE) {
-        locationHistoryRef.current.push({
-          latitude: processedLocation.coords.latitude,
-          longitude: processedLocation.coords.longitude,
+        setRouteCoordinates((prev) => {
+          // If no previous route or tracking is not active, start a new route
+          if (prev.length === 0) {
+            return [newPoint];
+          }
+
+          // Get the last point in the route
+          const lastPoint = prev[prev.length - 1];
+          
+          // Skip point if it's too close to the last one (less than 5 meters)
+          // This prevents cluttering the route with nearly identical points
+          if (lastPoint && 
+              calculateDistanceBetweenPoints(
+                lastPoint.latitude, 
+                lastPoint.longitude, 
+                newPoint.latitude, 
+                newPoint.longitude
+              ) < 5) {
+            return prev;
+          }
+
+          // Add the point to the route, enforcing a maximum size for memory efficiency
+          const MAX_ROUTE_POINTS = 500;
+          const newRoute = [...prev, newPoint];
+          
+          // If route is too long, trim it (keep the most recent points)
+          if (newRoute.length > MAX_ROUTE_POINTS) {
+            return newRoute.slice(-MAX_ROUTE_POINTS);
+          }
+          
+          return newRoute;
         });
 
-        // Enforce maximum size for memory efficiency
-        if (locationHistoryRef.current.length > 500) {
-          locationHistoryRef.current = locationHistoryRef.current.slice(-500);
+        // Update location history with rate limiting
+        if (locationHistoryRef.current.length === 0 || 
+            calculateDistanceBetweenPoints(
+              locationHistoryRef.current[locationHistoryRef.current.length - 1].latitude,
+              locationHistoryRef.current[locationHistoryRef.current.length - 1].longitude,
+              processedLocation.coords.latitude,
+              processedLocation.coords.longitude
+            ) > 10) { // Only add if moved more than 10 meters
+              
+          locationHistoryRef.current.push({
+            latitude: processedLocation.coords.latitude,
+            longitude: processedLocation.coords.longitude,
+          });
+
+          // Enforce maximum size for memory efficiency
+          if (locationHistoryRef.current.length > 500) {
+            locationHistoryRef.current = locationHistoryRef.current.slice(-500);
+          }
         }
       }
     } catch (error) {
       console.error("Error processing location update:", error);
     }
-  }, [trackingStatus, isValidLocationCoordinate, calculateDistanceBetweenPoints]);
+  }, [trackingStatus, isValidLocationCoordinate, calculateDistanceBetweenPoints, processLocationUpdate, setCurrentLocation]);
 
   // Add a route cleanup effect to ensure routes are reset when tracking changes
   useEffect(() => {
@@ -902,7 +931,6 @@ export default function EmployeeTrackingScreen() {
       if (
         currentLocation &&
         socket &&
-        socket.connected &&
         trackingStatus === TrackingStatus.ACTIVE &&
         !isProcessingUpdate &&
         isMountedRef.current
@@ -913,41 +941,68 @@ export default function EmployeeTrackingScreen() {
           return;
         }
         
-        // Check if update is too frequent
+        // Check if update is too frequent - reduce from 3s to 2s for more frequent updates
         const now = Date.now();
-        if (lastUpdateTimeRef.current && now - lastUpdateTimeRef.current < 3000) {
-          return; // Skip if less than 3 seconds since last update
+        if (lastUpdateTimeRef.current && now - lastUpdateTimeRef.current < 2000) {
+          return; // Skip if less than 2 seconds since last update (reduced from 3s)
         }
         
         lastUpdateTimeRef.current = now;
         
-        socket.emit("location:update", {
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-          accuracy: currentLocation.coords.accuracy,
-          timestamp: new Date().toISOString(),
-          batteryLevel: batteryLevel,
-          isMoving:
-            currentLocation.coords.speed !== null &&
-            currentLocation.coords.speed !== undefined &&
-            currentLocation.coords.speed > 0.5,
-          trackingStatus: trackingStatus,
-          is_tracking_active: true,
-          isActive: true,
-          isInGeofence: isInGeofence,
-          currentGeofenceId: currentGeofence?.id,
-          userId: user?.id,
-          employeeId: user?.id,
-          sessionId: trackingSessionId,
+        // Attempt to restore socket connection if disconnected
+        if (!socket.connected) {
+          console.log("Socket disconnected, attempting to reconnect");
+          socket.connect();
+        }
+        
+        // Get fresh battery level for critical updates
+        let currentBatteryLevel = batteryLevel;
+        Battery.getBatteryLevelAsync().then(level => {
+          if (typeof level === 'number' && !isNaN(level)) {
+            currentBatteryLevel = Math.round(level * 100);
+          }
+          
+          // After getting battery, emit the update
+          emitLocationUpdate(currentBatteryLevel);
+        }).catch(() => {
+          // On battery error, still emit with existing level
+          emitLocationUpdate(batteryLevel);
         });
-
-        // Update last location timestamp
-        lastLocationUpdateRef.current = now;
+        
+        // Function to emit the update with current battery level
+        function emitLocationUpdate(batteryLevel: number) {
+          if (!socket || !socket.connected || !isMountedRef.current || !currentLocation) return;
+          
+          socket.emit("location:update", {
+            latitude: currentLocation.coords?.latitude,
+            longitude: currentLocation.coords?.longitude,
+            accuracy: currentLocation.coords?.accuracy,
+            timestamp: new Date().toISOString(),
+            batteryLevel: batteryLevel,
+            isMoving:
+              currentLocation.coords?.speed !== null &&
+              currentLocation.coords?.speed !== undefined &&
+              (currentLocation.coords?.speed || 0) > 0.5,
+            trackingStatus: trackingStatus,
+            is_tracking_active: true,
+            isActive: true,
+            isInGeofence: isInGeofence,
+            currentGeofenceId: currentGeofence?.id,
+            userId: user?.id,
+            employeeId: user?.id,
+            sessionId: trackingSessionId,
+          });
+    
+          console.log("Location update emitted via socket with status:", {
+            isActive: true,
+            batteryLevel: batteryLevel
+          });
+        }
       }
     };
     
-    // Debounced version of processLocation
-    const debouncedProcessLocation = debounce(processLocation, 3000);
+    // Debounced version of processLocation - reduce from 3s to 2s for more frequent updates
+    const debouncedProcessLocation = debounce(processLocation, 2000);
     
     // Call the debounced function when currentLocation changes
     if (trackingStatus === TrackingStatus.ACTIVE && currentLocation) {
@@ -978,146 +1033,55 @@ export default function EmployeeTrackingScreen() {
   useEffect(() => {
     // Set mount flag
     isMountedRef.current = true;
-
-    return () => {
-      console.log(
-        "EmployeeTrackingScreen unmounting - cleaning up UI resources only"
-      );
+    
+    // Define cleanup function
+    const cleanup = () => {
+      console.log('Tracking component unmounting, performing cleanup');
       isMountedRef.current = false;
-
-      // Clear foreground tracking intervals
+      
+      // Clear all intervals
       if (periodicUpdateIntervalRef.current) {
         clearInterval(periodicUpdateIntervalRef.current);
         periodicUpdateIntervalRef.current = null;
-        console.log("Foreground heartbeat interval cleared on unmount");
       }
-
-      // Clear any other timeouts and intervals
+      
+      // Cancel location subscription
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+      
+      // Clear reconnect timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
       
-      // Clear update queue
+      // Clear any other timeouts
+      for (const key in timeouts) {
+        if (timeouts[key]) {
+          clearTimeout(timeouts[key]);
+          timeouts[key] = null;
+        }
+      }
+      
+      // Reset queue
+      updateQueueRef.current = [];
       setUpdateQueue([]);
       
-      // DON'T stop tracking when component unmounts
-      // Background tracking should continue
-    };
-  }, []);
-
-  // Optimize initialization effect
-  useEffect(() => {
-    isMountedRef.current = true;
-    let hasStartedInit = false;
-
-    const initializeTracking = async () => {
-      // Prevent double initialization
-      if (hasStartedInit || hasInitializedRef.current) {
-        console.log(
-          "Tracking already initialized or initialization in progress, skipping..."
-        );
-        return;
+      // Clean up any app state listeners
+      if (appStateSubscription.current) {
+        appStateSubscription.current.remove();
       }
       
-      hasStartedInit = true;
-
-      try {
-        // Check if we have a stored initialization state
-        const storedInitState = await AsyncStorage.getItem(
-          "tracking_initialized"
-        );
-        const appState = await AsyncStorage.getItem("app_state");
-
-        if (storedInitState === "true" && appState === "active") {
-          console.log(
-            "Tracking already initialized and app is active, skipping..."
-          );
-          hasInitializedRef.current = true;
-          setHasInitialized(true);
-          return;
-        }
-
-        // Run initialization in background after UI is ready
-        InteractionManager.runAfterInteractions(async () => {
-          try {
-            if (!isMountedRef.current) return;
-
-            await checkPermissions();
-            
-            // Get current location once
-            await getCurrentLocation();
-            
-            // Check background tracking status
-            await updateBackgroundTrackingStatus();
-
-            // Generate a unique tracking session ID if not exists
-            if (!trackingSessionId && isMountedRef.current) {
-              const newSessionId = `session_${Date.now()}_${Math.random()
-                .toString(36)
-                .substring(2, 9)}`;
-              setTrackingSessionId(newSessionId);
-              await AsyncStorage.setItem(
-                "current_tracking_session_id",
-                newSessionId
-              );
-            }
-
-            // Set initialization flags
-            if (isMountedRef.current) {
-              lastLocationUpdateRef.current = Date.now();
-              hasInitializedRef.current = true;
-              setHasInitialized(true);
-              await AsyncStorage.setItem("tracking_initialized", "true");
-              await AsyncStorage.setItem("app_state", "active");
-              console.log("Tracking initialized successfully");
-            }
-          } catch (error) {
-            console.error("Error in background initialization:", error);
-            if (isMountedRef.current) {
-              showToast(
-                "Error initializing tracking. Please try again.",
-                "error"
-              );
-            }
-          } finally {
-            hasStartedInit = false;
-          }
-        });
-      } catch (error) {
-        console.error("Error initializing tracking:", error);
-        hasStartedInit = false;
-        
-        if (isMountedRef.current) {
-          showToast("Error initializing tracking. Please try again.", "error");
-        }
-      }
+      // Note: We don't stop background tracking here
+      // That should persist even after component unmounts
     };
-
-    // Only initialize once when component mounts
-    initializeTracking();
-
-    // Add app state change listener to handle background/foreground transitions
-    const subscription = AppState.addEventListener(
-      "change",
-      async (nextAppState) => {
-        if (!isMountedRef.current) return;
-        
-        if (nextAppState === "active") {
-          await AsyncStorage.setItem("app_state", "active");
-        } else if (nextAppState.match(/inactive|background/)) {
-          await AsyncStorage.setItem("app_state", "background");
-          
-          // Don't reset initialization flags when going to background
-          // This prevents unnecessary re-initialization when returning to this screen
-        }
-      }
-    );
-
-    return () => {
-      isMountedRef.current = false;
-      subscription.remove();
-    };
+    
+    // Store active timeouts for cleanup
+    const timeouts: { [key: string]: NodeJS.Timeout | null } = {};
+    
+    return cleanup;
   }, []);
 
   // Move sendPeriodicUpdate outside the useEffect to make it accessible to the startForegroundTracking function
@@ -1125,42 +1089,69 @@ export default function EmployeeTrackingScreen() {
     if (
       trackingStatus === TrackingStatus.ACTIVE &&
       socket &&
-      socket.connected &&
-      currentLocation &&
       isMountedRef.current
     ) {
       try {
-        // Throttle updates to at most one every 3 seconds
+        // Reduce throttling from 10 seconds to 5 seconds for more frequent updates
         const now = Date.now();
-        if (lastPeriodicUpdateRef.current && now - lastPeriodicUpdateRef.current < 3000) {
-          return; // Skip update if too frequent
+        if (lastPeriodicUpdateRef.current && now - lastPeriodicUpdateRef.current < 5000) {
+          return; // Skip update if too frequent, reduced from 10s to 5s
         }
         
         lastPeriodicUpdateRef.current = now;
         
-        if (validateLocationData(currentLocation)) {
-          socket.emit("location:update", {
-            latitude: currentLocation.coords.latitude,
-            longitude: currentLocation.coords.longitude,
-            accuracy: currentLocation.coords.accuracy,
-            timestamp: new Date().toISOString(),
-            batteryLevel: batteryLevel,
-            isMoving:
-              currentLocation.coords.speed !== null &&
-              currentLocation.coords.speed !== undefined &&
-              currentLocation.coords.speed > 0.5,
-            trackingStatus: TrackingStatus.ACTIVE,
-            is_tracking_active: true,
-            isActive: true,
-            isInGeofence: isInGeofence,
-            currentGeofenceId: currentGeofence?.id,
-            userId: user?.id,
-            employeeId: user?.id,
-            sessionId: trackingSessionId,
-          });
-          
-          lastLocationUpdateRef.current = now;
+        // Get fresh battery level for more accurate reporting
+        let currentBatteryLevel = batteryLevel;
+        try {
+          const batteryResult = await Battery.getBatteryLevelAsync();
+          if (typeof batteryResult === 'number' && !isNaN(batteryResult)) {
+            currentBatteryLevel = Math.round(batteryResult * 100);
+          }
+        } catch (e) {
+          console.log('Error getting battery:', e);
+          // Continue with existing battery level
         }
+        
+        // Check socket connection and reconnect if needed
+        if (!socket.connected) {
+          console.log('Socket disconnected, attempting to reconnect before sending update');
+          socket.connect();
+          // Add a short delay to allow connection to establish
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        // Prepare data once to avoid recreating the same object
+        const updateData = {
+          latitude: currentLocation?.coords?.latitude,
+          longitude: currentLocation?.coords?.longitude,
+          accuracy: currentLocation?.coords?.accuracy,
+          timestamp: new Date().toISOString(),
+          batteryLevel: currentBatteryLevel,
+          isMoving:
+            currentLocation?.coords?.speed !== null &&
+            currentLocation?.coords?.speed !== undefined &&
+            currentLocation?.coords?.speed > 0.5,
+          trackingStatus: TrackingStatus.ACTIVE,
+          is_tracking_active: true,
+          isActive: true,
+          isInGeofence: isInGeofence,
+          currentGeofenceId: currentGeofence?.id,
+          userId: user?.id,
+          employeeId: user?.id,
+          sessionId: trackingSessionId,
+        };
+        
+        // If location is valid, emit to socket
+        if (updateData.latitude && updateData.longitude) {
+          console.log('Emitting periodic location update with status:', 
+            { isActive: true, batteryLevel: currentBatteryLevel });
+          socket.emit("location:update", updateData);
+        } else {
+          console.log('Invalid location data, skipping periodic update');
+        }
+        
+        // Update last location timestamp
+        lastLocationUpdateRef.current = now;
       } catch (error) {
         console.error("Error in periodic update:", error);
       }
@@ -1173,7 +1164,7 @@ export default function EmployeeTrackingScreen() {
     user?.id,
     trackingSessionId,
     isInGeofence,
-    currentGeofence,
+    currentGeofence
   ]);
 
   // Use a more efficient periodic update with reduced frequency
@@ -1187,32 +1178,36 @@ export default function EmployeeTrackingScreen() {
         periodicUpdateIntervalRef.current = null;
       }
       
-      // Send updates every 10 seconds - increased from previous settings
+      // Send initial update immediately when starting tracking
+      sendPeriodicUpdate();
+      
+      // Send updates every 15 seconds - decreased from 20s for more frequent updates
       updateInterval = setInterval(() => {
-        // Only proceed if component is still mounted
+        // Remove InteractionManager to ensure updates happen immediately
+        // Only check if component is still mounted
         if (isMountedRef.current) {
           sendPeriodicUpdate();
         }
-      }, 10000);
+      }, 15000); // 15-second interval (reduced from 20s)
       
       // Store the interval in ref for cleanup
       periodicUpdateIntervalRef.current = updateInterval;
-
-      // Still send an initial update immediately, but only if we have location data
-      if (currentLocation) {
-        sendPeriodicUpdate();
-      }
     }
 
     return () => {
       if (updateInterval) {
         clearInterval(updateInterval);
       }
+      
+      // Always clean up the ref
+      if (periodicUpdateIntervalRef.current) {
+        clearInterval(periodicUpdateIntervalRef.current);
+        periodicUpdateIntervalRef.current = null;
+      }
     };
   }, [
     trackingStatus,
-    sendPeriodicUpdate,
-    currentLocation,
+    sendPeriodicUpdate
   ]);
 
   // Update background tracking status periodically
@@ -1350,71 +1345,207 @@ export default function EmployeeTrackingScreen() {
   // Fix the tracking heartbeat
   const toggleTracking = async () => {
     if (isButtonDisabled) return;
+    
+    // Debounce button presses
     setIsButtonDisabled(true);
-
+    
     try {
-      if (trackingStatus === TrackingStatus.INACTIVE || trackingStatus === TrackingStatus.ERROR) {
-        // Starting tracking
-        setTrackingStatus(TrackingStatus.ACTIVE);
-        
-        // Start foreground tracking
-        startForegroundTracking();
-        // Start location updates with throttling
-        startLocationUpdates();
-        
-        // If background tracking is enabled, ensure it's running through the context
-        if (backgroundTrackingEnabled && toggleBackgroundTracking) {
-          const success = await toggleBackgroundTracking(true);
-          if (!success) {
-            console.error("Failed to activate background tracking from context");
+      // Handle state transitions based on current state
+      switch(trackingStatus) {
+        case TrackingStatus.INACTIVE:
+        case TrackingStatus.ERROR:
+          // Starting tracking
+          console.log('Starting tracking');
+          
+          // Set state before starting location updates to avoid race conditions
+          setTrackingStatus(TrackingStatus.ACTIVE);
+          
+          // Start foreground tracking
+          await startForegroundTracking();
+          
+          // Start location updates with optimized settings
+          await startLocationUpdates();
+          
+          // If background tracking is enabled, ensure it's running through the context
+          if (backgroundTrackingEnabled && toggleBackgroundTracking) {
+            await toggleBackgroundTracking(true).catch(err => {
+              console.error('Failed to activate background tracking:', err);
+            });
           }
-        }
-        
-        // Update global tracking state
-        await AsyncStorage.setItem('trackingStatus', TrackingStatus.ACTIVE);
-        
-        // Immediately get current location
-        getCurrentLocation();
-      } 
-      else if (trackingStatus === TrackingStatus.ACTIVE) {
-        // Pausing tracking
-        setTrackingStatus(TrackingStatus.PAUSED);
-        
-        // Pause foreground tracking
-        if (periodicUpdateIntervalRef.current) {
-          clearInterval(periodicUpdateIntervalRef.current);
-          periodicUpdateIntervalRef.current = null;
-        }
-        
-        // Stop location updates subscription
-        if (locationSubscription.current) {
-          locationSubscription.current.remove();
-          locationSubscription.current = null;
-        }
-        
-        // Update global tracking state
-        await AsyncStorage.setItem('trackingStatus', TrackingStatus.PAUSED);
+          
+          // Update global tracking state
+          await AsyncStorage.setItem('trackingStatus', TrackingStatus.ACTIVE);
+          
+          // Immediately get current location for immediate feedback
+          getCurrentLocation();
+          
+          // Emit an immediate status update to ensure real-time reflection
+          if (socket) {
+            // Get current battery level for accurate status update
+            let currentBatteryLevel = batteryLevel;
+            try {
+              const level = await Battery.getBatteryLevelAsync();
+              if (typeof level === 'number' && !isNaN(level)) {
+                currentBatteryLevel = Math.round(level * 100);
+              }
+            } catch (e) {
+              // Use existing battery level if there's an error
+            }
+            
+            // First emit tracking status update
+            socket.emit('tracking:status', {
+              userId: user?.id,
+              employeeId: user?.id,
+              sessionId: trackingSessionId || `session_${Date.now()}`,
+              status: TrackingStatus.ACTIVE,
+              isActive: true,
+              batteryLevel: currentBatteryLevel,
+              timestamp: new Date().toISOString()
+            });
+            
+            // Then emit a location update if we have current location
+            if (currentLocation) {
+              socket.emit('location:update', {
+                latitude: currentLocation.coords?.latitude,
+                longitude: currentLocation.coords?.longitude, 
+                accuracy: currentLocation.coords?.accuracy,
+                timestamp: new Date().toISOString(),
+                batteryLevel: currentBatteryLevel,
+                isMoving: false, // Initially not moving
+                trackingStatus: TrackingStatus.ACTIVE,
+                is_tracking_active: true,
+                isActive: true,
+                isInGeofence: isInGeofence,
+                currentGeofenceId: currentGeofence?.id,
+                userId: user?.id,
+                employeeId: user?.id,
+                sessionId: trackingSessionId || `session_${Date.now()}`
+              });
+            }
+            
+            console.log('Emitted tracking start status via socket');
+          }
+          break;
+          
+        case TrackingStatus.ACTIVE:
+          // Pausing tracking
+          console.log('Pausing tracking');
+          setTrackingStatus(TrackingStatus.PAUSED);
+          
+          // Stop foreground updates but keep background running if enabled
+          if (periodicUpdateIntervalRef.current) {
+            clearInterval(periodicUpdateIntervalRef.current);
+            periodicUpdateIntervalRef.current = null;
+          }
+          
+          // Stop location updates subscription
+          if (locationSubscription.current) {
+            locationSubscription.current.remove();
+            locationSubscription.current = null;
+          }
+          
+          // Update global tracking state
+          await AsyncStorage.setItem('trackingStatus', TrackingStatus.PAUSED);
+          
+          // Emit paused status update
+          if (socket) {
+            // Emit tracking paused status
+            socket.emit('tracking:status', {
+              userId: user?.id,
+              employeeId: user?.id,
+              sessionId: trackingSessionId,
+              status: TrackingStatus.PAUSED,
+              isActive: false,
+              batteryLevel: batteryLevel,
+              timestamp: new Date().toISOString()
+            });
+            
+            // Also emit location update with paused status
+            if (currentLocation) {
+              socket.emit('location:update', {
+                latitude: currentLocation.coords?.latitude,
+                longitude: currentLocation.coords?.longitude,
+                accuracy: currentLocation.coords?.accuracy,
+                timestamp: new Date().toISOString(),
+                batteryLevel: batteryLevel,
+                isMoving: false,
+                trackingStatus: TrackingStatus.PAUSED,
+                is_tracking_active: false,
+                isActive: false,
+                isInGeofence: isInGeofence,
+                currentGeofenceId: currentGeofence?.id,
+                userId: user?.id,
+                employeeId: user?.id,
+                sessionId: trackingSessionId
+              });
+            }
+            
+            console.log('Emitted tracking paused status via socket');
+          }
+          break;
+          
+        case TrackingStatus.PAUSED:
+          // Resuming tracking
+          console.log('Resuming tracking');
+          setTrackingStatus(TrackingStatus.ACTIVE);
+          
+          // Resume foreground updates
+          await startForegroundTracking();
+          
+          // Restart location updates
+          await startLocationUpdates();
+          
+          // Update global tracking state
+          await AsyncStorage.setItem('trackingStatus', TrackingStatus.ACTIVE);
+          
+          // Immediately get current location
+          getCurrentLocation();
+          
+          // Emit resumed status update
+          if (socket) {
+            // Emit tracking resumed status
+            socket.emit('tracking:status', {
+              userId: user?.id,
+              employeeId: user?.id,
+              sessionId: trackingSessionId,
+              status: TrackingStatus.ACTIVE,
+              isActive: true,
+              batteryLevel: batteryLevel,
+              timestamp: new Date().toISOString()
+            });
+            
+            // Get current location and emit update with resumed status
+            if (currentLocation) {
+              socket.emit('location:update', {
+                latitude: currentLocation.coords?.latitude,
+                longitude: currentLocation.coords?.longitude,
+                accuracy: currentLocation.coords?.accuracy,
+                timestamp: new Date().toISOString(),
+                batteryLevel: batteryLevel,
+                isMoving: false, // Initially not moving on resume
+                trackingStatus: TrackingStatus.ACTIVE,
+                is_tracking_active: true,
+                isActive: true,
+                isInGeofence: isInGeofence,
+                currentGeofenceId: currentGeofence?.id,
+                userId: user?.id,
+                employeeId: user?.id,
+                sessionId: trackingSessionId
+              });
+            }
+            
+            console.log('Emitted tracking resumed status via socket');
+          }
+          break;
       }
-      else if (trackingStatus === TrackingStatus.PAUSED) {
-        // Resuming tracking
-        setTrackingStatus(TrackingStatus.ACTIVE);
-        
-        // Resume foreground updates
-        startForegroundTracking();
-        // Restart location updates
-        startLocationUpdates();
-        
-        // Update global tracking state
-        await AsyncStorage.setItem('trackingStatus', TrackingStatus.ACTIVE);
-        
-        // Immediately get current location
-        getCurrentLocation();
-      }
+      
     } catch (error) {
       console.error('Error in toggleTracking:', error);
       setTrackingStatus(TrackingStatus.ERROR);
+      setError(`Error toggling tracking: ${String(error)}`);
     } finally {
-      setTimeout(() => setIsButtonDisabled(false), 500);
+      // Re-enable button after slight delay to prevent double-taps
+      setTimeout(() => setIsButtonDisabled(false), 800);
     }
   };
 
@@ -1753,83 +1884,99 @@ export default function EmployeeTrackingScreen() {
 
   // Enhance the onRefresh function to update geofence status and battery level
   const onRefresh = useCallback(async () => {
+    if (refreshing) return; // Prevent multiple simultaneous refreshes
+    
     setRefreshing(true);
+    
     try {
-      // Check permissions first
-      await checkPermissions();
+      // Use Promise.all to run independent operations in parallel
+      const [locationResult, batteryResult] = await Promise.all([
+        // Get current location using Expo Location
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced, // Use balanced accuracy to save battery
+          mayShowUserSettingsDialog: false, // Don't show settings dialog
+        }).catch(err => {
+          console.warn('Error getting current position:', err);
+          return null;
+        }),
+        
+        // Update battery level
+        Battery.getBatteryLevelAsync().catch(err => {
+          console.warn('Error getting battery level:', err);
+          return null;
+        })
+      ]);
 
-      // Get current location using Expo Location
-      const expoLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Highest,
-      });
-
-      // Update background tracking status
-      await updateBackgroundTrackingStatus();
-
-      // Update battery level
-      try {
-        const level = await Battery.getBatteryLevelAsync();
-        if (typeof level === "number" && !isNaN(level)) {
-          const batteryPercent = Math.round(level * 100);
-          useLocationStore.setState({ batteryLevel: batteryPercent });
-        }
-      } catch (batteryError) {
-        console.log("Error getting battery level:", batteryError);
+      // Update battery level if available
+      if (batteryResult !== null) {
+        const batteryPercent = Math.round(batteryResult * 100);
+        useLocationStore.setState({ batteryLevel: batteryPercent });
       }
 
-      // Check geofence status if we have a valid location
-      if (expoLocation && isLocationInAnyGeofence) {
-        // Convert Expo Location object to our app's Location type format
-        const appLocationObj: AppLocation = {
-          latitude: expoLocation.coords.latitude,
-          longitude: expoLocation.coords.longitude,
-          accuracy: expoLocation.coords.accuracy,
-          timestamp: expoLocation.timestamp,
-        };
-
-        // Check if current location is inside any geofence
-        const isInside = isLocationInAnyGeofence(appLocationObj);
-        const currentGeofenceId =
-          isInside && getCurrentGeofence()
-            ? getCurrentGeofence()!.id
-            : undefined;
-
-        // Update geofence status in store - ensure we provide correct types
-        setIsInGeofence(isInside, currentGeofenceId);
-      }
-
-      // If socket exists, send a manual update to refresh server-side data
-      if (socket && socket.connected && expoLocation) {
-        socket.emit("location:update", {
-          latitude: expoLocation.coords.latitude,
-          longitude: expoLocation.coords.longitude,
-          accuracy: expoLocation.coords.accuracy,
-          timestamp: new Date().toISOString(),
-          batteryLevel: batteryLevel,
-          isMoving:
-            expoLocation.coords.speed !== null &&
-            expoLocation.coords.speed > 0.5,
-          trackingStatus: trackingStatus,
-          is_tracking_active: trackingStatus === TrackingStatus.ACTIVE,
-          isActive: trackingStatus === TrackingStatus.ACTIVE,
-          isInGeofence: isInGeofence,
-          currentGeofenceId: currentGeofence?.id,
-          userId: user?.id,
-          employeeId: user?.id,
-          sessionId: trackingSessionId,
-        });
-
-        // Update currentLocation in store with the refreshed data
+      // Process location update if available
+      if (locationResult) {
+        // Process through the accuracy filter
+        const processedLocation = await processLocationUpdate(locationResult);
+        
+        // Update store with new location
         useLocationStore.setState({
-          currentLocation: createEnhancedLocation(expoLocation)
+          currentLocation: createEnhancedLocation(processedLocation)
         });
+        
+        // Check geofence status with new location
+        if (isLocationInAnyGeofence) {
+          // Convert Expo Location object to our app's Location type format
+          const appLocationObj: AppLocation = {
+            latitude: processedLocation.coords.latitude,
+            longitude: processedLocation.coords.longitude,
+            accuracy: processedLocation.coords.accuracy,
+            timestamp: processedLocation.timestamp,
+          };
+
+          // Check if current location is inside any geofence
+          const isInside = isLocationInAnyGeofence(appLocationObj);
+          const currentGeofenceId =
+            isInside && getCurrentGeofence()
+              ? getCurrentGeofence()!.id
+              : undefined;
+
+          // Update geofence status in store - ensure we provide correct types
+          setIsInGeofence(isInside, currentGeofenceId);
+        }
+
+        // If socket exists and connected, send a manual update
+        if (socket?.connected) {
+          socket.emit("location:update", {
+            latitude: processedLocation.coords.latitude,
+            longitude: processedLocation.coords.longitude,
+            accuracy: processedLocation.coords.accuracy,
+            timestamp: new Date().toISOString(),
+            batteryLevel: batteryResult !== null ? Math.round(batteryResult * 100) : batteryLevel,
+            isMoving: processedLocation.coords.speed !== null && processedLocation.coords.speed > 0.5,
+            trackingStatus: trackingStatus,
+            is_tracking_active: trackingStatus === TrackingStatus.ACTIVE,
+            isActive: trackingStatus === TrackingStatus.ACTIVE,
+            isInGeofence: isInGeofence,
+            currentGeofenceId: currentGeofence?.id,
+            userId: user?.id,
+            employeeId: user?.id,
+            sessionId: trackingSessionId,
+            refreshed: true // Flag to indicate this is a manual refresh
+          });
+        }
       }
+      
+      // Check background tracking status
+      await updateBackgroundTrackingStatus();
+      
     } catch (error) {
       console.error("Error refreshing data:", error);
+      setError("Failed to refresh tracking data. Pull down to try again.");
     } finally {
       setRefreshing(false);
     }
   }, [
+    refreshing,
     isLocationInAnyGeofence,
     setIsInGeofence,
     getCurrentGeofence,
@@ -1839,6 +1986,9 @@ export default function EmployeeTrackingScreen() {
     user?.id,
     trackingSessionId,
     isInGeofence,
+    currentGeofence,
+    processLocationUpdate,
+    updateBackgroundTrackingStatus
   ]);
 
   // Navigate to shift management
@@ -1968,40 +2118,6 @@ export default function EmployeeTrackingScreen() {
     }
   };
 
-  // Cleanup function to handle unmounting properly
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      console.log('Tracking component unmounting, performing cleanup');
-      isMountedRef.current = false;
-      // Clear all intervals
-      if (periodicUpdateIntervalRef.current) {
-        clearInterval(periodicUpdateIntervalRef.current);
-        periodicUpdateIntervalRef.current = null;
-      }
-      
-      // Cancel location subscription
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-        locationSubscription.current = null;
-      }
-      
-      // Clear reconnect timeout
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      
-      // Reset queue
-      updateQueueRef.current = [];
-      
-      // Clean up any app state listeners
-      if (appStateSubscription.current) {
-        appStateSubscription.current.remove();
-      }
-    };
-  }, []);
-
   // Start location updates with throttling
   const startLocationUpdates = useCallback(async () => {
     if (locationSubscription.current) {
@@ -2011,43 +2127,387 @@ export default function EmployeeTrackingScreen() {
     }
 
     try {
-      // Use a lower frequency than before - 10 seconds is usually sufficient
-      const updateInterval = 10000; // 10 seconds
+      // Use a moderate frequency to balance accuracy and battery usage
+      const updateInterval = 20000; // 20 seconds
       
-      // Appropriately set accuracy based on user settings
-      const accuracy = Location.Accuracy.Highest;
+      // Use balanced accuracy settings unless high accuracy was explicitly requested
+      const accuracy = Location.Accuracy.Balanced;
       
-      // Configure the subscription with throttling built in
+      // Configure the subscription with throttling and distance filter
       const subscription = await Location.watchPositionAsync(
         {
           accuracy,
           timeInterval: updateInterval,
-          distanceInterval: 10, // meters
+          distanceInterval: 15, // Only update if moved at least 15 meters
+          mayShowUserSettingsDialog: false, // Avoid showing settings dialog automatically
         },
         (newLocation) => {
-          // Avoid processing if component unmounted or process already in progress
+          // Avoid processing if component unmounted
           if (!isMountedRef.current) return;
           
-          // Throttle updates
-          const now = Date.now();
-          if (lastLocationUpdateRef.current && 
-              now - lastLocationUpdateRef.current < 3000) { // 3 second minimum between updates
-            console.log('Throttling location update');
+          // Validate location before processing
+          if (!isValidLocationCoordinate(
+            newLocation.coords.latitude,
+            newLocation.coords.longitude
+          )) {
+            console.log('Invalid location data received, skipping');
             return;
           }
-          lastLocationUpdateRef.current = now;
           
+          // Use the handler function which already implements throttling
           handleLocationUpdate(newLocation);
         }
       );
 
       locationSubscription.current = subscription;
-      console.log('Started location updates with throttling');
+      console.log('Started location updates with optimized settings');
     } catch (error) {
       console.error('Error starting location updates:', error);
       setError(`Location tracking error: ${String(error)}`);
     }
-  }, [handleLocationUpdate, setError]);
+  }, [handleLocationUpdate, setError, isValidLocationCoordinate]);
+
+  // Create a memoized map component
+  const MemoizedMap = useMemo(() => {
+    // Skip rendering map if we have no location data
+    if (!currentLocation) return null;
+    
+    return (
+      <View style={styles.mapContainer}>
+        <LiveTrackingMap
+          {...mapProps}
+          containerStyle={styles.map}
+          geofences={processedGeofences}
+          currentGeofence={currentGeofence}
+          routeCoordinates={routeCoordinates}
+        />
+
+        {/* Draw route line separately on the map */}
+        {routeCoordinates.length > 1 && (
+          <View style={StyleSheet.absoluteFill}>
+            <Polyline
+              coordinates={routeCoordinates}
+              strokeWidth={4}
+              strokeColor="#3b82f6"
+            />
+          </View>
+        )}
+
+        {/* Map Overlay with Status */}
+        <View style={styles.mapOverlay}>
+          <View style={[styles.statusPill, { backgroundColor: cardColor }]}>
+            <View
+              style={[
+                styles.statusIndicator,
+                { backgroundColor: getStatusColor() },
+              ]}
+            />
+            <Text style={[styles.statusText, { color: textColor }]}>
+              {getStatusText()}
+            </Text>
+          </View>
+
+          {socketConnected && (
+            <View
+              style={[styles.connectionPill, { backgroundColor: cardColor }]}
+            >
+              <Ionicons name="wifi" size={14} color="#10b981" />
+              <Text style={[styles.connectionText, { color: textColor }]}>
+                Connected
+              </Text>
+            </View>
+          )}
+
+          {isBackgroundTracking && (
+            <View
+              style={[styles.backgroundPill, { backgroundColor: cardColor }]}
+            >
+              <Ionicons name="sync" size={14} color="#10b981" />
+              <Text style={[styles.connectionText, { color: textColor }]}>
+                Background
+              </Text>
+            </View>
+          )}
+
+          {isInGeofence && (
+            <View
+              style={[styles.geofencePill, { backgroundColor: cardColor }]}
+            >
+              <Ionicons name="location" size={14} color="#10b981" />
+              <Text style={[styles.connectionText, { color: textColor }]}>
+                {isInGeofence ? currentGeofenceName : "No"}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }, [
+    currentLocation,
+    mapProps,
+    processedGeofences,
+    currentGeofence,
+    routeCoordinates,
+    cardColor,
+    getStatusColor,
+    textColor,
+    getStatusText,
+    socketConnected,
+    isBackgroundTracking,
+    isInGeofence,
+    currentGeofenceName
+  ]);
+
+  // Add a more robust socket connection handler
+  useEffect(() => {
+    // Only set up socket handling if we have a valid socket
+    if (!socket) return;
+    
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    
+    // Track connection state
+    let previouslyConnected = false;
+    
+    // Setup connection handlers
+    const handleConnect = () => {
+      console.log('Socket connected for location tracking:', socket.id);
+      
+      // Emit authentication event if user exists
+      if (user?.id) {
+        socket.emit('authenticate', { 
+          userId: user.id, 
+          role: user.role 
+        });
+        console.log('Sent authentication to socket');
+      }
+      
+      // If previously connected and reconnected, try to restore tracking
+      if (previouslyConnected && trackingStatus === TrackingStatus.ACTIVE) {
+        console.log('Socket reconnected, resuming tracking data');
+        if (currentLocation) {
+          // Send current location with restored flag
+          socket.emit('location:update', {
+            latitude: currentLocation.coords.latitude,
+            longitude: currentLocation.coords.longitude,
+            accuracy: currentLocation.coords.accuracy,
+            timestamp: new Date().toISOString(),
+            batteryLevel,
+            isActive: true,
+            userId: user?.id,
+            employeeId: user?.id,
+            sessionId: trackingSessionId,
+            restored: true
+          });
+        }
+      }
+      
+      previouslyConnected = true;
+      setError(null);
+    };
+    
+    const handleDisconnect = (reason: string) => {
+      console.log(`Socket disconnected: ${reason}`);
+      
+      // Schedule reconnect attempt if tracking is active
+      if (trackingStatus === TrackingStatus.ACTIVE) {
+        if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        
+        reconnectTimeout = setTimeout(() => {
+          console.log('Attempting to reconnect socket...');
+          if (socket && !socket.connected) {
+            socket.connect();
+          }
+        }, 5000);
+      }
+      
+      // Only show error if tracking is active
+      if (trackingStatus === TrackingStatus.ACTIVE) {
+        setError('Connection to server lost. Reconnecting...');
+      }
+    };
+    
+    const handleError = (err: Error) => {
+      console.error('Socket error:', err);
+      setError(`Connection error: ${err.message}`);
+    };
+    
+    // Set up event listeners
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('error', handleError);
+    
+    // Clean up on component unmount
+    return () => {
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('error', handleError);
+      
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+    };
+  }, [socket, user, currentLocation, trackingStatus, trackingSessionId, batteryLevel]);
+
+  // Add memoized status cards to reduce re-renders
+  const MemoizedStatusCards = useMemo(() => (
+    <View style={styles.cardsContainer}>
+      {/* Refresh Hint */}
+      <View className="flex-1 justify-center items-center flex-row p-4 mb-3 bg-blue-50/80 dark:bg-blue-900/30 rounded-xl shadow-sm border border-blue-100 dark:border-blue-800">
+        <Ionicons
+          name="information-circle"
+          size={20}
+          color="#3b82f6"
+          style={{ marginRight: 5 }}
+        />
+        <Text
+          numberOfLines={1}
+          className="flex-1 text-blue-700 dark:text-blue-300 text-[12px] font-medium"
+        >
+          Pull down to refresh for the most accurate tracking data
+        </Text>
+      </View>
+
+      {/* Location Card */}
+      <View style={[styles.card, { backgroundColor: cardColor }]}>
+        <Text style={[styles.cardTitle, { color: textColor }]}>
+          Current Location
+        </Text>
+        <View style={styles.cardContent}>
+          <View style={styles.locationDetail}>
+            <Text style={[styles.locationLabel, { color: textColor }]}>
+              Latitude:
+            </Text>
+            <Text style={[styles.locationValue, { color: textColor }]}>
+              {formatCoordinate(currentLocation?.coords?.latitude)}
+            </Text>
+          </View>
+          <View style={styles.locationDetail}>
+            <Text style={[styles.locationLabel, { color: textColor }]}>
+              Longitude:
+            </Text>
+            <Text style={[styles.locationValue, { color: textColor }]}>
+              {formatCoordinate(currentLocation?.coords?.longitude)}
+            </Text>
+          </View>
+          <View style={styles.locationDetail}>
+            <Text style={[styles.locationLabel, { color: textColor }]}>
+              Accuracy:
+            </Text>
+            <Text style={[styles.locationValue, { color: textColor }]}>
+              {currentLocation?.coords?.accuracy
+                ? `${Math.round(currentLocation.coords.accuracy)}m`
+                : "N/A"}
+            </Text>
+          </View>
+          <View style={styles.locationDetail}>
+            <Text style={[styles.locationLabel, { color: textColor }]}>
+              Updated:
+            </Text>
+            <Text style={[styles.locationValue, { color: textColor }]}>
+              {currentLocation?.timestamp
+                ? new Date(
+                    typeof currentLocation.timestamp === "string"
+                      ? currentLocation.timestamp
+                      : currentLocation.timestamp
+                  ).toLocaleTimeString()
+                : "Never"}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Status Card */}
+      <View style={[styles.card, { backgroundColor: cardColor }]}>
+        <Text style={[styles.cardTitle, { color: textColor }]}>
+          Tracking Status
+        </Text>
+        <View style={styles.cardContent}>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabel, { color: textColor }]}>
+              Status:
+            </Text>
+            <StatusIndicator status={trackingStatus} showText={true} />
+          </View>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabel, { color: textColor }]}>
+              Battery:
+            </Text>
+            <BatteryLevelIndicator level={batteryLevel} />
+          </View>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabel, { color: textColor }]}>
+              In Geofence:
+            </Text>
+            <View style={styles.geofenceIndicator}>
+              <View
+                style={[
+                  styles.geofenceDot,
+                  {
+                    backgroundColor: isInGeofence ? "#10b981" : "#ef4444",
+                  },
+                ]}
+              />
+              <Text style={[styles.geofenceText, { color: textColor }]}>
+                {isInGeofence ? currentGeofenceName : "No"}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabel, { color: textColor }]}>
+              Permissions:
+            </Text>
+            <View style={styles.geofenceIndicator}>
+              <View
+                style={[
+                  styles.geofenceDot,
+                  {
+                    backgroundColor:
+                      permissionStatus === "granted"
+                        ? "#10b981"
+                        : "#ef4444",
+                  },
+                ]}
+              />
+              <Text style={[styles.geofenceText, { color: textColor }]}>
+                {permissionStatus === "granted" ? "Granted" : "Limited"}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabel, { color: textColor }]}>
+              Background:
+            </Text>
+            <View style={styles.geofenceIndicator}>
+              <View
+                style={[
+                  styles.geofenceDot,
+                  {
+                    backgroundColor: backgroundTrackingEnabled
+                      ? "#10b981"
+                      : "#6b7280",
+                  },
+                ]}
+              />
+              <Text style={[styles.geofenceText, { color: textColor }]}>
+                {backgroundTrackingEnabled ? "Enabled" : "Disabled"}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>
+  ), [
+    cardColor, 
+    textColor, 
+    currentLocation, 
+    trackingStatus, 
+    batteryLevel,
+    isInGeofence,
+    currentGeofenceName,
+    permissionStatus,
+    backgroundTrackingEnabled,
+    formatCoordinate
+  ]);
 
   return (
     <View style={[styles.container, { backgroundColor }]}>
@@ -2081,74 +2541,7 @@ export default function EmployeeTrackingScreen() {
         }
       >
         {/* Map View */}
-        <View style={styles.mapContainer}>
-          <LiveTrackingMap
-            {...mapProps}
-            containerStyle={styles.map}
-            geofences={processedGeofences}
-            currentGeofence={currentGeofence}
-            routeCoordinates={routeCoordinates}
-          />
-
-          {/* Draw route line separately on the map */}
-          {routeCoordinates.length > 1 && (
-            <View style={StyleSheet.absoluteFill}>
-              <Polyline
-                coordinates={routeCoordinates}
-                strokeWidth={4}
-                strokeColor="#3b82f6"
-              />
-            </View>
-          )}
-
-          {/* Map Overlay with Status */}
-          <View style={styles.mapOverlay}>
-            <View style={[styles.statusPill, { backgroundColor: cardColor }]}>
-              <View
-                style={[
-                  styles.statusIndicator,
-                  { backgroundColor: getStatusColor() },
-                ]}
-              />
-              <Text style={[styles.statusText, { color: textColor }]}>
-                {getStatusText()}
-              </Text>
-            </View>
-
-            {socketConnected && (
-              <View
-                style={[styles.connectionPill, { backgroundColor: cardColor }]}
-              >
-                <Ionicons name="wifi" size={14} color="#10b981" />
-                <Text style={[styles.connectionText, { color: textColor }]}>
-                  Connected
-                </Text>
-              </View>
-            )}
-
-            {isBackgroundTracking && (
-              <View
-                style={[styles.backgroundPill, { backgroundColor: cardColor }]}
-              >
-                <Ionicons name="sync" size={14} color="#10b981" />
-                <Text style={[styles.connectionText, { color: textColor }]}>
-                  Background
-                </Text>
-              </View>
-            )}
-
-            {isInGeofence && (
-              <View
-                style={[styles.geofencePill, { backgroundColor: cardColor }]}
-              >
-                <Ionicons name="location" size={14} color="#10b981" />
-                <Text style={[styles.connectionText, { color: textColor }]}>
-                  {isInGeofence ? currentGeofenceName : "No"}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
+        {MemoizedMap}
 
         <View className="px-4">
           {/* <View className="flex-row justify-between items-center">
@@ -2159,152 +2552,7 @@ export default function EmployeeTrackingScreen() {
           </View> */}
 
           {/* Status Cards */}
-          <View style={styles.cardsContainer}>
-            {/* Refresh Hint */}
-            <View className="flex-1 justify-center items-center flex-row p-4 mb-3 bg-blue-50/80 dark:bg-blue-900/30 rounded-xl shadow-sm border border-blue-100 dark:border-blue-800">
-              <Ionicons
-                name="information-circle"
-                size={20}
-                color="#3b82f6"
-                style={{ marginRight: 5 }}
-              />
-              <Text
-                numberOfLines={1}
-                className="flex-1 text-blue-700 dark:text-blue-300 text-[12px] font-medium"
-              >
-                Pull down to refresh for the most accurate tracking data
-              </Text>
-            </View>
-
-            {/* Location Card */}
-            <View style={[styles.card, { backgroundColor: cardColor }]}>
-              <Text style={[styles.cardTitle, { color: textColor }]}>
-                Current Location
-              </Text>
-              <View style={styles.cardContent}>
-                <View style={styles.locationDetail}>
-                  <Text style={[styles.locationLabel, { color: textColor }]}>
-                    Latitude:
-                  </Text>
-                  <Text style={[styles.locationValue, { color: textColor }]}>
-                    {formatCoordinate(currentLocation?.coords?.latitude)}
-                  </Text>
-                </View>
-                <View style={styles.locationDetail}>
-                  <Text style={[styles.locationLabel, { color: textColor }]}>
-                    Longitude:
-                  </Text>
-                  <Text style={[styles.locationValue, { color: textColor }]}>
-                    {formatCoordinate(currentLocation?.coords?.longitude)}
-                  </Text>
-                </View>
-                <View style={styles.locationDetail}>
-                  <Text style={[styles.locationLabel, { color: textColor }]}>
-                    Accuracy:
-                  </Text>
-                  <Text style={[styles.locationValue, { color: textColor }]}>
-                    {currentLocation?.coords?.accuracy
-                      ? `${Math.round(currentLocation.coords.accuracy)}m`
-                      : "N/A"}
-                  </Text>
-                </View>
-                <View style={styles.locationDetail}>
-                  <Text style={[styles.locationLabel, { color: textColor }]}>
-                    Updated:
-                  </Text>
-                  <Text style={[styles.locationValue, { color: textColor }]}>
-                    {currentLocation?.timestamp
-                      ? new Date(
-                          typeof currentLocation.timestamp === "string"
-                            ? currentLocation.timestamp
-                            : currentLocation.timestamp
-                        ).toLocaleTimeString()
-                      : "Never"}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Status Card */}
-            <View style={[styles.card, { backgroundColor: cardColor }]}>
-              <Text style={[styles.cardTitle, { color: textColor }]}>
-                Tracking Status
-              </Text>
-              <View style={styles.cardContent}>
-                <View style={styles.statusRow}>
-                  <Text style={[styles.statusLabel, { color: textColor }]}>
-                    Status:
-                  </Text>
-                  <StatusIndicator status={trackingStatus} showText={true} />
-                </View>
-                <View style={styles.statusRow}>
-                  <Text style={[styles.statusLabel, { color: textColor }]}>
-                    Battery:
-                  </Text>
-                  <BatteryLevelIndicator level={batteryLevel} />
-                </View>
-                <View style={styles.statusRow}>
-                  <Text style={[styles.statusLabel, { color: textColor }]}>
-                    In Geofence:
-                  </Text>
-                  <View style={styles.geofenceIndicator}>
-                    <View
-                      style={[
-                        styles.geofenceDot,
-                        {
-                          backgroundColor: isInGeofence ? "#10b981" : "#ef4444",
-                        },
-                      ]}
-                    />
-                    <Text style={[styles.geofenceText, { color: textColor }]}>
-                      {isInGeofence ? currentGeofenceName : "No"}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.statusRow}>
-                  <Text style={[styles.statusLabel, { color: textColor }]}>
-                    Permissions:
-                  </Text>
-                  <View style={styles.geofenceIndicator}>
-                    <View
-                      style={[
-                        styles.geofenceDot,
-                        {
-                          backgroundColor:
-                            permissionStatus === "granted"
-                              ? "#10b981"
-                              : "#ef4444",
-                        },
-                      ]}
-                    />
-                    <Text style={[styles.geofenceText, { color: textColor }]}>
-                      {permissionStatus === "granted" ? "Granted" : "Limited"}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.statusRow}>
-                  <Text style={[styles.statusLabel, { color: textColor }]}>
-                    Background:
-                  </Text>
-                  <View style={styles.geofenceIndicator}>
-                    <View
-                      style={[
-                        styles.geofenceDot,
-                        {
-                          backgroundColor: backgroundTrackingEnabled
-                            ? "#10b981"
-                            : "#6b7280",
-                        },
-                      ]}
-                    />
-                    <Text style={[styles.geofenceText, { color: textColor }]}>
-                      {backgroundTrackingEnabled ? "Enabled" : "Disabled"}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </View>
+          {MemoizedStatusCards}
 
           {/* Error message */}
           {error && (

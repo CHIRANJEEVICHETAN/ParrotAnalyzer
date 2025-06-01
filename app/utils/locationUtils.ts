@@ -64,81 +64,69 @@ export const calculateDistance = (
  * This helps maintain compatibility with different parts of the codebase
  */
 export function createEnhancedLocation(location: LocationObject | any): EnhancedLocation {
-  // If it's already a LocationObject with coords
-  if (location.coords) {
+  if (!location) {
+    console.warn('Attempted to create enhanced location from null/undefined value');
     return {
-      // Direct properties for compatibility with old code
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-      accuracy: location.coords.accuracy,
-      altitude: location.coords.altitude,
-      altitudeAccuracy: location.coords.altitudeAccuracy,
-      heading: location.coords.heading,
-      speed: location.coords.speed,
-      // Keep the nested structure for compatibility with expo-location
       coords: {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy,
-        altitude: location.coords.altitude,
-        altitudeAccuracy: location.coords.altitudeAccuracy,
-        heading: location.coords.heading,
-        speed: location.coords.speed,
+        latitude: 0,
+        longitude: 0,
+        accuracy: null,
+        altitude: null,
+        altitudeAccuracy: null,
+        heading: null,
+        speed: null,
       },
-      timestamp: location.timestamp,
-      // Additional properties
-      batteryLevel: location.batteryLevel,
-      isMoving: location.isMoving,
-      address: location.address,
-      recordedAt: location.recordedAt,
+      timestamp: Date.now(),
     };
   }
   
-  // If it's a flat object with direct properties
-  if (location.latitude && location.longitude) {
-    return {
-      // Direct properties
-      latitude: location.latitude,
-      longitude: location.longitude,
-      accuracy: location.accuracy,
-      altitude: location.altitude,
-      altitudeAccuracy: location.altitudeAccuracy,
-      heading: location.heading,
-      speed: location.speed,
-      // Create nested structure
-      coords: {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        accuracy: location.accuracy,
-        altitude: location.altitude,
-        altitudeAccuracy: location.altitudeAccuracy,
-        heading: location.heading,
-        speed: location.speed,
-      },
-      timestamp: location.timestamp,
-      // Additional properties
-      batteryLevel: location.batteryLevel,
-      isMoving: location.isMoving,
-      address: location.address,
-      recordedAt: location.recordedAt,
-    };
-  }
+  // Handle different location formats consistently
+  const timestamp = 
+    typeof location.timestamp === 'number' ? location.timestamp :
+    typeof location.timestamp === 'string' ? new Date(location.timestamp).getTime() :
+    Date.now();
   
-  // Return empty location as fallback
+  // Extract coordinates from either direct properties or coords object
+  const latitude = location.coords?.latitude ?? location.latitude ?? 0;
+  const longitude = location.coords?.longitude ?? location.longitude ?? 0;
+  const accuracy = location.coords?.accuracy ?? location.accuracy ?? null;
+  const altitude = location.coords?.altitude ?? location.altitude ?? null;
+  const altitudeAccuracy = location.coords?.altitudeAccuracy ?? location.altitudeAccuracy ?? null;
+  const heading = location.coords?.heading ?? location.heading ?? null;
+  const speed = location.coords?.speed ?? location.speed ?? null;
+  
+  // Extract optional fields
+  const batteryLevel = typeof location.batteryLevel === 'number' ? location.batteryLevel : undefined;
+  const isMoving = typeof location.isMoving === 'boolean' ? location.isMoving : undefined;
+  
+  // Create enhanced location with both nested and top-level properties for compatibility
   return {
-    latitude: 0,
-    longitude: 0,
-    accuracy: 0,
+    // Standard location object structure
     coords: {
-      latitude: 0,
-      longitude: 0,
-      accuracy: 0,
-      altitude: null,
-      altitudeAccuracy: null,
-      heading: null,
-      speed: null,
+      latitude,
+      longitude,
+      accuracy,
+      altitude,
+      altitudeAccuracy,
+      heading,
+      speed,
     },
-    timestamp: Date.now(),
+    timestamp,
+    
+    // Duplicate fields at the top level for backward compatibility
+    latitude,
+    longitude, 
+    accuracy,
+    altitude,
+    altitudeAccuracy,
+    heading,
+    speed,
+    
+    // Optional additional fields
+    ...(batteryLevel !== undefined && { batteryLevel }),
+    ...(isMoving !== undefined && { isMoving }),
+    ...(location.address && { address: location.address }),
+    ...(location.recordedAt && { recordedAt: location.recordedAt })
   };
 }
 

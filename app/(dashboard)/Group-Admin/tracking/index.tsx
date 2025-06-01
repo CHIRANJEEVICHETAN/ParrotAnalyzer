@@ -59,14 +59,16 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
 };
 
 // Add validation function for coordinates
-const isValidCoordinate = (latitude: number, longitude: number): boolean => {
+const isValidCoordinate = (latitude: number | null | undefined, longitude: number | null | undefined): boolean => {
   return (
     typeof latitude === 'number' && 
     typeof longitude === 'number' && 
     !isNaN(latitude) && 
     !isNaN(longitude) && 
-    latitude !== 0 && 
-    longitude !== 0
+    isFinite(latitude) &&
+    isFinite(longitude) &&
+    Math.abs(latitude) <= 90 &&  // Valid latitude range
+    Math.abs(longitude) <= 180   // Valid longitude range
   );
 };
 
@@ -179,21 +181,30 @@ export default function GroupAdminTrackingDashboard() {
 
   // Handle navigating to a specific employee
   const handleGoToEmployee = useCallback((employee: TrackingUser) => {
-    if (employee && employee.location) {
-      // Set selected user
-      setSelectedUserId(employee.id);
-      
-      // Update map region to focus on this employee
-      const newRegion = {
-        latitude: employee.location.latitude,
-        longitude: employee.location.longitude,
-        latitudeDelta: 0.005,  // Zoomed in for employee view
-        longitudeDelta: 0.005,
-      };
-      
-      // Update map region
-      setMapRegion(newRegion);
+    if (!employee || !employee.location) {
+      console.log('Cannot navigate to employee: No location data');
+      return;
     }
+    
+    // Validate location coordinates
+    if (!isValidCoordinate(employee.location.latitude, employee.location.longitude)) {
+      console.log('Cannot navigate to employee: Invalid coordinates', employee.location);
+      return;
+    }
+    
+    // Set selected user
+    setSelectedUserId(employee.id);
+    
+    // Update map region to focus on this employee
+    const newRegion = {
+      latitude: employee.location.latitude,
+      longitude: employee.location.longitude,
+      latitudeDelta: 0.005,  // Zoomed in for employee view
+      longitudeDelta: 0.005,
+    };
+    
+    // Update map region
+    setMapRegion(newRegion);
   }, [setMapRegion]);
 
   // Add renderItem function for FlatList
@@ -213,6 +224,10 @@ export default function GroupAdminTrackingDashboard() {
       formattedDuration = `${Math.round(routeDuration)}s`;
     }
 
+    // Check if location data is valid
+    const hasValidLocation = user.location && 
+      isValidCoordinate(user.location.latitude, user.location.longitude);
+
     return (
       <TouchableOpacity
         key={user.id}
@@ -221,7 +236,7 @@ export default function GroupAdminTrackingDashboard() {
           isSelected && styles.selectedEmployeeItem,
           { backgroundColor: cardColor }
         ]}
-        onPress={() => handleGoToEmployee(user)}
+        onPress={() => hasValidLocation ? handleGoToEmployee(user) : null}
       >
         {/* Status Badge */}
         <View 
@@ -294,11 +309,17 @@ export default function GroupAdminTrackingDashboard() {
                 color={primaryColor} 
                 style={styles.detailIcon} 
               />
-              <LocationName 
-                latitude={user.location.latitude}
-                longitude={user.location.longitude}
-                style={[styles.detailText, { color: textColor }]}
-              />
+              {hasValidLocation ? (
+                <LocationName 
+                  latitude={user.location.latitude}
+                  longitude={user.location.longitude}
+                  style={[styles.detailText, { color: textColor }]}
+                />
+              ) : (
+                <Text style={[styles.detailText, { color: textColor, fontStyle: 'italic' }]}>
+                  Location unavailable
+                </Text>
+              )}
             </View>
           </View>
             
@@ -362,8 +383,15 @@ export default function GroupAdminTrackingDashboard() {
         {/* Right side - Locate button */}
         <View style={styles.employeeActions}>
           <TouchableOpacity
-            style={[styles.locateButton, { backgroundColor: primaryColor }]}
-            onPress={() => handleGoToEmployee(user)}
+            style={[
+              styles.locateButton, 
+              { 
+                backgroundColor: hasValidLocation ? primaryColor : '#cbd5e1',
+                opacity: hasValidLocation ? 1 : 0.6 
+              }
+            ]}
+            onPress={() => hasValidLocation ? handleGoToEmployee(user) : null}
+            disabled={!hasValidLocation}
           >
             <Ionicons name="locate-outline" size={20} color="#ffffff" />
           </TouchableOpacity>
@@ -1016,6 +1044,18 @@ export default function GroupAdminTrackingDashboard() {
       return locationCache[cacheKey];
     }
 
+    // Validate coordinates before proceeding
+    if (
+      typeof latitude !== 'number' ||
+      typeof longitude !== 'number' ||
+      isNaN(latitude) ||
+      isNaN(longitude) ||
+      !isFinite(latitude) ||
+      !isFinite(longitude)
+    ) {
+      return "Invalid location";
+    }
+
     try {
       const result = await Location.reverseGeocodeAsync({
         latitude,
@@ -1038,7 +1078,7 @@ export default function GroupAdminTrackingDashboard() {
       }
       return "Unknown location";
     } catch (error) {
-      console.error("Error getting place name:", error);
+      console.log("Error getting place name:", error);
       return "Location unavailable";
     }
   };
@@ -1058,6 +1098,19 @@ export default function GroupAdminTrackingDashboard() {
 
       useEffect(() => {
         let isMounted = true;
+
+        // Validate coordinates before attempting to fetch
+        if (
+          typeof latitude !== 'number' ||
+          typeof longitude !== 'number' ||
+          isNaN(latitude) ||
+          isNaN(longitude) ||
+          !isFinite(latitude) ||
+          !isFinite(longitude)
+        ) {
+          setPlaceName("Invalid location");
+          return;
+        }
 
         const fetchPlaceName = async () => {
           const name = await getPlaceName(latitude, longitude);

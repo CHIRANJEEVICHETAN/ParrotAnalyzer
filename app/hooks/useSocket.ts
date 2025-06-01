@@ -8,9 +8,6 @@ import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { processQueue } from '../utils/httpBatchManager';
 import EventEmitter from '../utils/EventEmitter';
-import useSocketStore from '../store/socketStore';
-import { Location, GeofenceTransitionEvent } from '../types/liveTracking';
-import useLocationStore from '../store/locationStore';
 
 interface UseSocketOptions {
   onConnect?: () => void;

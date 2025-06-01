@@ -139,58 +139,74 @@ export async function filterLocation(location: LocationObject): Promise<ScoredLo
     // Get settings
     const settings = await getAccuracyFilterSettings();
     
+    // If filtering is disabled, return the original location
     if (!settings.enabled) {
-      // Return unfiltered if disabled
       return {
         location,
-        confidence: 1,
+        confidence: 1.0,
         isFiltered: false
       };
     }
     
-    // Calculate confidence score
-    const confidence = calculateLocationConfidence(location);
-    
-    // Get location history for smoothing
-    const history = await getLocationHistory();
-    
-    // Check if location should be rejected based on settings
+    // Quick accuracy check first
     if (settings.rejectLowAccuracy && 
-        location.coords.accuracy !== undefined && 
-        location.coords.accuracy !== null && 
+        location.coords.accuracy && 
         location.coords.accuracy > settings.maxAccuracyRadius) {
       return {
         location,
-        confidence,
+        confidence: 0,
         isFiltered: true,
-        reason: `Accuracy radius too large: ${Math.round(location.coords.accuracy)}m > ${settings.maxAccuracyRadius}m`
+        reason: 'Accuracy radius too large'
       };
     }
     
-    // Check if location confidence is too low
-    if (confidence < settings.confidenceThreshold) {
+    // Calculate confidence score - only if needed
+    const confidence = calculateLocationConfidence(location);
+    
+    // Check if confidence is high enough
+    const isLowConfidence = confidence < settings.confidenceThreshold;
+    
+    // Apply smoothing if enabled and confidence is low
+    if (settings.useSmoothing && isLowConfidence) {
+      try {
+        // Get small sample of recent location history (limit to 5 points for performance)
+        const history = (await getLocationHistory()).slice(-5);
+        
+        // Only smooth if we have previous locations
+        if (history.length > 0) {
+          const smoothedLocation = smoothLocation(location, history);
+          return {
+            location: smoothedLocation,
+            confidence: confidence * 1.2, // Slightly increase confidence of smoothed location
+            isFiltered: false,
+            reason: 'Smoothed low confidence location'
+          };
+        }
+      } catch (error) {
+        console.error('Error during location smoothing:', error);
+        // Continue with original location if smoothing fails
+      }
+    }
+    
+    // If confidence is too low and smoothing didn't help, we might filter it
+    if (isLowConfidence) {
       return {
         location,
         confidence,
         isFiltered: true,
-        reason: `Confidence too low: ${confidence.toFixed(2)} < ${settings.confidenceThreshold}`
+        reason: 'Low confidence score'
       };
     }
     
-    // Store this location in history for future smoothing
-    await addToLocationHistory(location);
-    
-    // If smoothing enabled and we have enough history, smooth the location
-    if (settings.useSmoothing && history.length >= 2) {
-      const smoothedLocation = smoothLocation(location, history);
-      return {
-        location: smoothedLocation,
-        confidence,
-        isFiltered: false
-      };
+    // Add to history if it passed our checks
+    try {
+      await addToLocationHistory(location);
+    } catch (error) {
+      // Non-critical error, just log it
+      console.error('Error adding location to history:', error);
     }
     
-    // Otherwise return the original location
+    // Return the location with its confidence score
     return {
       location,
       confidence,
@@ -198,12 +214,12 @@ export async function filterLocation(location: LocationObject): Promise<ScoredLo
     };
   } catch (error) {
     console.error('Error filtering location:', error);
-    // Fall back to original location
+    // If anything fails, return the original location
     return {
       location,
-      confidence: 0.5,
+      confidence: 1.0,
       isFiltered: false,
-      reason: 'Error in filtering'
+      reason: 'Filter error, using original'
     };
   }
 }

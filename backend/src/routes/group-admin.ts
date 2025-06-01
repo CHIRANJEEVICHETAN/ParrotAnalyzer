@@ -1085,4 +1085,41 @@ router.put('/employee-expense-permissions/:userId', verifyToken, async (req: Cus
   }
 });
 
+// Get current active shift for a group admin
+router.get('/shift/current', verifyToken, async (req: CustomRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Get the current active shift for the group admin
+    const result = await client.query(
+      `SELECT 
+        id,
+        user_id,
+        start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time,
+        end_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as end_time,
+        status,
+        duration,
+        total_kilometers,
+        total_expenses
+      FROM group_admin_shifts 
+      WHERE user_id = $1 AND status = 'active' AND end_time IS NULL
+      ORDER BY start_time DESC
+      LIMIT 1`,
+      [req.user.id]
+    );
+
+    // Return the shift data if found, null if not
+    const currentShift = result.rows.length > 0 ? result.rows[0] : null;
+    res.json(currentShift);
+  } catch (error) {
+    console.error('Error fetching current shift:', error);
+    res.status(500).json({ error: 'Failed to fetch current shift status' });
+  } finally {
+    client.release();
+  }
+});
+
 export default router; 
