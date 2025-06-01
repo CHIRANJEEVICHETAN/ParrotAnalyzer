@@ -780,20 +780,39 @@ export default function EmployeeTrackingScreen() {
   // Update the handleLocationUpdate to use the processed location
   const handleLocationUpdate = useCallback(async (location: Location.LocationObject) => {
     try {
-      // Throttle updates - don't process if too soon after last update
-      const now = Date.now();
-      if (lastLocationUpdateRef.current && now - lastLocationUpdateRef.current < 2000) {
-        return; // Skip updates less than 2 seconds apart
-      }
-      lastLocationUpdateRef.current = now;
-
+      // First validate location before any throttling
       if (!isValidLocationCoordinate(location.coords.latitude, location.coords.longitude)) {
         console.log('Invalid location coordinates, skipping update');
         return;
       }
 
-      // Process location through accuracy filter
+      // Process location through accuracy filter first
       const processedLocation = await processLocationUpdate(location);
+      
+      // Implement smarter throttling:
+      // 1. Always accept first location update
+      // 2. Accept updates with better accuracy than previous
+      // 3. Accept updates if enough time has passed
+      const now = Date.now();
+      const previousLocation = currentLocation;
+      const timeSinceLastUpdate = lastLocationUpdateRef.current ? now - lastLocationUpdateRef.current : Infinity;
+      
+      // Determine if we should accept this update
+      const shouldAcceptUpdate = 
+        !lastLocationUpdateRef.current || // First update
+        timeSinceLastUpdate >= 2000 || // Regular throttle interval
+        (previousLocation && // Better accuracy than previous
+         processedLocation.coords.accuracy && 
+         previousLocation.coords.accuracy && 
+         processedLocation.coords.accuracy < previousLocation.coords.accuracy);
+      
+      if (!shouldAcceptUpdate) {
+        console.log('Throttling location update');
+        return;
+      }
+
+      // Update the timestamp AFTER we've decided to use this location
+      lastLocationUpdateRef.current = now;
       
       // Use existing function to set current location
       setCurrentLocation(createEnhancedLocation({
@@ -828,7 +847,6 @@ export default function EmployeeTrackingScreen() {
           const lastPoint = prev[prev.length - 1];
           
           // Skip point if it's too close to the last one (less than 5 meters)
-          // This prevents cluttering the route with nearly identical points
           if (lastPoint && 
               calculateDistanceBetweenPoints(
                 lastPoint.latitude, 
@@ -874,7 +892,7 @@ export default function EmployeeTrackingScreen() {
     } catch (error) {
       console.error("Error processing location update:", error);
     }
-  }, [trackingStatus, isValidLocationCoordinate, calculateDistanceBetweenPoints, processLocationUpdate, setCurrentLocation]);
+  }, [trackingStatus, isValidLocationCoordinate, calculateDistanceBetweenPoints, processLocationUpdate, setCurrentLocation, currentLocation]);
 
   // Add a route cleanup effect to ensure routes are reset when tracking changes
   useEffect(() => {

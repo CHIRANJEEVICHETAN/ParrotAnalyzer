@@ -1100,14 +1100,7 @@ export default function GroupAdminTrackingDashboard() {
         let isMounted = true;
 
         // Validate coordinates before attempting to fetch
-        if (
-          typeof latitude !== 'number' ||
-          typeof longitude !== 'number' ||
-          isNaN(latitude) ||
-          isNaN(longitude) ||
-          !isFinite(latitude) ||
-          !isFinite(longitude)
-        ) {
+        if (!isValidCoordinate(latitude, longitude)) {
           setPlaceName("Invalid location");
           return;
         }

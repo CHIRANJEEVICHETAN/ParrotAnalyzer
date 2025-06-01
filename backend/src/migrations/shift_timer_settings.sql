@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS shift_timer_settings (
     timer_duration_hours NUMERIC(5, 2) NOT NULL,
     end_time TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    completed BOOLEAN DEFAULT FALSE,
-    notification_sent BOOLEAN DEFAULT FALSE,
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    notification_sent BOOLEAN NOT NULL DEFAULT FALSE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (shift_id) REFERENCES employee_shifts(id) ON DELETE CASCADE
 );
