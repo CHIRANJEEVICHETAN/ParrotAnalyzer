@@ -12,13 +12,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { ReportSection } from '../types';
 import { PDFGenerator } from '../services/PDFGenerator';
 
+interface FilterParams {
+  startDate?: Date;
+  endDate?: Date;
+  employeeId?: number;
+  department?: string;
+  dateRangePreset?: string;
+}
+
 interface ReportCardProps {
   section: ReportSection;
   isDark: boolean;
   children?: React.ReactNode;
+  filters?: FilterParams;
 }
 
-export default function ReportCard({ section, isDark, children }: ReportCardProps) {
+export default function ReportCard({ section, isDark, children, filters }: ReportCardProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
 
@@ -26,7 +35,7 @@ export default function ReportCard({ section, isDark, children }: ReportCardProp
     try {
       setIsExporting(true);
       setShowActionMenu(false);
-      await PDFGenerator.generateAndHandlePDF(section, action);
+      await PDFGenerator.generateAndHandlePDF(section, action, filters);
     } catch (error) {
       console.error('Error handling PDF:', error);
     } finally {
@@ -122,6 +131,18 @@ export default function ReportCard({ section, isDark, children }: ReportCardProp
             }}>
               Export Options
             </Text>
+
+            {/* Filter info message */}
+            {filters && (filters.startDate || filters.employeeId || filters.department) && (
+              <Text style={{
+                fontSize: 14,
+                color: isDark ? '#9CA3AF' : '#6B7280',
+                marginBottom: 16,
+                textAlign: 'center'
+              }}>
+                Export will include your current filters
+              </Text>
+            )}
             
             <TouchableOpacity
               style={[

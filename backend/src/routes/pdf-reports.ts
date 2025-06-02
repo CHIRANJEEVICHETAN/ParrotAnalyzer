@@ -36,11 +36,38 @@ async function getCompanyDetails(client: PoolClient, userId: string) {
   };
 }
 
+// Helper function to process date filters
+const processDateFilters = (
+  startDateParam?: string, 
+  endDateParam?: string
+): { startDate: Date, endDate: Date } => {
+  const startDate = startDateParam ? new Date(startDateParam) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default to 30 days ago
+  const endDate = endDateParam ? new Date(endDateParam) : new Date(); // Default to today
+  
+  // Validate the dates to ensure they are valid Date objects
+  if (isNaN(startDate.getTime())) {
+    console.warn(`Invalid start date provided: ${startDateParam}, using default`);
+    startDate.setTime(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  }
+  
+  if (isNaN(endDate.getTime())) {
+    console.warn(`Invalid end date provided: ${endDateParam}, using default`);
+    endDate.setTime(Date.now());
+  }
+  
+  // Make sure to include the entire end date (to 23:59:59)
+  endDate.setHours(23, 59, 59, 999);
+  
+  return { startDate, endDate };
+};
+
 // Get PDF data for specific report type
 router.get('/:type', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
   try {
     const { type } = req.params;
+    const { startDate: startDateParam, endDate: endDateParam, employeeId, department } = req.query;
+    
     if (!req.user?.id) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -59,60 +86,142 @@ router.get('/:type', verifyToken, async (req: CustomRequest, res: Response) => {
     // Get company details
     const companyInfo = await getCompanyDetails(client, adminId.toString());
 
+    // Validate filter parameters
+    const filterOptions: FilterOptions = {};
+    if (startDateParam) filterOptions.startDate = startDateParam as string;
+    if (endDateParam) filterOptions.endDate = endDateParam as string;
+    if (employeeId && employeeId !== 'undefined' && employeeId !== 'null') filterOptions.employeeId = employeeId as string;
+    if (department && department !== 'undefined' && department !== 'null') filterOptions.department = department as string;
+
     let data;
-    switch (type) {
-      case 'expense':
-        data = await getExpenseReportData(client, adminId.toString());
-        break;
-      case 'attendance':
-        data = await getAttendanceReportData(client, adminId.toString());
-        break;
-      case 'task':
-        data = await getTaskReportData(client, adminId.toString());
-        break;
-      case 'travel':
-        data = await getTravelReportData(client, adminId.toString());
-        break;
-      case 'performance':
-        data = await getPerformanceReportData(client, adminId.toString());
-        break;
-      case 'leave':
-        data = await getLeaveReportData(client, adminId.toString());
-        break;
-      default:
-        return res.status(400).json({ error: 'Invalid report type' });
+    try {
+      switch (type) {
+        case 'expense':
+          data = await getExpenseReportData(client, adminId.toString(), filterOptions);
+          break;
+        case 'attendance':
+          data = await getAttendanceReportData(client, adminId.toString(), filterOptions);
+          break;
+        case 'task':
+          data = await getTaskReportData(client, adminId.toString(), filterOptions);
+          break;
+        case 'travel':
+          data = await getTravelReportData(client, adminId.toString(), filterOptions);
+          break;
+        case 'performance':
+          data = await getPerformanceReportData(client, adminId.toString(), filterOptions);
+          break;
+        case 'leave':
+          data = await getLeaveReportData(client, adminId.toString(), filterOptions);
+          break;
+        default:
+          return res.status(400).json({ error: 'Invalid report type' });
+      }
+    } catch (error: any) {
+      console.error(`Error fetching ${type} report data:`, error);
+      // Return a user-friendly error
+      return res.status(500).json({ 
+        error: `Failed to generate ${type} report`, 
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          code: error.code,
+          hint: error.hint
+        } : undefined
+      });
     }
 
     // Add both company info and admin name to the response
     res.json({
       ...data,
       companyInfo,
-      adminName
+      adminName,
+      filterOptions // Include the filters used in the response
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching PDF report data:', error);
-    res.status(500).json({ error: 'Failed to fetch report data' });
+    res.status(500).json({ 
+      error: 'Failed to fetch report data',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   } finally {
     client.release();
   }
 });
 
-async function getExpenseReportData(client: PoolClient, adminId: string) {
-  // Get summary data
+interface FilterOptions {
+  startDate?: string;
+  endDate?: string;
+  employeeId?: string;
+  department?: string;
+}
+
+// Add this interface before the getAttendanceReportData function
+interface ShiftDetail {
+  employeeName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  duration: number;
+  distance: number;
+  expenses: number;
+  status: string;
+}
+
+async function getExpenseReportData(client: PoolClient, adminId: string, filters: FilterOptions = {}) {
+  const { startDate, endDate } = processDateFilters(filters.startDate, filters.endDate);
+  
+  // Prepare filter conditions
+  let employeeFilter = '';
+  let departmentFilter = '';
+  let params: any[] = [adminId];
+  let paramIndex = 2; // Start with $2 since $1 is adminId
+  
+  if (filters.employeeId) {
+    employeeFilter = `AND e.user_id = $${paramIndex++}`;
+    params.push(parseInt(filters.employeeId));
+  }
+  
+  if (filters.department) {
+    departmentFilter = `AND u.department = $${paramIndex++}`;
+    params.push(filters.department);
+  }
+  
+  // Add date parameters
+  params.push(startDate, endDate);
+  const dateParamIndex = paramIndex;
+  
+  // Get summary data with filters
   const summaryResult = await client.query(`
     SELECT 
       COUNT(*) as total_claims,
-      SUM(total_amount) as total_expenses,
-      AVG(total_amount) as average_expense,
-      COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+      SUM(e.total_amount) as total_expenses,
+      AVG(e.total_amount) as average_expense,
+      COUNT(CASE WHEN e.status = 'pending' THEN 1 END) as pending_count,
       ROUND(
-        (COUNT(CASE WHEN status = 'approved' THEN 1 END)::float * 100 / 
+        (COUNT(CASE WHEN e.status = 'approved' THEN 1 END)::float * 100 / 
         NULLIF(COUNT(*), 0))::numeric,
         1
       ) as approval_rate
-    FROM expenses
-    WHERE group_admin_id = $1
-    AND created_at >= CURRENT_DATE - INTERVAL '30 days'`,
+    FROM expenses e
+    JOIN users u ON e.user_id = u.id
+    WHERE e.group_admin_id = $1
+    ${employeeFilter}
+    ${departmentFilter}
+    AND e.created_at >= $${dateParamIndex} AND e.created_at <= $${dateParamIndex + 1}`,
+    params
+  );
+
+  // Include employees data for filters
+  const employeesResult = await client.query(`
+    SELECT 
+      u.id,
+      u.name,
+      u.employee_number,
+      u.department
+    FROM users u
+    WHERE u.group_admin_id = $1
+    AND u.role = 'employee'
+    ORDER BY u.name`,
     [adminId]
   );
 
@@ -122,47 +231,62 @@ async function getExpenseReportData(client: PoolClient, adminId: string) {
       category,
       SUM(amount) as amount
     FROM (
-      SELECT 'Lodging' as category, lodging_expenses as amount
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND lodging_expenses > 0
+      SELECT 'Lodging' as category, e.lodging_expenses as amount
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1 
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.created_at >= $${dateParamIndex} AND e.created_at <= $${dateParamIndex + 1}
+      AND e.lodging_expenses > 0
       
       UNION ALL
       
-      SELECT 'Daily Allowance', daily_allowance
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND daily_allowance > 0
+      SELECT 'Daily Allowance', e.daily_allowance
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1 
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.created_at >= $${dateParamIndex} AND e.created_at <= $${dateParamIndex + 1}
+      AND e.daily_allowance > 0
       
       UNION ALL
       
-      SELECT 'Fuel', diesel
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND diesel > 0
+      SELECT 'Fuel', e.diesel
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1 
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.created_at >= $${dateParamIndex} AND e.created_at <= $${dateParamIndex + 1}
+      AND e.diesel > 0
       
       UNION ALL
       
-      SELECT 'Toll', toll_charges
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND toll_charges > 0
+      SELECT 'Toll', e.toll_charges
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1 
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.created_at >= $${dateParamIndex} AND e.created_at <= $${dateParamIndex + 1}
+      AND e.toll_charges > 0
       
       UNION ALL
       
-      SELECT 'Other', other_expenses
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND other_expenses > 0
+      SELECT 'Other', e.other_expenses
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1 
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.created_at >= $${dateParamIndex} AND e.created_at <= $${dateParamIndex + 1}
+      AND e.other_expenses > 0
     ) as expense_categories
     GROUP BY category
     ORDER BY amount DESC`,
-    [adminId]
+    params
   );
 
   // Get recent expenses
@@ -183,8 +307,11 @@ async function getExpenseReportData(client: PoolClient, adminId: string) {
     FROM expenses e
     JOIN users u ON e.user_id = u.id
     WHERE e.group_admin_id = $1
+    ${employeeFilter}
+    ${departmentFilter}
+    AND e.created_at >= $${dateParamIndex} AND e.created_at <= $${dateParamIndex + 1}
     ORDER BY e.date DESC`,
-    [adminId]
+    params
   );
 
   // Calculate total for percentages
@@ -209,11 +336,35 @@ async function getExpenseReportData(client: PoolClient, adminId: string) {
       status: row.status,
       category: row.category,
       description: row.comments || ''
-    }))
+    })),
+    employees: employeesResult.rows,
+    departments: [...new Set(employeesResult.rows.map(emp => emp.department).filter(Boolean))]
   };
 }
 
-async function getAttendanceReportData(client: PoolClient, adminId: string) {
+async function getAttendanceReportData(client: PoolClient, adminId: string, filters: FilterOptions = {}) {
+  const { startDate, endDate } = processDateFilters(filters.startDate, filters.endDate);
+  
+  // Prepare filter conditions
+  let employeeFilter = '';
+  let departmentFilter = '';
+  let params: any[] = [adminId];
+  let paramIndex = 2; // Start with $2 since $1 is adminId
+  
+  if (filters.employeeId) {
+    employeeFilter = `AND es.user_id = $${paramIndex++}`;
+    params.push(parseInt(filters.employeeId));
+  }
+  
+  if (filters.department) {
+    departmentFilter = `AND u.department = $${paramIndex++}`;
+    params.push(filters.department);
+  }
+
+  // Add date parameters
+  params.push(startDate, endDate);
+  const dateParamIndex = paramIndex;
+
   // Get summary data
   const summaryResult = await client.query(`
     WITH employee_stats AS (
@@ -221,22 +372,53 @@ async function getAttendanceReportData(client: PoolClient, adminId: string) {
         COUNT(DISTINCT es.user_id) as total_employees,
         AVG(EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600) as avg_hours,
         SUM(e.total_kilometers) as total_distance,
+        SUM(e.total_amount) as total_expenses,
         COUNT(CASE 
           WHEN EXTRACT(HOUR FROM es.start_time) <= 9 THEN 1 
-        END)::float / NULLIF(COUNT(*), 0) * 100 as on_time_rate
+        END)::float / NULLIF(COUNT(*), 0) * 100 as on_time_rate,
+        COUNT(CASE WHEN es.status = 'completed' THEN 1 END) as completed_shifts,
+        COUNT(CASE WHEN es.status = 'active' THEN 1 END) as active_shifts,
+        SUM(EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600) as total_hours
       FROM employee_shifts es
       JOIN users u ON es.user_id = u.id
       LEFT JOIN expenses e ON e.user_id = es.user_id 
         AND DATE(e.date) = DATE(es.start_time)
       WHERE u.group_admin_id = $1
-      AND DATE(es.start_time) >= CURRENT_DATE - INTERVAL '30 days'
+      ${employeeFilter}
+      ${departmentFilter}
+      AND DATE(es.start_time) >= $${dateParamIndex}::date 
+      AND DATE(es.start_time) <= $${dateParamIndex + 1}::date
     )
     SELECT 
       total_employees,
       ROUND(avg_hours::numeric, 1) as avg_working_hours,
       ROUND(on_time_rate::numeric, 1) as on_time_rate,
-      ROUND(total_distance::numeric, 1) as total_distance
+      ROUND(total_distance::numeric, 1) as total_distance,
+      ROUND(total_expenses::numeric, 1) as total_expenses,
+      completed_shifts,
+      active_shifts,
+      ROUND(total_hours::numeric, 1) as total_working_hours
     FROM employee_stats`,
+    params.map((param, i) => {
+      if (i >= dateParamIndex - 1 && param instanceof Date) {
+        return param.toISOString().split('T')[0];
+      }
+      return param;
+    })
+  );
+  
+  // Include employees data for filters
+  const employeesResult = await client.query(`
+    SELECT 
+      u.id,
+      u.name,
+      u.employee_number,
+      u.department,
+      u.role
+    FROM users u
+    WHERE u.group_admin_id = $1
+    AND (u.role = 'employee' OR u.id = $1)
+    ORDER BY u.name`,
     [adminId]
   );
 
@@ -249,102 +431,225 @@ async function getAttendanceReportData(client: PoolClient, adminId: string) {
         WHEN EXTRACT(HOUR FROM es.start_time) <= 9 THEN 1 
       END) as on_time_count,
       ROUND(AVG(EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600)::numeric, 1) as total_hours,
-      COALESCE(SUM(e.total_kilometers), 0) as total_distance
+      COALESCE(SUM(e.total_kilometers), 0) as total_distance,
+      COALESCE(SUM(e.total_amount), 0) as total_expenses,
+      COUNT(CASE WHEN es.status = 'completed' THEN 1 END) as completed_shifts,
+      COUNT(CASE WHEN es.status = 'active' THEN 1 END) as incomplete_shifts
     FROM employee_shifts es
     JOIN users u ON es.user_id = u.id
     LEFT JOIN expenses e ON e.user_id = es.user_id 
       AND DATE(e.date) = DATE(es.start_time)
     WHERE u.group_admin_id = $1
-    AND DATE(es.start_time) >= CURRENT_DATE - INTERVAL '30 days'
+    ${employeeFilter}
+    ${departmentFilter}
+    AND DATE(es.start_time) >= $${dateParamIndex}::date
+    AND DATE(es.start_time) <= $${dateParamIndex + 1}::date
     GROUP BY DATE(es.start_time)
     ORDER BY date DESC`,
-    [adminId]
+    params.map((param, i) => {
+      if (i >= dateParamIndex - 1 && param instanceof Date) {
+        return param.toISOString().split('T')[0];
+      }
+      return param;
+    })
   );
 
   // Get employee statistics
+  const employeeStatsParams: any[] = [adminId];
+  let empStatsParamIndex = 2;
+  
+  // For employee stats query, we need to handle the employeeId parameter differently
+  let empIdFilter = '';
+  if (filters.employeeId) {
+    empIdFilter = `AND u.id = $${empStatsParamIndex++}::integer`;
+    employeeStatsParams.push(parseInt(filters.employeeId));
+  } else {
+    // Remove the NULL parameter check since it's causing problems
+    empIdFilter = '';
+  }
+  
+  // Add department filter if needed
+  if (filters.department) {
+    departmentFilter = `AND u.department = $${empStatsParamIndex++}`;
+    employeeStatsParams.push(filters.department);
+  }
+  
+  // Add date parameters
+  employeeStatsParams.push(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
+  const empDateParamIndex = empStatsParamIndex;
+
   const employeeStatsResult = await client.query(`
     SELECT 
+      u.id,
       u.name as employee_name,
+      u.role,
+      u.department,
       COUNT(DISTINCT DATE(es.start_time)) as days_present,
       ROUND(AVG(EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600)::numeric, 1) as avg_hours,
       ROUND((COUNT(CASE 
         WHEN EXTRACT(HOUR FROM es.start_time) <= 9 THEN 1 
       END)::float / NULLIF(COUNT(*), 0) * 100)::numeric, 1) as on_time_percentage,
       COALESCE(SUM(e.total_kilometers), 0) as total_distance,
-      COALESCE(SUM(e.total_amount), 0) as total_expenses
+      COALESCE(SUM(e.total_amount), 0) as total_expenses,
+      COUNT(CASE WHEN es.status = 'completed' THEN 1 END) as completed_shifts,
+      COUNT(CASE WHEN es.status = 'active' THEN 1 END) as active_shifts,
+      COUNT(CASE WHEN es.status != 'completed' AND es.status != 'active' THEN 1 END) as incomplete_shifts
     FROM users u
     LEFT JOIN employee_shifts es ON u.id = es.user_id
-      AND DATE(es.start_time) >= CURRENT_DATE - INTERVAL '30 days'
+      AND DATE(es.start_time) >= $${empDateParamIndex}::date
+      AND DATE(es.start_time) <= $${empDateParamIndex + 1}::date
     LEFT JOIN expenses e ON e.user_id = u.id 
       AND DATE(e.date) = DATE(es.start_time)
     WHERE u.group_admin_id = $1
+    ${departmentFilter}
+    ${empIdFilter}
     AND u.role = 'employee'
-    GROUP BY u.id, u.name
+    GROUP BY u.id, u.name, u.role, u.department
     ORDER BY days_present DESC`,
-    [adminId]
+    employeeStatsParams.map(param => {
+      if (param instanceof Date) {
+        return param.toISOString().split('T')[0];
+      }
+      return param;
+    })
   );
+  
+  // If a specific employee is selected, get their detailed shift data
+  let shiftDetails: ShiftDetail[] = [];
+  if (filters.employeeId) {
+    const shiftDetailsResult = await client.query(`
+      SELECT 
+        u.name as employee_name,
+        DATE(es.start_time) as date,
+        to_char(es.start_time, 'HH12:MI AM') as start_time,
+        to_char(es.end_time, 'HH12:MI AM') as end_time,
+        CASE 
+          WHEN es.end_time IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600 
+          ELSE 0 
+        END as duration,
+        COALESCE(e.total_kilometers, 0) as distance,
+        COALESCE(e.total_amount, 0) as expenses,
+        es.status
+      FROM employee_shifts es
+      JOIN users u ON es.user_id = u.id
+      LEFT JOIN expenses e ON e.shift_id = es.id
+      WHERE es.user_id = $2::integer
+      AND DATE(es.start_time) >= $3::date
+      AND DATE(es.start_time) <= $4::date
+      ORDER BY es.start_time DESC`,
+      [adminId, parseInt(filters.employeeId), startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]
+    );
+    
+    shiftDetails = shiftDetailsResult.rows.map(row => ({
+      employeeName: row.employee_name,
+      date: new Date(row.date).toLocaleDateString(),
+      startTime: row.start_time,
+      endTime: row.end_time || 'N/A',
+      duration: parseFloat(row.duration || '0'),
+      distance: parseFloat(row.distance || '0'),
+      expenses: parseFloat(row.expenses || '0'),
+      status: row.status
+    }));
+  }
+
+  const summaryData = summaryResult.rows[0] || {};
 
   return {
     summary: {
-      totalEmployees: parseInt(summaryResult.rows[0]?.total_employees || '0'),
-      avgWorkingHours: parseFloat(summaryResult.rows[0]?.avg_working_hours || '0'),
-      onTimeRate: parseFloat(summaryResult.rows[0]?.on_time_rate || '0'),
-      totalDistance: parseFloat(summaryResult.rows[0]?.total_distance || '0')
+      totalEmployees: parseInt(summaryData.total_employees || '0'),
+      avgWorkingHours: parseFloat(summaryData.avg_working_hours || '0'),
+      onTimeRate: parseFloat(summaryData.on_time_rate || '0'),
+      totalDistance: parseFloat(summaryData.total_distance || '0'),
+      totalExpenses: parseFloat(summaryData.total_expenses || '0'),
+      completedShifts: parseInt(summaryData.completed_shifts || '0'),
+      activeShifts: parseInt(summaryData.active_shifts || '0'),
+      totalWorkingHours: parseFloat(summaryData.total_working_hours || '0')
     },
     dailyStats: dailyStatsResult.rows.map(row => ({
       date: new Date(row.date).toLocaleDateString(),
       presentCount: parseInt(row.present_count || '0'),
       onTimeCount: parseInt(row.on_time_count || '0'),
       totalHours: parseFloat(row.total_hours || '0'),
-      totalDistance: parseFloat(row.total_distance || '0')
+      totalDistance: parseFloat(row.total_distance || '0'),
+      totalExpenses: parseFloat(row.total_expenses || '0'),
+      completedShifts: parseInt(row.completed_shifts || '0'),
+      incompleteShifts: parseInt(row.incomplete_shifts || '0')
     })),
     employeeStats: employeeStatsResult.rows.map(row => ({
+      id: row.id,
       employeeName: row.employee_name,
+      role: row.role || 'Employee',
+      department: row.department || 'N/A',
       daysPresent: parseInt(row.days_present || '0'),
       avgHours: parseFloat(row.avg_hours || '0'),
       onTimePercentage: parseFloat(row.on_time_percentage || '0'),
       totalDistance: parseFloat(row.total_distance || '0'),
-      totalExpenses: parseFloat(row.total_expenses || '0')
-    }))
+      totalExpenses: parseFloat(row.total_expenses || '0'),
+      shiftStatus: {
+        completed: parseInt(row.completed_shifts || '0'),
+        active: parseInt(row.active_shifts || '0'),
+        incomplete: parseInt(row.incomplete_shifts || '0')
+      }
+    })),
+    employees: employeesResult.rows,
+    departments: [...new Set(employeesResult.rows.map(emp => emp.department).filter(Boolean))],
+    shiftDetails: shiftDetails
   };
 }
 
-async function getTaskReportData(client: PoolClient, adminId: string) {
-  // Get company details first
-  const companyResult = await client.query(`
-    SELECT 
-      c.name,
-      encode(c.logo, 'base64') as logo,
-      c.address,
-      c.phone as contact
-    FROM companies c
-    JOIN users u ON u.company_id = c.id
-    WHERE u.id = $1`,
-    [adminId]
-  );
-
-  const companyInfo = companyResult.rows[0] || {
-    name: '',
-    logo: '',
-    address: '',
-    contact: ''
-  };
-
-  // Get summary data
+async function getTaskReportData(client: PoolClient, adminId: string, filters: FilterOptions = {}) {
+  const { startDate, endDate } = processDateFilters(filters.startDate, filters.endDate);
+  
+  // Prepare filter conditions
+  let employeeFilter = '';
+  let departmentFilter = '';
+  let params: any[] = [adminId];
+  let paramIndex = 2; // Start with $2 since $1 is adminId
+  
+  if (filters.employeeId) {
+    employeeFilter = `AND et.assigned_to = $${paramIndex++}`;
+    params.push(parseInt(filters.employeeId));
+  }
+  
+  if (filters.department) {
+    departmentFilter = `AND u.department = $${paramIndex++}`;
+    params.push(filters.department);
+  }
+  
+  // Add date parameters
+  params.push(startDate, endDate);
+  const dateParamIndex = paramIndex;
+  
+  // Prepare parameters with proper date formatting
+  const formattedParams = params.map((param, i) => {
+    if (i >= dateParamIndex - 1 && param instanceof Date) {
+      return param.toISOString().split('T')[0];
+    }
+    return param;
+  });
+  
+  // Get task summary
   const summaryResult = await client.query(`
     WITH task_stats AS (
       SELECT 
         COUNT(*) as total_tasks,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks,
-        COUNT(CASE WHEN due_date < CURRENT_DATE AND status != 'completed' THEN 1 END) as overdue_tasks,
-        AVG(EXTRACT(EPOCH FROM (
-          CASE WHEN status = 'completed' 
-          THEN updated_at - created_at 
+        COUNT(CASE WHEN et.status = 'completed' THEN 1 END) as completed_tasks,
+        COUNT(CASE 
+          WHEN et.due_date < CURRENT_TIMESTAMP AND et.status != 'completed' 
+          THEN 1 END) as overdue_tasks,
+        AVG(
+          CASE WHEN et.status = 'completed' AND et.last_status_update IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (et.last_status_update - et.created_at))/3600 
           END
-        ))/3600) as avg_completion_time
-      FROM employee_tasks
-      WHERE assigned_by = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        ) as avg_completion_time
+      FROM employee_tasks et
+      JOIN users u ON et.assigned_to = u.id
+      WHERE et.assigned_by = $1
+      ${employeeFilter}
+      ${departmentFilter}
+      AND et.created_at >= $${dateParamIndex}::date
+      AND et.created_at <= $${dateParamIndex + 1}::date
     )
     SELECT 
       total_tasks,
@@ -353,622 +658,348 @@ async function getTaskReportData(client: PoolClient, adminId: string) {
       ROUND(avg_completion_time::numeric, 1) as avg_completion_time,
       ROUND((completed_tasks::float * 100 / NULLIF(total_tasks, 0))::numeric, 1) as completion_rate
     FROM task_stats`,
-    [adminId]
+    formattedParams
   );
 
-  // Get status breakdown
-  const statusResult = await client.query(`
-    SELECT 
-      status,
-      COUNT(*) as count
-    FROM employee_tasks
-    WHERE assigned_by = $1
-    AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-    GROUP BY status`,
-    [adminId]
-  );
-
-  // Get priority breakdown
-  const priorityResult = await client.query(`
-    SELECT 
-      priority,
-      COUNT(*) as count
-    FROM employee_tasks
-    WHERE assigned_by = $1
-    AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-    GROUP BY priority`,
-    [adminId]
-  );
-
-  // Get employee performance
-  const employeeResult = await client.query(`
-    SELECT 
-      u.name as employee_name,
-      COUNT(*) as total_tasks,
-      COUNT(CASE WHEN t.status = 'completed' THEN 1 END) as completed_tasks,
-      ROUND((COUNT(CASE WHEN t.status = 'completed' AND t.updated_at <= t.due_date THEN 1 END)::float * 100 / 
-        NULLIF(COUNT(CASE WHEN t.status = 'completed' THEN 1 END), 0))::numeric, 1) as on_time_completion,
-      ROUND(AVG(EXTRACT(EPOCH FROM (
-        CASE WHEN t.status = 'completed' 
-        THEN t.updated_at - t.created_at 
-        END
-      ))/3600)::numeric, 1) as avg_completion_time
-    FROM employee_tasks t
-    JOIN users u ON t.assigned_to = u.id
-    WHERE t.assigned_by = $1
-    AND t.created_at >= CURRENT_DATE - INTERVAL '30 days'
-    GROUP BY u.id, u.name
-    ORDER BY total_tasks DESC`,
-    [adminId]
-  );
-
-  // Calculate percentages for breakdowns
-  const totalTasks = parseInt(summaryResult.rows[0].total_tasks);
-  
   return {
     summary: {
       totalTasks: parseInt(summaryResult.rows[0]?.total_tasks || '0'),
       completedTasks: parseInt(summaryResult.rows[0]?.completed_tasks || '0'),
-      completionRate: parseFloat(summaryResult.rows[0]?.completion_rate || '0'),
       overdueTasks: parseInt(summaryResult.rows[0]?.overdue_tasks || '0'),
-      avgCompletionTime: summaryResult.rows[0]?.avg_completion_time !== null 
-        ? parseFloat(summaryResult.rows[0].avg_completion_time) 
-        : 0
-    },
-    statusBreakdown: statusResult.rows.map(row => ({
-      status: row.status || 'Unknown',
-      count: parseInt(row.count || '0'),
-      percentage: totalTasks > 0 
-        ? ((parseInt(row.count || '0') / totalTasks) * 100).toFixed(1)
-        : '0.0'
-    })),
-    priorityBreakdown: priorityResult.rows.map(row => ({
-      priority: row.priority || 'Unknown',
-      count: parseInt(row.count || '0'),
-      percentage: totalTasks > 0 
-        ? ((parseInt(row.count || '0') / totalTasks) * 100).toFixed(1)
-        : '0.0'
-    })),
-    employeePerformance: employeeResult.rows.map(row => ({
-      employeeName: row.employee_name || 'Unknown',
-      totalTasks: parseInt(row.total_tasks || '0'),
-      completedTasks: parseInt(row.completed_tasks || '0'),
-      onTimeCompletion: parseFloat(row.on_time_completion || '0'),
-      avgCompletionTime: row.avg_completion_time !== null 
-        ? parseFloat(row.avg_completion_time) 
-        : 0
-    })),
-    companyInfo: {
-      name: companyInfo.name || '',
-      logo: companyInfo.logo || '',
-      address: companyInfo.address || '',
-      contact: companyInfo.contact || ''
+      avgCompletionTime: parseFloat(summaryResult.rows[0]?.avg_completion_time || '0'),
+      completionRate: parseFloat(summaryResult.rows[0]?.completion_rate || '0')
     }
   };
 }
 
-async function getTravelReportData(client: PoolClient, adminId: string) {
-  // Get summary data
+async function getTravelReportData(client: PoolClient, adminId: string, filters: FilterOptions = {}) {
+  const { startDate, endDate } = processDateFilters(filters.startDate, filters.endDate);
+  
+  // Prepare filter conditions
+  let employeeFilter = '';
+  let departmentFilter = '';
+  let params: any[] = [adminId];
+  let paramIndex = 2; // Start with $2 since $1 is adminId
+  
+  if (filters.employeeId) {
+    employeeFilter = `AND e.user_id = $${paramIndex++}`;
+    params.push(parseInt(filters.employeeId));
+  }
+  
+  if (filters.department) {
+    departmentFilter = `AND u.department = $${paramIndex++}`;
+    params.push(filters.department);
+  }
+  
+  // Add date parameters
+  params.push(startDate, endDate);
+  const dateParamIndex = paramIndex;
+
+  // Get travel metrics
   const summaryResult = await client.query(`
     SELECT 
+      COUNT(DISTINCT e.user_id) as total_travelers,
       COUNT(*) as total_trips,
-      COUNT(DISTINCT user_id) as total_travelers,
-      SUM(total_kilometers) as total_distance,
-      SUM(total_amount) as total_expenses,
-      ROUND(AVG(total_amount)::numeric, 2) as avg_trip_cost
-    FROM expenses
-    WHERE group_admin_id = $1
-    AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-    AND total_kilometers > 0`,
-    [adminId]
+      ROUND(SUM(e.total_kilometers)::numeric, 2) as total_distance,
+      ROUND(SUM(e.total_amount)::numeric, 2) as total_expenses,
+      ROUND(AVG(e.total_amount)::numeric, 2) as avg_trip_cost
+    FROM expenses e
+    JOIN users u ON e.user_id = u.id
+    WHERE e.group_admin_id = $1
+    ${employeeFilter}
+    ${departmentFilter}
+    AND e.date >= $${dateParamIndex}::date
+    AND e.date <= $${dateParamIndex + 1}::date`,
+    params.map((param, i) => {
+      if (i >= dateParamIndex - 1 && param instanceof Date) {
+        return param.toISOString().split('T')[0];
+      }
+      return param;
+    })
   );
 
-  // Get expense breakdown by category
-  const expenseBreakdown = await client.query(`
+  // Get expense distribution by category
+  const categoryResult = await client.query(`
+    WITH expense_categories AS (
+      SELECT 
+        'Lodging' as category, SUM(e.lodging_expenses) as amount
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.date >= $${dateParamIndex}::date
+      AND e.date <= $${dateParamIndex + 1}::date
+      GROUP BY category
+      
+      UNION ALL
+      
+      SELECT 
+        'Daily Allowance' as category, SUM(e.daily_allowance) as amount
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.date >= $${dateParamIndex}::date
+      AND e.date <= $${dateParamIndex + 1}::date
+      GROUP BY category
+      
+      UNION ALL
+      
+      SELECT 
+        'Fuel' as category, SUM(e.diesel) as amount
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.date >= $${dateParamIndex}::date
+      AND e.date <= $${dateParamIndex + 1}::date
+      GROUP BY category
+      
+      UNION ALL
+      
+      SELECT 
+        'Toll' as category, SUM(e.toll_charges) as amount
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.date >= $${dateParamIndex}::date
+      AND e.date <= $${dateParamIndex + 1}::date
+      GROUP BY category
+      
+      UNION ALL
+      
+      SELECT 
+        'Other' as category, SUM(e.other_expenses) as amount
+      FROM expenses e
+      JOIN users u ON e.user_id = u.id
+      WHERE e.group_admin_id = $1
+      ${employeeFilter}
+      ${departmentFilter}
+      AND e.date >= $${dateParamIndex}::date
+      AND e.date <= $${dateParamIndex + 1}::date
+      GROUP BY category
+    )
     SELECT 
-      category_name,
-      SUM(amount) as amount
-    FROM (
-      SELECT 'Lodging' as category_name, lodging_expenses as amount
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND lodging_expenses > 0
-      
-      UNION ALL
-      
-      SELECT 'Daily Allowance', daily_allowance
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND daily_allowance > 0
-      
-      UNION ALL
-      
-      SELECT 'Fuel', diesel
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND diesel > 0
-      
-      UNION ALL
-      
-      SELECT 'Toll', toll_charges
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND toll_charges > 0
-      
-      UNION ALL
-      
-      SELECT 'Other', other_expenses
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-      AND other_expenses > 0
-    ) as expense_categories
-    GROUP BY category_name
+      category,
+      COALESCE(amount, 0) as amount
+    FROM expense_categories
+    WHERE amount > 0
     ORDER BY amount DESC`,
-    [adminId]
-  );
-
-  // Get vehicle statistics
-  const vehicleStats = await client.query(`
-    SELECT 
-      vehicle_type,
-      COUNT(*) as trip_count,
-      SUM(total_kilometers) as total_distance,
-      SUM(total_amount) as total_expenses
-    FROM expenses
-    WHERE group_admin_id = $1
-    AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-    AND vehicle_type IS NOT NULL
-    GROUP BY vehicle_type
-    ORDER BY trip_count DESC`,
-    [adminId]
-  );
-
-  // Get employee travel statistics
-  const employeeStats = await client.query(`
-    SELECT 
-      u.name as employee_name,
-      COUNT(*) as trip_count,
-      SUM(e.total_kilometers) as total_distance,
-      SUM(e.total_amount) as total_expenses,
-      ROUND(AVG(e.total_amount)::numeric, 2) as avg_expense_per_trip
-    FROM expenses e
-    JOIN users u ON e.user_id = u.id
-    WHERE e.group_admin_id = $1
-    AND e.created_at >= CURRENT_DATE - INTERVAL '30 days'
-    AND e.total_kilometers > 0
-    GROUP BY u.id, u.name
-    ORDER BY trip_count DESC`,
-    [adminId]
-  );
-
-  // Get recent trips
-  const recentTrips = await client.query(`
-    SELECT 
-      u.name as employee_name,
-      e.date,
-      e.route_taken as route,
-      e.total_kilometers as distance,
-      e.total_amount as expenses
-    FROM expenses e
-    JOIN users u ON e.user_id = u.id
-    WHERE e.group_admin_id = $1
-    AND e.total_kilometers > 0
-    ORDER BY e.date DESC
-    LIMIT 10`,
-    [adminId]
+    params.map((param, i) => {
+      if (i >= dateParamIndex - 1 && param instanceof Date) {
+        return param.toISOString().split('T')[0];
+      }
+      return param;
+    })
   );
 
   // Calculate total expenses for percentages
-  const totalExpenses = parseFloat(summaryResult.rows[0]?.total_expenses || '0');
+  const total = categoryResult.rows.reduce((sum, row) => sum + parseFloat(row.amount), 0);
 
+  // Return formatted data
   return {
     summary: {
+      totalTravelers: parseInt(summaryResult.rows[0]?.total_travelers || '0'),
       totalTrips: parseInt(summaryResult.rows[0]?.total_trips || '0'),
       totalDistance: parseFloat(summaryResult.rows[0]?.total_distance || '0'),
       totalExpenses: parseFloat(summaryResult.rows[0]?.total_expenses || '0'),
-      avgTripCost: parseFloat(summaryResult.rows[0]?.avg_trip_cost || '0'),
-      totalTravelers: parseInt(summaryResult.rows[0]?.total_travelers || '0')
+      avgTripCost: parseFloat(summaryResult.rows[0]?.avg_trip_cost || '0')
     },
-    expenseBreakdown: expenseBreakdown.rows.map(row => ({
-      category: row.category_name,
-      amount: parseFloat(row.amount || '0'),
-      percentage: totalExpenses ? ((parseFloat(row.amount) / totalExpenses) * 100).toFixed(1) : '0'
-    })),
-    vehicleStats: vehicleStats.rows.map(row => ({
-      vehicleType: row.vehicle_type || 'Unknown',
-      tripCount: parseInt(row.trip_count || '0'),
-      totalDistance: parseFloat(row.total_distance || '0'),
-      totalExpenses: parseFloat(row.total_expenses || '0')
-    })),
-    employeeStats: employeeStats.rows.map(row => ({
-      employeeName: row.employee_name,
-      tripCount: parseInt(row.trip_count || '0'),
-      totalDistance: parseFloat(row.total_distance || '0'),
-      totalExpenses: parseFloat(row.total_expenses || '0'),
-      avgExpensePerTrip: parseFloat(row.avg_expense_per_trip || '0')
-    })),
-    recentTrips: recentTrips.rows.map(row => ({
-      employeeName: row.employee_name,
-      date: new Date(row.date).toLocaleDateString(),
-      route: row.route || 'N/A',
-      distance: parseFloat(row.distance || '0'),
-      expenses: parseFloat(row.expenses || '0')
+    categories: categoryResult.rows.map(row => ({
+      category: row.category,
+      amount: parseFloat(row.amount),
+      percentage: total > 0 ? ((parseFloat(row.amount) / total) * 100).toFixed(1) : '0'
     }))
   };
 }
 
-async function getPerformanceReportData(client: PoolClient, adminId: string) {
-  // Get summary metrics
+async function getPerformanceReportData(client: PoolClient, adminId: string, filters: FilterOptions = {}) {
+  const { startDate, endDate } = processDateFilters(filters.startDate, filters.endDate);
+  
+  // Prepare filter conditions
+  let employeeFilter = '';
+  let departmentFilter = '';
+  let params: any[] = [adminId];
+  let paramIndex = 2; // Start with $2 since $1 is adminId
+  
+  if (filters.employeeId) {
+    employeeFilter = `AND u.id = $${paramIndex++}`;
+    params.push(parseInt(filters.employeeId));
+  }
+  
+  if (filters.department) {
+    departmentFilter = `AND u.department = $${paramIndex++}`;
+    params.push(filters.department);
+  }
+  
+  // Add date parameters
+  params.push(startDate, endDate);
+  const dateParamIndex = paramIndex;
+
+  // Get performance metrics
   const summaryResult = await client.query(`
-    WITH metrics AS (
+    WITH employee_metrics AS (
       SELECT 
         COUNT(DISTINCT u.id) as total_employees,
-        -- Attendance metrics
-        ROUND(AVG(
-          CASE WHEN es.end_time IS NOT NULL AND es.start_time IS NOT NULL 
+        COUNT(DISTINCT es.user_id) as active_employees,
+        AVG(
+          CASE WHEN es.status = 'completed' 
           THEN EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600 
           END
-        )::numeric, 1) as avg_working_hours,
-        -- Task metrics
-        ROUND((COUNT(CASE WHEN t.status = 'completed' THEN 1 END)::float * 100 / 
-          NULLIF(COUNT(t.id), 0))::numeric, 1) as task_completion_rate,
-        -- Expense metrics
-        ROUND((COUNT(CASE WHEN e.status = 'approved' THEN 1 END)::float * 100 / 
-          NULLIF(COUNT(e.id), 0))::numeric, 1) as expense_approval_rate
+        ) as avg_working_hours
       FROM users u
-      LEFT JOIN employee_shifts es ON u.id = es.user_id
-        AND es.start_time >= CURRENT_DATE - INTERVAL '30 days'
-      LEFT JOIN employee_tasks t ON u.id = t.assigned_to
-        AND t.created_at >= CURRENT_DATE - INTERVAL '30 days'
-      LEFT JOIN expenses e ON u.id = e.user_id
-        AND e.created_at >= CURRENT_DATE - INTERVAL '30 days'
+      LEFT JOIN employee_shifts es ON es.user_id = u.id
+        AND DATE(es.created_at) >= $${dateParamIndex}::date
+        AND DATE(es.created_at) <= $${dateParamIndex + 1}::date
       WHERE u.group_admin_id = $1
+      ${departmentFilter}
+      ${employeeFilter}
       AND u.role = 'employee'
+    ),
+    task_metrics AS (
+      SELECT 
+        ROUND(
+          (COUNT(CASE WHEN status = 'completed' THEN 1 END)::float * 100 / 
+          NULLIF(COUNT(*), 0))::numeric, 
+          1
+        ) as task_completion_rate
+      FROM employee_tasks
+      JOIN users u ON u.id = assigned_to
+      WHERE assigned_by = $1
+      ${departmentFilter}
+      ${employeeFilter}
+      AND created_at >= $${dateParamIndex}::date
+      AND created_at <= $${dateParamIndex + 1}::date
+    ),
+    expense_metrics AS (
+      SELECT 
+        ROUND(
+          (COUNT(CASE WHEN status = 'approved' THEN 1 END)::float * 100 / 
+          NULLIF(COUNT(*), 0))::numeric, 
+          1
+        ) as expense_approval_rate
+      FROM expenses e
+      JOIN users u ON u.id = e.user_id
+      WHERE e.group_admin_id = $1
+      ${departmentFilter}
+      ${employeeFilter}
+      AND e.created_at >= $${dateParamIndex}::date
+      AND e.created_at <= $${dateParamIndex + 1}::date
     )
-    SELECT * FROM metrics`,
-    [adminId]
-  );
-
-  // Get employee performance details
-  const employeeResult = await client.query(`
     SELECT 
-      u.name as employee_name,
-      u.employee_number,
-      -- Attendance metrics
-      COUNT(DISTINCT DATE(es.start_time)) as days_present,
-      ROUND((COUNT(CASE WHEN EXTRACT(HOUR FROM es.start_time) <= 9 THEN 1 END)::float * 100 / 
-        NULLIF(COUNT(es.id), 0))::numeric, 1) as on_time_rate,
-      ROUND(AVG(
-        CASE WHEN es.end_time IS NOT NULL AND es.start_time IS NOT NULL 
-        THEN EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600 
-        END
-      )::numeric, 1) as avg_working_hours,
-      -- Task metrics
-      COUNT(t.id) as total_tasks,
-      ROUND((COUNT(CASE WHEN t.status = 'completed' THEN 1 END)::float * 100 / 
-        NULLIF(COUNT(t.id), 0))::numeric, 1) as task_completion_rate,
-      ROUND((COUNT(CASE WHEN t.status = 'completed' AND t.updated_at <= t.due_date THEN 1 END)::float * 100 / 
-        NULLIF(COUNT(CASE WHEN t.status = 'completed' THEN 1 END), 0))::numeric, 1) as on_time_completion,
-      -- Expense metrics
-      COUNT(e.id) as total_expenses,
-      ROUND((COUNT(CASE WHEN e.status = 'approved' THEN 1 END)::float * 100 / 
-        NULLIF(COUNT(e.id), 0))::numeric, 1) as expense_approval_rate,
-      ROUND(AVG(
-        CASE WHEN e.status IN ('approved', 'rejected')
-        THEN EXTRACT(EPOCH FROM (e.updated_at - e.created_at))/3600 
-        END
-      )::numeric, 1) as avg_processing_time
-    FROM users u
-    LEFT JOIN employee_shifts es ON u.id = es.user_id 
-      AND es.start_time >= CURRENT_DATE - INTERVAL '30 days'
-    LEFT JOIN employee_tasks t ON u.id = t.assigned_to 
-      AND t.created_at >= CURRENT_DATE - INTERVAL '30 days'
-    LEFT JOIN expenses e ON u.id = e.user_id 
-      AND e.created_at >= CURRENT_DATE - INTERVAL '30 days'
-    WHERE u.group_admin_id = $1
-    AND u.role = 'employee'
-    GROUP BY u.id, u.name, u.employee_number`,
-    [adminId]
-  );
-
-  // Get department statistics
-  const departmentResult = await client.query(`
-    SELECT 
-      u.department,
-      COUNT(DISTINCT u.id) as employee_count,
-      ROUND(AVG(
-        CASE WHEN es.end_time IS NOT NULL AND es.start_time IS NOT NULL 
-        THEN EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600 
-        END
-      )::numeric, 1) as avg_attendance,
-      ROUND((COUNT(CASE WHEN t.status = 'completed' THEN 1 END)::float * 100 / 
-        NULLIF(COUNT(t.id), 0))::numeric, 1) as avg_task_completion,
-      ROUND((COUNT(CASE WHEN e.status = 'approved' THEN 1 END)::float * 100 / 
-        NULLIF(COUNT(e.id), 0))::numeric, 1) as avg_expense_approval
-    FROM users u
-    LEFT JOIN employee_shifts es ON u.id = es.user_id
-      AND es.start_time >= CURRENT_DATE - INTERVAL '30 days'
-    LEFT JOIN employee_tasks t ON u.id = t.assigned_to
-      AND t.created_at >= CURRENT_DATE - INTERVAL '30 days'
-    LEFT JOIN expenses e ON u.id = e.user_id
-      AND e.created_at >= CURRENT_DATE - INTERVAL '30 days'
-    WHERE u.group_admin_id = $1
-    AND u.role = 'employee'
-    AND u.department IS NOT NULL
-    GROUP BY u.department
-    ORDER BY employee_count DESC`,
-    [adminId]
-  );
-
-  // Process the results with null handling
-  const summary = {
-    totalEmployees: parseInt(summaryResult.rows[0]?.total_employees || '0'),
-    avgAttendance: parseFloat(summaryResult.rows[0]?.avg_working_hours || '0'),
-    avgTaskCompletion: parseFloat(summaryResult.rows[0]?.task_completion_rate || '0'),
-    avgExpenseApproval: parseFloat(summaryResult.rows[0]?.expense_approval_rate || '0')
-  };
-
-  const employeePerformance = employeeResult.rows.map(emp => ({
-    employeeName: emp.employee_name || '',
-    employeeNumber: emp.employee_number || '',
-    attendance: {
-      daysPresent: parseInt(emp.days_present || '0'),
-      onTimeRate: parseFloat(emp.on_time_rate || '0'),
-      avgWorkingHours: parseFloat(emp.avg_working_hours || '0')
-    },
-    tasks: {
-      totalAssigned: parseInt(emp.total_tasks || '0'),
-      completionRate: parseFloat(emp.task_completion_rate || '0'),
-      onTimeCompletion: parseFloat(emp.on_time_completion || '0')
-    },
-    expenses: {
-      totalSubmitted: parseInt(emp.total_expenses || '0'),
-      approvalRate: parseFloat(emp.expense_approval_rate || '0'),
-      avgProcessingTime: parseFloat(emp.avg_processing_time || '0')
-    }
-  }));
-
-  // Calculate top performers
-  const topPerformers = employeePerformance
-    .map(emp => {
-      const score = (
-        emp.attendance.onTimeRate +
-        emp.tasks.completionRate +
-        emp.expenses.approvalRate
-      ) / 3;
-
-      const highlights = [];
-      if (emp.attendance.onTimeRate >= 90) highlights.push('Excellent attendance');
-      if (emp.tasks.completionRate >= 90) highlights.push('High task completion');
-      if (emp.expenses.approvalRate >= 90) highlights.push('Excellent expense management');
-
-      return {
-        employeeName: emp.employeeName,
-        department: departmentResult.rows.find(d => d.department)?.department || 'N/A',
-        score: Math.round(score),
-        highlights
-      };
+      em.total_employees,
+      ROUND(em.avg_working_hours::numeric, 1) as avg_working_hours,
+      COALESCE(tm.task_completion_rate, 0) as task_completion_rate,
+      COALESCE(ex.expense_approval_rate, 0) as expense_approval_rate
+    FROM employee_metrics em
+    CROSS JOIN task_metrics tm
+    CROSS JOIN expense_metrics ex`,
+    params.map((param, i) => {
+      if (i >= dateParamIndex - 1 && param instanceof Date) {
+        return param.toISOString().split('T')[0];
+      }
+      return param;
     })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+  );
 
+  // Return formatted data
   return {
-    summary,
-    employeePerformance,
-    departmentStats: departmentResult.rows.map(dept => ({
-      department: dept.department || 'N/A',
-      employeeCount: parseInt(dept.employee_count || '0'),
-      avgAttendance: parseFloat(dept.avg_attendance || '0'),
-      avgTaskCompletion: parseFloat(dept.avg_task_completion || '0'),
-      avgExpenseApproval: parseFloat(dept.avg_expense_approval || '0')
-    })),
-    topPerformers
+    summary: {
+      totalEmployees: parseInt(summaryResult.rows[0]?.total_employees || '0'),
+      activeEmployees: parseInt(summaryResult.rows[0]?.active_employees || '0'),
+      avgWorkingHours: parseFloat(summaryResult.rows[0]?.avg_working_hours || '0'),
+      totalTasks: parseInt(summaryResult.rows[0]?.total_tasks || '0'),
+      completedTasks: parseInt(summaryResult.rows[0]?.completed_tasks || '0'),
+      taskCompletionRate: parseFloat(summaryResult.rows[0]?.task_completion_rate || '0'),
+      expenseApprovalRate: parseFloat(summaryResult.rows[0]?.expense_approval_rate || '0')
+    }
   };
 }
 
-async function getLeaveReportData(client: PoolClient, adminId: string) {
-  // Get summary data
+async function getLeaveReportData(client: PoolClient, adminId: string, filters: FilterOptions = {}) {
+  const { startDate, endDate } = processDateFilters(filters.startDate, filters.endDate);
+  
+  // Prepare filter conditions
+  let employeeFilter = '';
+  let departmentFilter = '';
+  let params: any[] = [adminId];
+  let paramIndex = 2; // Start with $2 since $1 is adminId
+  
+  if (filters.employeeId) {
+    employeeFilter = `AND lr.user_id = $${paramIndex++}`;
+    params.push(parseInt(filters.employeeId));
+  }
+  
+  if (filters.department) {
+    departmentFilter = `AND u.department = $${paramIndex++}`;
+    params.push(filters.department);
+  }
+  
+  // Add date parameters
+  params.push(startDate, endDate);
+  const dateParamIndex = paramIndex;
+  
+  // Prepare parameters with proper date formatting
+  const formattedParams = params.map((param, i) => {
+    if (i >= dateParamIndex - 1 && param instanceof Date) {
+      return param.toISOString().split('T')[0];
+    }
+    return param;
+  });
+  
+  // Get leave summary
   const summaryResult = await client.query(`
     WITH leave_stats AS (
       SELECT 
-        COUNT(*) as total_leaves,
-        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_leaves,
-        COUNT(CASE WHEN lr.status = 'pending' THEN 1 END) as pending_leaves,
-        COUNT(CASE WHEN lr.status = 'rejected' THEN 1 END) as rejected_leaves,
-        AVG(EXTRACT(EPOCH FROM (lr.updated_at - lr.created_at))/3600) as avg_processing_time
+        COUNT(DISTINCT lr.user_id) as total_employees_on_leave,
+        COUNT(*) as total_requests,
+        SUM(CASE 
+          WHEN lr.days_requested > 0 THEN lr.days_requested
+          WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
+          ELSE 0
+        END) as total_days,
+        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_requests,
+        COUNT(CASE WHEN lr.status = 'pending' THEN 1 END) as pending_requests,
+        COUNT(CASE WHEN lr.status = 'rejected' THEN 1 END) as rejected_requests
       FROM leave_requests lr
       JOIN users u ON lr.user_id = u.id
-      WHERE u.group_admin_id = $1
-      AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
-    )
-    SELECT *
-    FROM leave_stats`,
-    [adminId]
-  );
-
-  // Get leave type breakdown with calculated days
-  const typeBreakdown = await client.query(`
-    SELECT 
-      lt.name as type,
-      COUNT(*) as count,
-      SUM(
-        CASE 
-          WHEN lr.end_date >= lr.start_date 
-          THEN (lr.end_date - lr.start_date) + 1
-          ELSE lr.days_requested
-        END
-      ) as total_days
-    FROM leave_requests lr
-    JOIN leave_types lt ON lr.leave_type_id = lt.id
-    JOIN users u ON lr.user_id = u.id
-    WHERE u.group_admin_id = $1
-    AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
-    GROUP BY lt.name
-    ORDER BY count DESC`,
-    [adminId]
-  );
-
-  // Get monthly distribution
-  const monthlyDistribution = await client.query(`
-    SELECT 
-      TO_CHAR(lr.start_date, 'Month YYYY') as month,
-      COUNT(*) as count,
-      COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_count,
-      SUM(
-        CASE 
-          WHEN lr.end_date >= lr.start_date 
-          THEN (lr.end_date - lr.start_date) + 1
-          ELSE lr.days_requested
-        END
-      ) as total_days
-    FROM leave_requests lr
-    JOIN users u ON lr.user_id = u.id
-    WHERE u.group_admin_id = $1
-    AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
-    GROUP BY TO_CHAR(lr.start_date, 'Month YYYY'), DATE_TRUNC('month', lr.start_date)
-    ORDER BY DATE_TRUNC('month', lr.start_date) DESC`,
-    [adminId]
-  );
-
-  // Get employee statistics with leave balances
-  const employeeStats = await client.query(`
-    WITH leave_counts AS (
-      SELECT 
-        lr.user_id,
-        COUNT(*) as total_leaves,
-        COUNT(CASE WHEN lr.status = 'approved' THEN 1 END) as approved_leaves,
-        SUM(
-          CASE 
-            WHEN lr.end_date >= lr.start_date 
-            THEN (lr.end_date - lr.start_date) + 1
-            ELSE lr.days_requested
-          END
-        ) as total_days,
-        json_agg(json_build_object(
-          'type', lt.name,
-          'count', 1,
-          'days', CASE 
-            WHEN lr.end_date >= lr.start_date 
-            THEN (lr.end_date - lr.start_date) + 1
-            ELSE lr.days_requested
-          END
-        )) as leave_types
-      FROM leave_requests lr
-      JOIN leave_types lt ON lr.leave_type_id = lt.id
-      JOIN users u ON lr.user_id = u.id
-      WHERE u.group_admin_id = $1
-      AND lr.created_at >= CURRENT_DATE - INTERVAL '12 months'
-      GROUP BY lr.user_id
-    ),
-    leave_balance_data AS (
-      SELECT 
-        lb.user_id,
-        SUM(CASE WHEN lt.name ILIKE '%casual%' THEN (lb.total_days - lb.used_days - lb.pending_days) ELSE 0 END) as casual_leave_balance,
-        SUM(CASE WHEN lt.name ILIKE '%sick%' THEN (lb.total_days - lb.used_days - lb.pending_days) ELSE 0 END) as sick_leave_balance,
-        SUM(CASE WHEN lt.name ILIKE '%annual%' OR lt.name ILIKE '%privilege%' THEN (lb.total_days - lb.used_days - lb.pending_days) ELSE 0 END) as annual_leave_balance,
-        SUM(lb.total_days) as total_balance,
-        SUM(lb.used_days) as used_balance,
-        SUM(lb.pending_days) as pending_balance
-      FROM leave_balances lb
-      JOIN leave_types lt ON lb.leave_type_id = lt.id
-      JOIN users u ON lb.user_id = u.id
-      WHERE u.group_admin_id = $1
-      AND lb.year = EXTRACT(YEAR FROM CURRENT_DATE)
-      GROUP BY lb.user_id
+      WHERE lr.group_admin_id = $1
+      ${employeeFilter}
+      ${departmentFilter}
+      AND lr.created_at >= $${dateParamIndex}::date
+      AND lr.created_at <= $${dateParamIndex + 1}::date
     )
     SELECT 
-      u.name as employee_name,
-      COALESCE(lc.total_leaves, 0) as total_leaves,
-      COALESCE(lc.approved_leaves, 0) as approved_leaves,
-      COALESCE(lc.total_days, 0) as total_days,
-      COALESCE(lb.casual_leave_balance, 0) as casual_leave_balance,
-      COALESCE(lb.sick_leave_balance, 0) as sick_leave_balance,
-      COALESCE(lb.annual_leave_balance, 0) as annual_leave_balance,
-      COALESCE(lb.total_balance, 0) as total_balance,
-      COALESCE(lb.used_balance, 0) as used_balance,
-      COALESCE(lb.pending_balance, 0) as pending_balance,
-      COALESCE(lc.leave_types, '[]') as leave_types
-    FROM users u
-    LEFT JOIN leave_counts lc ON u.id = lc.user_id
-    LEFT JOIN leave_balance_data lb ON u.id = lb.user_id
-    WHERE u.group_admin_id = $1
-    AND u.role = 'employee'`,
-    [adminId]
-  );
-
-  // Get recent leave requests
-  const recentLeaves = await client.query(`
-    SELECT 
-      u.name as employee_name,
-      lt.name as type,
-      lr.start_date,
-      lr.end_date,
+      total_employees_on_leave,
+      total_requests,
+      total_days,
+      approved_requests,
+      pending_requests,
+      rejected_requests,
       CASE 
-        WHEN lr.days_requested > 0 THEN lr.days_requested
-        WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
+        WHEN total_requests > 0 
+        THEN ROUND((approved_requests::float / total_requests::float) * 100)
         ELSE 0
-      END as days,
-      lr.status
-    FROM leave_requests lr
-    JOIN users u ON lr.user_id = u.id
-    JOIN leave_types lt ON lr.leave_type_id = lt.id
-    WHERE u.group_admin_id = $1
-    ORDER BY lr.created_at DESC
-    LIMIT 10`,
-    [adminId]
+      END as approval_rate
+    FROM leave_stats`,
+    formattedParams
   );
-
-  // Calculate total for percentages
-  const totalLeaves = parseInt(summaryResult.rows[0]?.total_leaves || '0');
 
   return {
     summary: {
-      totalLeaves,
-      approvedLeaves: parseInt(summaryResult.rows[0]?.approved_leaves || '0'),
-      pendingLeaves: parseInt(summaryResult.rows[0]?.pending_leaves || '0'),
-      rejectedLeaves: parseInt(summaryResult.rows[0]?.rejected_leaves || '0'),
-      avgProcessingTime: parseFloat(summaryResult.rows[0]?.avg_processing_time || '0')
-    },
-    leaveTypeBreakdown: typeBreakdown.rows.map(row => ({
-      type: row.type,
-      count: parseInt(row.count || '0'),
-      totalDays: parseInt(row.total_days || '0'),
-      percentage: totalLeaves ? Math.round((parseInt(row.count) / totalLeaves) * 100) : 0
-    })),
-    monthlyDistribution: monthlyDistribution.rows.map(row => ({
-      month: row.month.trim(),
-      count: parseInt(row.count || '0'),
-      approvedCount: parseInt(row.approved_count || '0'),
-      totalDays: parseInt(row.total_days || '0')
-    })),
-    employeeStats: employeeStats.rows.map(row => ({
-      employeeName: row.employee_name,
-      totalLeaves: parseInt(row.total_leaves || '0'),
-      approvedLeaves: parseInt(row.approved_leaves || '0'),
-      totalDays: parseInt(row.total_days || '0'),
-      leaveBalance: {
-        casual: parseInt(row.casual_leave_balance || '0'),
-        sick: parseInt(row.sick_leave_balance || '0'),
-        annual: parseInt(row.annual_leave_balance || '0')
-      },
-      totalBalance: parseInt(row.total_balance || '0'),
-      usedBalance: parseInt(row.used_balance || '0'),
-      pendingBalance: parseInt(row.pending_balance || '0'),
-      leaveTypes: row.leave_types || []
-    })),
-    recentLeaves: recentLeaves.rows.map(row => ({
-      employeeName: row.employee_name,
-      type: row.type,
-      startDate: new Date(row.start_date).toLocaleDateString(),
-      endDate: new Date(row.end_date).toLocaleDateString(),
-      days: parseInt(row.days || '0'),
-      status: row.status
-    }))
+      totalEmployeesOnLeave: parseInt(summaryResult.rows[0]?.total_employees_on_leave || '0'),
+      totalRequests: parseInt(summaryResult.rows[0]?.total_requests || '0'),
+      totalDays: parseFloat(summaryResult.rows[0]?.total_days || '0'),
+      approvedRequests: parseInt(summaryResult.rows[0]?.approved_requests || '0'),
+      pendingRequests: parseInt(summaryResult.rows[0]?.pending_requests || '0'),
+      rejectedRequests: parseInt(summaryResult.rows[0]?.rejected_requests || '0'),
+      approvalRate: parseFloat(summaryResult.rows[0]?.approval_rate || '0')
+    }
   };
 }
 

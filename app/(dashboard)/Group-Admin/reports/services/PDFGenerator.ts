@@ -12,13 +12,44 @@ import { generateTravelReport } from '../components/pdf-templates/TravelTemplate
 import { generatePerformanceReport } from '../components/pdf-templates/PerformanceTemplate';
 import { generateLeaveReport } from '../components/pdf-templates/LeaveTemplate';
 import axios from 'axios';
+import { format } from 'date-fns';
+
+interface FilterParams {
+  startDate?: Date;
+  endDate?: Date;
+  employeeId?: number;
+  department?: string;
+  dateRangePreset?: string;
+}
+
 export class PDFGenerator {
   private static readonly APP_DOCUMENTS_DIR = 'PDFReports/';
 
-  static async generateAndHandlePDF(section: ReportSection, action: 'open' | 'share'): Promise<void> {
+  static async generateAndHandlePDF(section: ReportSection, action: 'open' | 'share', filters?: FilterParams): Promise<void> {
     try {
       const token = await AsyncStorage.getItem('auth_token');
-      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/${section.type}`, {
+      
+      // Create query parameters from filters
+      const queryParams = [];
+      
+      if (filters) {
+        if (filters.startDate) {
+          queryParams.push(`startDate=${format(filters.startDate, 'yyyy-MM-dd')}`);
+        }
+        if (filters.endDate) {
+          queryParams.push(`endDate=${format(filters.endDate, 'yyyy-MM-dd')}`);
+        }
+        if (filters.employeeId) {
+          queryParams.push(`employeeId=${filters.employeeId}`);
+        }
+        if (filters.department) {
+          queryParams.push(`department=${encodeURIComponent(filters.department)}`);
+        }
+      }
+      
+      const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+      
+      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/pdf-reports/${section.type}${queryString}`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -36,7 +67,8 @@ export class PDFGenerator {
         console.log('Getting full leave analytics data...');
         try {
           // Get the full data rather than just metadata
-          const fullDataResponse = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/reports/leave-analytics`, {
+          // Add filters to leave analytics request too
+          const fullDataResponse = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/reports/leave-analytics${queryString}`, {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`,
@@ -78,6 +110,17 @@ export class PDFGenerator {
           console.error('Error fetching full leave analytics data:', error);
           throw new Error('Failed to fetch leave report data. Please try again.');
         }
+      }
+
+      // Add filter information to the processed data for use in templates
+      if (filters && (filters.startDate || filters.endDate || filters.employeeId || filters.department)) {
+        processedData.filters = {
+          dateRange: filters.startDate && filters.endDate ? 
+            `${format(filters.startDate, 'MMM dd, yyyy')} - ${format(filters.endDate, 'MMM dd, yyyy')}` : undefined,
+          employee: filters.employeeId ? 
+            processedData.employees?.find((e: any) => e.id === filters.employeeId)?.name : undefined,
+          department: filters.department
+        };
       }
 
       const html = await this.generateHTMLContent(section, processedData);
@@ -149,42 +192,48 @@ export class PDFGenerator {
           content = generateExpenseReport(data, {
             theme: 'light',
             companyInfo: data.companyInfo,
-            adminName: data.adminName
+            adminName: data.adminName,
+            filters: data.filters
           });
           break;
         case 'attendance':
           content = generateAttendanceReport(data, {
             theme: 'light',
             companyInfo: data.companyInfo,
-            adminName: data.adminName
+            adminName: data.adminName,
+            filters: data.filters
           });
           break;
         case 'task':
           content = generateTaskReport(data, {
             theme: 'light',
             companyInfo: data.companyInfo,
-            adminName: data.adminName
+            adminName: data.adminName,
+            filters: data.filters
           });
           break;
         case 'travel':
           content = generateTravelReport(data, {
             theme: 'light',
             companyInfo: data.companyInfo,
-            adminName: data.adminName
+            adminName: data.adminName,
+            filters: data.filters
           });
           break;
         case 'performance':
           content = generatePerformanceReport(data, {
             theme: 'light',
             companyInfo: data.companyInfo,
-            adminName: data.adminName
+            adminName: data.adminName,
+            filters: data.filters
           });
           break;
         case 'leave':
           content = generateLeaveReport(data, {
             theme: 'light',
             companyInfo: data.companyInfo,
-            adminName: data.adminName
+            adminName: data.adminName,
+            filters: data.filters
           });
           break;
         default:

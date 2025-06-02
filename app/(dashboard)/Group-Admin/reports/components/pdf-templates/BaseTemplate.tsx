@@ -13,6 +13,11 @@ interface BaseTemplateProps {
     contact: string;
   };
   adminName?: string;
+  filters?: {
+    dateRange?: string;
+    employee?: string;
+    department?: string;
+  };
 }
 
 export interface TemplateOptions {
@@ -24,6 +29,11 @@ export interface TemplateOptions {
     contact: string;
   };
   adminName?: string;
+  filters?: {
+    dateRange?: string;
+    employee?: string;
+    department?: string;
+  };
 }
 
 export const generateBaseTemplate = ({
@@ -32,7 +42,8 @@ export const generateBaseTemplate = ({
   content,
   theme = 'light',
   companyInfo,
-  adminName = 'Group Admin'
+  adminName = 'Group Admin',
+  filters
 }: BaseTemplateProps): string => {
   const isDark = theme === 'dark';
   
@@ -191,6 +202,15 @@ export const generateBaseTemplate = ({
             color: ${isDark ? '#9CA3AF' : '#6B7280'};
             margin-top: 4px;
           }
+          
+          .filter-info {
+            font-size: 14px;
+            background-color: ${isDark ? '#374151' : '#F3F4F6'};
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 10px;
+            display: inline-block;
+          }
 
           @media print {
             body {
@@ -214,6 +234,12 @@ export const generateBaseTemplate = ({
               <div>${companyAddress || ''}</div>
               <div>${companyContact || ''}</div>
             </div>
+            ${filters && (filters.dateRange || filters.employee || filters.department) ? `
+            <div class="filter-info">
+              ${filters.dateRange ? `Date Range: ${filters.dateRange}<br>` : ''}
+              ${filters.employee ? `Employee: ${filters.employee}<br>` : ''}
+              ${filters.department ? `Department: ${filters.department}` : ''}
+            </div>` : ''}
           </div>
         </div>
         <div class="content">

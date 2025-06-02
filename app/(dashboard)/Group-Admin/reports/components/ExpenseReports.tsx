@@ -7,6 +7,8 @@ import GraphSelector from './GraphSelector';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface Employee {
   id: number;
@@ -66,6 +68,20 @@ interface MonthlyDataItem {
   amount: number;
 }
 
+interface FilterParams {
+  startDate: Date;
+  endDate: Date;
+  employeeId?: number;
+  department?: string;
+  dateRangePreset: string;
+}
+
+interface ExpenseStat {
+  month: string;
+  category: string;
+  total_amount: string;
+}
+
 export default function ExpenseReports({ section, isDark }: { section: ReportSection; isDark: boolean }) {
   const [graphType, setGraphType] = useState('line');
   const [loading, setLoading] = useState(true);
@@ -80,10 +96,37 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
   const [modalVisible, setModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [filters, setFilters] = useState<FilterParams>({
+    startDate: subDays(new Date(), 30),
+    endDate: new Date(),
+    dateRangePreset: 'last30Days'
+  });
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
+  const [datePickerMode, setDatePickerMode] = useState<'start' | 'end'>('start');
+  const [showFiltersModal, setShowFiltersModal] = useState(false);
+
   const graphOptions = [
     { type: 'line', icon: 'trending-up', label: 'Line' },
     { type: 'bar', icon: 'bar-chart', label: 'Bar' },
     { type: 'pie', icon: 'pie-chart', label: 'Pie' },
+  ];
+
+  const dateRangeOptions = [
+    { id: 'last7Days', label: 'Last 7 Days', 
+      getValue: () => ({ startDate: subDays(new Date(), 7), endDate: new Date() })},
+    { id: 'last30Days', label: 'Last 30 Days',
+      getValue: () => ({ startDate: subDays(new Date(), 30), endDate: new Date() })},
+    { id: 'thisMonth', label: 'This Month',
+      getValue: () => ({ startDate: startOfMonth(new Date()), endDate: new Date() })},
+    { id: 'lastMonth', label: 'Last Month',
+      getValue: () => {
+        const lastMonth = subMonths(new Date(), 1);
+        return { 
+          startDate: startOfMonth(lastMonth), 
+          endDate: endOfMonth(lastMonth)
+        };
+      }},
+    { id: 'custom', label: 'Custom Range', getValue: () => filters },
   ];
 
   const commonConfig = {
@@ -105,77 +148,86 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
       if (employeeStatsLoading) return;
       setEmployeeStatsLoading(true);
 
-      const url = `${process.env.EXPO_PUBLIC_API_URL}/api/reports/expenses/employee-stats${
-        employeeId ? `?employeeId=${employeeId}` : ''
-      }`;
+      const token = await AsyncStorage.getItem('auth_token');
       
-      console.log('Fetching employee stats from:', url);
-      const response = await axios.get(url);
+      if (!token) {
+        console.error('No token found');
+        return;
+      }
+
+      // Format dates for API
+      const startDateStr = format(filters.startDate, 'yyyy-MM-dd');
+      const endDateStr = format(filters.endDate, 'yyyy-MM-dd');
       
-      setEmployees(response.data.employees);
-      const stats = response.data.expenseStats;
-      setEmployeeStats(stats);
+      // Build query params for filters
+      let queryParams = `startDate=${startDateStr}&endDate=${endDateStr}`;
+      if (employeeId && employeeId !== 'all') queryParams += `&employeeId=${employeeId}`;
+      if (filters.department) queryParams += `&department=${encodeURIComponent(filters.department)}`;
 
-      if (stats && Array.isArray(stats)) {
-        console.log('Processing stats:', stats);
-        
-        if (employeeId && employeeId !== 'all') {
-          // Group by month and sum amounts
-          const monthlyTotals = stats.reduce((acc: { [key: string]: number }, curr) => {
-            const month = curr.month || 'Unknown';
-            acc[month] = (acc[month] || 0) + parseFloat(curr.total_amount || 0);
-            return acc;
-          }, {});
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/reports/expenses/employee-stats?${queryParams}`,
+        { 
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          } 
+        }
+      );
 
-          const monthlyData = Object.entries(monthlyTotals).map(([month, amount]) => ({
-            month,
-            amount
-          }));
+      if (response.data) {
+        console.log('Processing stats:', response.data);
+        setEmployees(response.data.employees);
+        setEmployeeStats(response.data.expenseStats);
 
-          // Group expenses by category and calculate totals
-          const categoryTotals = stats.reduce((acc: { [key: string]: number }, curr) => {
-            const category = curr.category || 'Other';
-            acc[category] = (acc[category] || 0) + parseFloat(curr.total_amount || 0);
-            return acc;
-          }, {});
+        if (response.data.expenseStats && Array.isArray(response.data.expenseStats)) {
+          const stats = response.data.expenseStats as ExpenseStat[];
+          
+          if (employeeId && employeeId !== 'all') {
+            const monthlyTotals = stats.reduce((acc: { [key: string]: number }, curr: ExpenseStat) => {
+              const month = curr.month || 'Unknown';
+              acc[month] = (acc[month] || 0) + parseFloat(curr.total_amount || '0');
+              return acc;
+            }, {});
 
-          // Transform category data to match the required format
-          const categoryData = Object.entries(categoryTotals)
-            .filter(([_, amount]) => amount > 0)
-            .map(([category, amount]) => ({
-              name: category,
-              population: amount,
-              color: getCategoryColor(category),
-              legendFontColor: isDark ? '#9CA3AF' : '#4B5563',
-              legendFontSize: 12
+            const monthlyData = Object.entries(monthlyTotals).map(([month, amount]) => ({
+              month,
+              amount: Number(amount)
             }));
 
-          console.log('Processed category data:', categoryData);
+            const categoryTotals = stats.reduce((acc: { [key: string]: number }, curr: ExpenseStat) => {
+              const category = curr.category || 'Other';
+              acc[category] = (acc[category] || 0) + parseFloat(curr.total_amount || '0');
+              return acc;
+            }, {});
 
-          const total = Object.values(monthlyTotals).reduce((acc, curr) => acc + curr, 0);
-          const average = monthlyData.length > 0 ? total / monthlyData.length : 0;
+            const categoryData = Object.entries(categoryTotals)
+              .filter(([_, amount]) => amount > 0)
+              .map(([category, amount]) => ({
+                name: category,
+                population: Number(amount),
+                color: getCategoryColor(category),
+                legendFontColor: isDark ? '#9CA3AF' : '#4B5563',
+                legendFontSize: 12
+              }));
 
-          setEmployeeData({
-            monthlyData,
-            categoryData,
-            summary: {
-              total_amount: total,
-              average_expense: average
-            }
-          });
-        } else {
-          await fetchExpenseData();
+            const total = Object.values(monthlyTotals).reduce((acc: number, curr: number) => acc + curr, 0);
+            const average = monthlyData.length > 0 ? total / monthlyData.length : 0;
+
+            setEmployeeData({
+              monthlyData,
+              categoryData,
+              summary: {
+                total_amount: total,
+                average_expense: average
+              }
+            });
+          } else {
+            await fetchExpenseData();
+          }
         }
-      } else {
-        console.log('No stats data available');
-        setEmployeeData(null);
       }
-    } catch (err) {
-      console.error('Error fetching employee stats:', err);
-      if (axios.isAxiosError(err)) {
-        console.error('Response data:', err.response?.data);
-      }
-      setEmployeeData(null);
+    } catch (error: any) {
+      console.error('Error fetching employee stats:', error);
+      setError(error.response?.data?.error || 'Failed to fetch employee stats');
     } finally {
       setEmployeeStatsLoading(false);
     }
@@ -187,41 +239,231 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
       await fetchEmployeeStats();
     };
     initData();
-  }, []);
+  }, [filters.startDate, filters.endDate]);
 
   const fetchExpenseData = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${process.env.EXPO_PUBLIC_API_URL}/api/reports/expenses/overview`);
+      const token = await AsyncStorage.getItem('auth_token');
       
-      console.log('Expense overview response:', response.data);
-      
-      const monthlyData = response.data.monthlyData || [];
-      const categoryData = response.data.categoryData || [];
-      
-      const processedCategoryData = categoryData.map((item: CategoryDataItem) => ({
-        name: item.name,
-        population: item.population,
-        color: getCategoryColor(item.name),
-        legendFontColor: isDark ? '#9CA3AF' : '#4B5563',
-        legendFontSize: 12
-      }));
+      if (!token) {
+        console.error('No token found');
+        setError('Authentication required');
+        return;
+      }
 
-      setOverallData({
-        monthlyData,
-        categoryData: processedCategoryData,
-        summary: {
-          total_amount: response.data.summary.total_amount,
-          average_expense: response.data.summary.average_expense
+      // Format dates for API
+      const startDateStr = format(filters.startDate, 'yyyy-MM-dd');
+      const endDateStr = format(filters.endDate, 'yyyy-MM-dd');
+      
+      // Build query params for filters
+      let queryParams = `startDate=${startDateStr}&endDate=${endDateStr}`;
+      if (filters.employeeId) queryParams += `&employeeId=${filters.employeeId}`;
+      if (filters.department) queryParams += `&department=${encodeURIComponent(filters.department)}`;
+
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/reports/expenses/overview?${queryParams}`,
+        { 
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          } 
         }
-      });
-    } catch (err) {
-      setError('Failed to fetch expense data');
-      console.error('Error fetching expense data:', err);
+      );
+
+      if (response.data) {
+        console.log('Expense overview response:', response.data);
+        
+        const processedCategoryData = response.data.categoryData.map((item: CategoryDataItem) => ({
+          ...item,
+          color: getCategoryColor(item.name),
+          legendFontColor: isDark ? '#9CA3AF' : '#4B5563',
+          legendFontSize: 12
+        }));
+
+        setOverallData({
+          monthlyData: response.data.monthlyData,
+          categoryData: processedCategoryData,
+          summary: response.data.summary
+        });
+      }
+    } catch (error: any) {
+      console.error('Error fetching expense data:', error);
+      setError(error.response?.data?.error || 'Failed to fetch expense data');
     } finally {
       setLoading(false);
     }
   };
+
+  const handleDateRangeChange = (presetId: string) => {
+    const preset = dateRangeOptions.find(option => option.id === presetId);
+    if (preset) {
+      const { startDate, endDate } = preset.getValue();
+      setFilters(prev => ({
+        ...prev,
+        startDate,
+        endDate,
+        dateRangePreset: presetId
+      }));
+    }
+  };
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    if (selectedDate) {
+      setFilters(prev => ({
+        ...prev,
+        [datePickerMode === 'start' ? 'startDate' : 'endDate']: selectedDate,
+        dateRangePreset: 'custom'
+      }));
+    }
+    setShowDateRangePicker(false);
+  };
+
+  const resetFilters = () => {
+    const defaultRange = dateRangeOptions.find(option => option.id === 'last30Days');
+    if (defaultRange) {
+      const { startDate, endDate } = defaultRange.getValue();
+      setFilters({
+        startDate,
+        endDate,
+        dateRangePreset: 'last30Days'
+      });
+    }
+    setShowFiltersModal(false);
+  };
+
+  const renderFiltersButton = () => (
+    <TouchableOpacity 
+      onPress={() => setShowFiltersModal(true)}
+      className={`flex-row items-center justify-center px-3 py-2 rounded-lg mb-4 ${
+        isDark ? 'bg-gray-700' : 'bg-gray-200'
+      }`}
+    >
+      <Ionicons name="options-outline" size={18} color={isDark ? '#E5E7EB' : '#4B5563'} />
+      <Text className={`ml-2 ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
+        {format(filters.startDate, 'MMM dd, yyyy')} - {format(filters.endDate, 'MMM dd, yyyy')}
+        {selectedEmployee !== 'all' ? ' • Filtered by Employee' : ''}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const renderFiltersModal = () => (
+    <Modal
+      visible={showFiltersModal}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setShowFiltersModal(false)}
+    >
+      <View className="flex-1 bg-black/50">
+        <View className={`flex-1 mt-24 rounded-t-3xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+          <View className="p-4 border-b border-gray-200">
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Filter Analytics
+              </Text>
+              <TouchableOpacity onPress={() => setShowFiltersModal(false)}>
+                <Ionicons name="close" size={24} color={isDark ? '#FFF' : '#000'} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView className="p-4">
+            <View className="mb-6">
+              <Text className={`text-base font-medium mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Date Range
+              </Text>
+              {dateRangeOptions.map(option => (
+                <TouchableOpacity
+                  key={option.id}
+                  onPress={() => handleDateRangeChange(option.id)}
+                  className={`flex-row items-center justify-between py-3 px-4 mb-2 rounded-lg
+                    ${filters.dateRangePreset === option.id
+                      ? (isDark ? 'bg-blue-900/30' : 'bg-blue-100')
+                      : (isDark ? 'bg-gray-700' : 'bg-gray-100')
+                    }`}
+                >
+                  <Text className={isDark ? 'text-white' : 'text-gray-800'}>
+                    {option.label}
+                  </Text>
+                  {filters.dateRangePreset === option.id && (
+                    <Ionicons name="checkmark" size={20} color="#3B82F6" />
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              {filters.dateRangePreset === 'custom' && (
+                <View className={`mt-2 p-4 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                  <View className="flex-row justify-between mb-2">
+                    <TouchableOpacity
+                      onPress={() => {
+                        setDatePickerMode('start');
+                        setShowDateRangePicker(true);
+                      }}
+                      className="flex-1 mr-2"
+                    >
+                      <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        Start Date
+                      </Text>
+                      <View className={`mt-1 p-2 rounded-lg ${isDark ? 'bg-gray-600' : 'bg-white'}`}>
+                        <Text className={isDark ? 'text-white' : 'text-gray-800'}>
+                          {format(filters.startDate, 'MMM dd, yyyy')}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        setDatePickerMode('end');
+                        setShowDateRangePicker(true);
+                      }}
+                      className="flex-1 ml-2"
+                    >
+                      <Text className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        End Date
+                      </Text>
+                      <View className={`mt-1 p-2 rounded-lg ${isDark ? 'bg-gray-600' : 'bg-white'}`}>
+                        <Text className={isDark ? 'text-white' : 'text-gray-800'}>
+                          {format(filters.endDate, 'MMM dd, yyyy')}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            <View className="flex-row justify-between mt-4">
+              <TouchableOpacity
+                onPress={resetFilters}
+                className={`flex-1 py-3 mr-2 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}
+              >
+                <Text className={`text-center font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>
+                  Reset
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowFiltersModal(false)}
+                className="flex-1 py-3 ml-2 rounded-lg bg-blue-600"
+              >
+                <Text className="text-center font-medium text-white">
+                  Apply
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+
+      {showDateRangePicker && (
+        <DateTimePicker
+          value={datePickerMode === 'start' ? filters.startDate : filters.endDate}
+          mode="date"
+          display="default"
+          onChange={handleDateChange}
+          maximumDate={new Date()}
+        />
+      )}
+    </Modal>
+  );
 
   const getCategoryColor = (category: string): string => {
     const colors: { [key: string]: string } = {
@@ -264,7 +506,6 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
 
     switch (graphType) {
       case 'line':
-        // Ensure data is properly formatted for LineChart
         const chartData = {
           labels: data.monthlyData.map((item: MonthlyDataItem) => item.month),
           datasets: [{
@@ -345,7 +586,6 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
             </View>
           );
         }
-        // Calculate total for percentage
         const total = data.categoryData.reduce((sum: number, item: CategoryDataItem) => sum + Number(item.population), 0);
         
         const pieChartData = data.categoryData
@@ -563,7 +803,6 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
 
         {renderGraph(overallData)}
 
-        {/* Overall Metrics */}
         <View className="flex-row justify-between mt-4">
           <View>
             <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -650,18 +889,24 @@ export default function ExpenseReports({ section, isDark }: { section: ReportSec
 
   return (
     <View className="mb-4">
-      <ReportCard section={section} isDark={isDark}>
+      <ReportCard 
+        section={section} 
+        isDark={isDark} 
+        filters={filters}
+      >
         <View className="mt-4">
-          {/* Overall Analytics Section */}
+          {renderFiltersButton()}
+          
           {renderOverallGraphs()}
 
-          {/* Employee Selector and Stats Section */}
           <View className="mt-8 pt-4 border-t border-gray-200">
             {renderEmployeeSelector()}
             {renderEmployeeStatsGraph()}
           </View>
         </View>
       </ReportCard>
+      
+      {renderFiltersModal()}
     </View>
   );
 } 

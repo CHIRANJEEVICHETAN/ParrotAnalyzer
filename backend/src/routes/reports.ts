@@ -145,6 +145,12 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
     }
 
     const adminId = req.user.id;
+    
+    // Extract filter parameters
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 180 * 24 * 60 * 60 * 1000); // Default to 6 months ago
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+    const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+    const department = req.query.department as string;
 
     // First check if category column exists and add it if it doesn't
     try {
@@ -177,6 +183,23 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
       console.error('Error checking/adding category column:', err);
     }
 
+    // Build additional filter conditions
+    let additionalFilters = '';
+    const queryParams: Array<string | number | Date> = [adminId, startDate, endDate];
+    let paramIndex = 4; // Start from 4 since we have 3 parameters already
+
+    if (employeeId) {
+      additionalFilters += ` AND user_id = $${paramIndex}`;
+      queryParams.push(employeeId);
+      paramIndex++;
+    }
+
+    if (department) {
+      additionalFilters += ` AND user_id IN (SELECT id FROM users WHERE department = $${paramIndex})`;
+      queryParams.push(department);
+      paramIndex++;
+    }
+
     // Monthly data query with error handling
     let monthlyData;
     try {
@@ -186,10 +209,12 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
           COALESCE(SUM(total_amount), 0) as amount
         FROM expenses 
         WHERE group_admin_id = $1
-        AND date >= NOW() - INTERVAL '6 months'
+        AND date >= $2
+        AND date <= $3
+        ${additionalFilters}
         GROUP BY TO_CHAR(date, 'Mon')
         ORDER BY MIN(date)
-      `, [adminId]);
+      `, queryParams);
     } catch (err) {
       console.error('Error fetching monthly data:', err);
       monthlyData = { rows: [] };
@@ -203,7 +228,9 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
           COALESCE(SUM(lodging_expenses), 0) as population
         FROM expenses 
         WHERE group_admin_id = $1
-        AND date >= NOW() - INTERVAL '6 months'
+        AND date >= $2
+        AND date <= $3
+        ${additionalFilters}
         AND lodging_expenses > 0
         
         UNION ALL
@@ -213,7 +240,9 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
           COALESCE(SUM(daily_allowance), 0) as population
         FROM expenses 
         WHERE group_admin_id = $1
-        AND date >= NOW() - INTERVAL '6 months'
+        AND date >= $2
+        AND date <= $3
+        ${additionalFilters}
         AND daily_allowance > 0
         
         UNION ALL
@@ -223,7 +252,9 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
           COALESCE(SUM(diesel), 0) as population
         FROM expenses 
         WHERE group_admin_id = $1
-        AND date >= NOW() - INTERVAL '6 months'
+        AND date >= $2
+        AND date <= $3
+        ${additionalFilters}
         AND diesel > 0
         
         UNION ALL
@@ -233,7 +264,9 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
           COALESCE(SUM(toll_charges), 0) as population
         FROM expenses 
         WHERE group_admin_id = $1
-        AND date >= NOW() - INTERVAL '6 months'
+        AND date >= $2
+        AND date <= $3
+        ${additionalFilters}
         AND toll_charges > 0
         
         UNION ALL
@@ -243,7 +276,9 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
           COALESCE(SUM(other_expenses), 0) as population
         FROM expenses 
         WHERE group_admin_id = $1
-        AND date >= NOW() - INTERVAL '6 months'
+        AND date >= $2
+        AND date <= $3
+        ${additionalFilters}
         AND other_expenses > 0
       )
       SELECT 
@@ -257,7 +292,7 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
       FROM category_totals
       WHERE population > 0
       ORDER BY population DESC
-    `, [adminId]);
+    `, queryParams);
 
     // Remove the manual percentage calculation since it's now part of the query
     const processedCategoryData = categoryData.rows.map(row => ({
@@ -285,8 +320,10 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count
         FROM expenses 
         WHERE group_admin_id = $1
-        AND date >= NOW() - INTERVAL '6 months'
-      `, [adminId]);
+        AND date >= $2
+        AND date <= $3
+        ${additionalFilters}
+      `, queryParams);
     } catch (err) {
       console.error('Error fetching summary data:', err);
       summaryData = {
@@ -344,21 +381,35 @@ router.get('/expenses/employee-stats', authMiddleware, adminMiddleware, async (r
       return res.status(401).json({ error: 'Authentication required' });
     }
 
+    // Extract filter parameters
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 180 * 24 * 60 * 60 * 1000); // Default to 6 months ago
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+    const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+    const department = req.query.department as string;
+
     // First get all employees under this admin
-    const employees = await client.query(`
+    const employeeQuery = `
       SELECT id, name, employee_number, department
       FROM users 
       WHERE group_admin_id = $1 AND role = 'employee'
-      ORDER BY name ASC`,
-      [req.user.id]
-    );
+      ${department ? 'AND department = $2' : ''}
+      ORDER BY name ASC`;
+
+    const employeeParams = department ? [req.user.id, department] : [req.user.id];
+    const employees = await client.query(employeeQuery, employeeParams);
+
+    // Build additional filter conditions for expenses query
+    let additionalFilters = '';
+    const queryParams: Array<string | number | Date> = [req.user.id, startDate, endDate];
+    let paramIndex = 4; // Start from 4 since we have 3 parameters already
+
+    if (employeeId) {
+      additionalFilters += ` AND user_id = $${paramIndex}`;
+      queryParams.push(employeeId);
+    }
 
     // Get expense stats for selected employee or all employees
-    const employeeId = req.query.employeeId;
-    const employeeFilter = employeeId ? 'AND user_id = $2' : '';
-    const queryParams = employeeId ? [req.user.id, employeeId] : [req.user.id];
-
-    const expenseStats = await client.query(`
+    const expenseQuery = `
       SELECT 
         u.id as employee_id,
         u.name as employee_name,
@@ -375,12 +426,14 @@ router.get('/expenses/employee-stats', authMiddleware, adminMiddleware, async (r
         SUM(e.other_expenses) as other_expenses
       FROM expenses e
       JOIN users u ON e.user_id = u.id
-      WHERE e.group_admin_id = $1 ${employeeFilter}
-      AND e.date >= NOW() - INTERVAL '6 months'
+      WHERE e.group_admin_id = $1
+      AND e.date >= $2
+      AND e.date <= $3
+      ${additionalFilters}
       GROUP BY u.id, u.name, u.employee_number, DATE_TRUNC('month', e.date)
-      ORDER BY DATE_TRUNC('month', e.date) ASC`,
-      queryParams
-    );
+      ORDER BY DATE_TRUNC('month', e.date) ASC`;
+
+    const expenseStats = await client.query(expenseQuery, queryParams);
 
     // Process the stats to include category data
     const processedStats = expenseStats.rows.map(row => {
@@ -708,6 +761,29 @@ router.get('/attendance-analytics',
 
       const { id: adminId } = req.user;
       
+      // Extract filter parameters
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default to 30 days ago
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+      const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+      const department = req.query.department as string;
+      
+      // Build filter conditions
+      let employeeFilter = '';
+      const baseParams: Array<string | number | Date> = [adminId];
+      let paramIndex = 2;
+
+      if (employeeId) {
+        employeeFilter = ` AND u.id = $${paramIndex}`;
+        baseParams.push(employeeId);
+        paramIndex++;
+      }
+
+      if (department) {
+        employeeFilter += ` AND u.department = $${paramIndex}`;
+        baseParams.push(department);
+        paramIndex++;
+      }
+      
       // Add debug query to check if admin has any employees
       const employeeCheck = await client.query(`
         SELECT COUNT(*) as employee_count 
@@ -739,9 +815,11 @@ router.get('/attendance-analytics',
             status,
             start_time
           FROM employee_shifts es
-          WHERE start_time >= CURRENT_DATE - INTERVAL '7 days'
+          WHERE start_time >= $2
+          AND start_time <= $3
         ) es ON es.shift_day = days.day
         LEFT JOIN users u ON es.user_id = u.id AND u.group_admin_id = $1
+        ${employeeFilter}
         GROUP BY days.day
         ORDER BY days.day`;
 
@@ -762,7 +840,9 @@ router.get('/attendance-analytics',
         FROM employee_shifts es
         JOIN users u ON es.user_id = u.id
         WHERE u.group_admin_id = $1 
-        AND es.start_time >= CURRENT_DATE - INTERVAL '4 weeks'
+        AND es.start_time >= $2
+        AND es.start_time <= $3
+        ${employeeFilter}
         GROUP BY DATE_TRUNC('week', start_time)
         ORDER BY week`;
 
@@ -774,7 +854,9 @@ router.get('/attendance-analytics',
         FROM employee_shifts es
         JOIN users u ON es.user_id = u.id
         WHERE u.group_admin_id = $1 
-        AND es.start_time >= CURRENT_DATE - INTERVAL '7 days'
+        AND es.start_time >= $2
+        AND es.start_time <= $3
+        ${employeeFilter}
         GROUP BY start_time::date
         ORDER BY date`;
 
@@ -799,25 +881,51 @@ router.get('/attendance-analytics',
             END)::float / 
             NULLIF(COUNT(DISTINCT es.user_id), 0) * 100 as on_time_rate,
             SUM(total_kilometers) as total_distance,
-            SUM(total_expenses) as total_expenses
+            SUM(total_expenses) as total_expenses,
+            COUNT(CASE WHEN es.status = 'active' THEN 1 END) as active_shifts,
+            COUNT(CASE WHEN es.status = 'completed' THEN 1 END) as completed_shifts
           FROM employee_shifts es
           JOIN users u ON es.user_id = u.id
           WHERE u.group_admin_id = $1 
-          AND es.start_time >= CURRENT_DATE - INTERVAL '30 days'
+          AND es.start_time >= $2
+          AND es.start_time <= $3
+          ${employeeFilter}
         )
         SELECT 
           total_employees,
           ROUND(avg_hours::numeric, 2) as avg_hours,
           ROUND(on_time_rate::numeric, 2) as on_time_rate,
           ROUND(total_distance::numeric, 2) as total_distance,
-          ROUND(total_expenses::numeric, 2) as total_expenses
+          ROUND(total_expenses::numeric, 2) as total_expenses,
+          active_shifts,
+          completed_shifts
         FROM metrics`;
 
-      const [dailyResult, weeklyResult, heatmapResult, metricsResult] = await Promise.all([
-        client.query(dailyQuery, [adminId]),
-        client.query(weeklyQuery, [adminId]),
-        client.query(heatmapQuery, [adminId]),
-        client.query(metricsQuery, [adminId])
+      // Get employees for filtering
+      const employeesQuery = `
+        SELECT id, name, employee_number, department
+        FROM users
+        WHERE group_admin_id = $1 AND role = 'employee'
+        ORDER BY name ASC
+      `;
+
+      // Get departments for filtering
+      const departmentsQuery = `
+        SELECT DISTINCT department
+        FROM users
+        WHERE group_admin_id = $1 AND role = 'employee' AND department IS NOT NULL
+        ORDER BY department
+      `;
+
+      const queryParams: Array<string | number | Date> = [...baseParams, startDate, endDate];
+
+      const [dailyResult, weeklyResult, heatmapResult, metricsResult, employeesResult, departmentsResult] = await Promise.all([
+        client.query(dailyQuery, queryParams),
+        client.query(weeklyQuery, queryParams),
+        client.query(heatmapQuery, queryParams),
+        client.query(metricsQuery, queryParams),
+        client.query(employeesQuery, [adminId]),
+        client.query(departmentsQuery, [adminId])
       ]);
 
       // Log the results
@@ -845,8 +953,12 @@ router.get('/attendance-analytics',
           avg_hours: 0,
           on_time_rate: 0,
           total_distance: 0,
-          total_expenses: 0
-        }
+          total_expenses: 0,
+          active_shifts: 0,
+          completed_shifts: 0
+        },
+        employees: employeesResult.rows || [],
+        departments: departmentsResult.rows.map(row => row.department) || []
       };
 
       console.log('Sending response for attendance analytics');
@@ -873,14 +985,39 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
 
     const adminId = req.user.id;
 
+    // Extract filter parameters
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default to 30 days ago
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+    const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+    const department = req.query.department as string;
+
+    // Build filter conditions
+    let employeeFilter = '';
+    const queryParams: Array<string | number | Date> = [adminId, startDate, endDate];
+    let paramIndex = 4; // Start from 4 since we have 3 parameters already
+
+    if (employeeId) {
+      employeeFilter = ` AND et.assigned_to = $${paramIndex}`;
+      queryParams.push(employeeId);
+      paramIndex++;
+    }
+
+    if (department) {
+      employeeFilter += ` AND et.assigned_to IN (SELECT id FROM users WHERE department = $${paramIndex})`;
+      queryParams.push(department);
+      paramIndex++;
+    }
+
     // Get task status distribution for pie chart
     const statusQuery = `
       SELECT 
         status,
         COUNT(*) as count
-      FROM employee_tasks
+      FROM employee_tasks et
       WHERE assigned_by = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+      AND created_at >= $2
+      AND created_at <= $3
+      ${employeeFilter}
       GROUP BY status
       ORDER BY count DESC`;
 
@@ -888,8 +1025,8 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
     const trendQuery = `
       WITH days AS (
         SELECT generate_series(
-          date_trunc('day', CURRENT_DATE - INTERVAL '7 days'),
-          date_trunc('day', CURRENT_DATE),
+          date_trunc('day', $2::timestamp),
+          date_trunc('day', $3::timestamp),
           '1 day'::interval
         ) as day
       )
@@ -900,6 +1037,7 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
       LEFT JOIN employee_tasks et ON 
         date_trunc('day', et.created_at) = days.day
         AND et.assigned_by = $1
+        ${employeeFilter}
       GROUP BY days.day
       ORDER BY days.day`;
 
@@ -908,9 +1046,11 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
       SELECT 
         priority,
         COUNT(*) as count
-      FROM employee_tasks
+      FROM employee_tasks et
       WHERE assigned_by = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+      AND created_at >= $2
+      AND created_at <= $3
+      ${employeeFilter}
       GROUP BY priority
       ORDER BY 
         CASE priority
@@ -932,9 +1072,11 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
                      AND status != 'completed' 
                   THEN 1 END) as overdue_tasks,
           (COUNT(*)::decimal / 30.0) as avg_tasks_per_day
-        FROM employee_tasks
+        FROM employee_tasks et
         WHERE assigned_by = $1
-        AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        AND created_at >= $2
+        AND created_at <= $3
+        ${employeeFilter}
       )
       SELECT 
         total_tasks,
@@ -945,11 +1087,29 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
       FROM task_metrics
     `;
 
-    const [statusResult, trendResult, priorityResult, metricsResult] = await Promise.all([
-      client.query(statusQuery, [adminId]),
-      client.query(trendQuery, [adminId]),
-      client.query(priorityQuery, [adminId]),
-      client.query(metricsQuery, [adminId])
+    // Get employees for filtering
+    const employeesQuery = `
+      SELECT id, name, employee_number, department
+      FROM users
+      WHERE group_admin_id = $1 AND role = 'employee'
+      ORDER BY name ASC
+    `;
+
+    // Get departments for filtering
+    const departmentsQuery = `
+      SELECT DISTINCT department
+      FROM users
+      WHERE group_admin_id = $1 AND role = 'employee' AND department IS NOT NULL
+      ORDER BY department
+    `;
+
+    const [statusResult, trendResult, priorityResult, metricsResult, employeesResult, departmentsResult] = await Promise.all([
+      client.query(statusQuery, queryParams),
+      client.query(trendQuery, queryParams),
+      client.query(priorityQuery, queryParams),
+      client.query(metricsQuery, queryParams),
+      client.query(employeesQuery, [adminId]),
+      client.query(departmentsQuery, [adminId])
     ]);
 
     // Process and format the response
@@ -963,7 +1123,9 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
         completion_rate: Number(metricsResult.rows[0]?.completion_rate || 0).toFixed(1),
         overdue_tasks: Number(metricsResult.rows[0]?.overdue_tasks || 0),
         avg_completion_time: Number(metricsResult.rows[0]?.avg_completion_time || 0).toFixed(1)
-      }
+      },
+      employees: employeesResult.rows || [],
+      departments: departmentsResult.rows.map(row => row.department) || []
     };
 
     // After executing the query, add debug logging
@@ -991,33 +1153,71 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
 
     const adminId = req.user.id;
 
+    // Extract filter parameters
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default to 30 days ago
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+    const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+    const department = req.query.department as string;
+
+    // Build filter conditions
+    let employeeFilter = '';
+    const queryParams: Array<string | number | Date> = [adminId, startDate, endDate];
+    let paramIndex = 4; // Start from 4 since we have 3 parameters already
+
+    if (employeeId) {
+      employeeFilter = ` AND e.user_id = $${paramIndex}`;
+      queryParams.push(employeeId);
+      paramIndex++;
+    }
+
+    if (department) {
+      employeeFilter += ` AND e.user_id IN (SELECT id FROM users WHERE department = $${paramIndex})`;
+      queryParams.push(department);
+      paramIndex++;
+    }
+
     // Get expense distribution by category
     const expenseQuery = `
       WITH expense_categories AS (
         SELECT 
           'Lodging' as category, lodging_expenses as amount
-        FROM expenses 
-        WHERE group_admin_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        FROM expenses e
+        WHERE e.group_admin_id = $1 
+        AND e.created_at >= $2
+        AND e.created_at <= $3
+        ${employeeFilter}
         UNION ALL
         SELECT 
           'Daily Allowance', daily_allowance
-        FROM expenses 
-        WHERE group_admin_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        FROM expenses e
+        WHERE e.group_admin_id = $1 
+        AND e.created_at >= $2
+        AND e.created_at <= $3
+        ${employeeFilter}
         UNION ALL
         SELECT 
           'Fuel', diesel
-        FROM expenses 
-        WHERE group_admin_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        FROM expenses e
+        WHERE e.group_admin_id = $1 
+        AND e.created_at >= $2
+        AND e.created_at <= $3
+        ${employeeFilter}
         UNION ALL
         SELECT 
           'Toll', toll_charges
-        FROM expenses 
-        WHERE group_admin_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        FROM expenses e
+        WHERE e.group_admin_id = $1 
+        AND e.created_at >= $2
+        AND e.created_at <= $3
+        ${employeeFilter}
         UNION ALL
         SELECT 
           'Other', other_expenses
-        FROM expenses 
-        WHERE group_admin_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        FROM expenses e
+        WHERE e.group_admin_id = $1 
+        AND e.created_at >= $2
+        AND e.created_at <= $3
+        ${employeeFilter}
       )
       SELECT 
         category,
@@ -1034,9 +1234,11 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
         location,
         COUNT(*) as trip_count,
         ROUND(SUM(total_amount)::numeric, 2) as total_amount
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+      FROM expenses e
+      WHERE e.group_admin_id = $1 
+      AND e.created_at >= $2
+      AND e.created_at <= $3
+      ${employeeFilter}
       AND location IS NOT NULL
       GROUP BY location
       ORDER BY total_amount DESC
@@ -1049,9 +1251,11 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
         COUNT(*) as trip_count,
         ROUND(SUM(total_kilometers)::numeric, 2) as total_distance,
         ROUND(SUM(total_amount)::numeric, 2) as total_amount
-      FROM expenses
-      WHERE group_admin_id = $1 
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+      FROM expenses e
+      WHERE e.group_admin_id = $1 
+      AND e.created_at >= $2
+      AND e.created_at <= $3
+      ${employeeFilter}
       AND vehicle_type IS NOT NULL
       GROUP BY vehicle_type
       ORDER BY total_amount DESC`;
@@ -1059,20 +1263,40 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
     // Get overall metrics
     const metricsQuery = `
       SELECT 
-        COUNT(DISTINCT user_id) as total_travelers,
+        COUNT(DISTINCT e.user_id) as total_travelers,
         COUNT(*) as total_trips,
         ROUND(SUM(total_kilometers)::numeric, 2) as total_distance,
         ROUND(SUM(total_amount)::numeric, 2) as total_expenses,
         ROUND(AVG(total_amount)::numeric, 2) as avg_trip_cost
-      FROM expenses
-      WHERE group_admin_id = $1
-      AND created_at >= CURRENT_DATE - INTERVAL '30 days'`;
+      FROM expenses e
+      WHERE e.group_admin_id = $1
+      AND e.created_at >= $2
+      AND e.created_at <= $3
+      ${employeeFilter}`;
 
-    const [expenseResult, locationResult, transportResult, metricsResult] = await Promise.all([
-      client.query(expenseQuery, [adminId]),
-      client.query(locationQuery, [adminId]),
-      client.query(transportQuery, [adminId]),
-      client.query(metricsQuery, [adminId])
+    // Get employees for filtering
+    const employeesQuery = `
+      SELECT id, name, employee_number, department
+      FROM users
+      WHERE group_admin_id = $1 AND role = 'employee'
+      ORDER BY name ASC
+    `;
+
+    // Get departments for filtering
+    const departmentsQuery = `
+      SELECT DISTINCT department
+      FROM users
+      WHERE group_admin_id = $1 AND role = 'employee' AND department IS NOT NULL
+      ORDER BY department
+    `;
+
+    const [expenseResult, locationResult, transportResult, metricsResult, employeesResult, departmentsResult] = await Promise.all([
+      client.query(expenseQuery, queryParams),
+      client.query(locationQuery, queryParams),
+      client.query(transportQuery, queryParams),
+      client.query(metricsQuery, queryParams),
+      client.query(employeesQuery, [adminId]),
+      client.query(departmentsQuery, [adminId])
     ]);
 
     // Process and format the response
@@ -1089,7 +1313,9 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
         total_distance: Number(metricsResult.rows[0]?.total_distance || 0),
         total_expenses: Number(metricsResult.rows[0]?.total_expenses || 0),
         avg_trip_cost: Number(metricsResult.rows[0]?.avg_trip_cost || 0)
-      }
+      },
+      employees: employeesResult.rows || [],
+      departments: departmentsResult.rows.map(row => row.department) || []
     };
 
     res.json(response);
