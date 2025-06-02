@@ -398,13 +398,14 @@ router.get('/tracking-permissions', authenticateToken, async (req: any, res) => 
 
         const company_id = companyResult.rows[0].company_id;
 
-        // Then get the tracking permissions
+        // Then get the tracking permissions - now filtering by both company_id and group_admin_id
         const result = await pool.query(
             `SELECT utp.*, u.name as user_name 
              FROM user_tracking_permissions utp
              JOIN users u ON utp.user_id = u.id
-             WHERE u.company_id = $1`,
-            [company_id]
+             WHERE u.company_id = $1
+             AND u.group_admin_id = $2`,
+            [company_id, req.user.id]
         );
         res.json(result.rows);
     } catch (error) {
