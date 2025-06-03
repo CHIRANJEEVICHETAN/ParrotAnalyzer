@@ -19,14 +19,14 @@ const errorLogCleanup = new CronJob('0 2 * * *', async () => {
 // Process shift timers every minute
 const shiftTimerProcessor = new CronJob('*/1 * * * *', async () => {
     try {
-        console.log('Processing shift timers...');
+        console.log(`[${new Date().toISOString()}] Processing shift timers...`);
         const endedShifts = await shiftService.processPendingTimers();
         
         if (endedShifts > 0) {
-            console.log(`Auto-ended ${endedShifts} shifts based on timer settings`);
+            console.log(`[${new Date().toISOString()}] Successfully auto-ended ${endedShifts} shifts based on timer settings`);
         }
     } catch (error) {
-        console.error('Error processing shift timers:', error);
+        console.error(`[${new Date().toISOString()}] Error processing shift timers:`, error);
         errorLogger.logError(error, 'ShiftTimerProcessor');
     }
 });
@@ -34,14 +34,14 @@ const shiftTimerProcessor = new CronJob('*/1 * * * *', async () => {
 // Send timer reminder notifications every minute (5-minute reminder before shift ends)
 const shiftReminderSender = new CronJob('*/1 * * * *', async () => {
     try {
-        console.log('Sending shift timer reminders...');
+        console.log(`[${new Date().toISOString()}] Sending shift timer reminders...`);
         const sentReminders = await shiftService.sendTimerReminders(5);
         
         if (sentReminders > 0) {
-            console.log(`Sent ${sentReminders} shift ending reminders`);
+            console.log(`[${new Date().toISOString()}] Successfully sent ${sentReminders} shift ending reminders`);
         }
     } catch (error) {
-        console.error('Error sending shift reminders:', error);
+        console.error(`[${new Date().toISOString()}] Error sending shift reminders:`, error);
         errorLogger.logError(error, 'ShiftReminderSender');
     }
 });

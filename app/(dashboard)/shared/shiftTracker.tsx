@@ -1683,6 +1683,27 @@ export default function EmployeeShiftTracker() {
     const now = new Date();
     if (!shiftStart) return;
 
+    // Cancel any active timer if it exists to prevent timer-end errors
+    if (timerEndTime) {
+      try {
+        // First update local state to prevent UI issues
+        setTimerDuration(null);
+        setTimerEndTime(null);
+        
+        // Then call the API to cancel the timer (don't wait for response)
+        axios.delete(
+          `${process.env.EXPO_PUBLIC_API_URL}/api/shift-timer/shift/timer`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        ).catch(error => {
+          // Silently handle any errors (like 404) - just log them
+          console.log("Non-critical error cancelling timer during shift end:", error);
+        });
+      } catch (timerError) {
+        console.error("Error cancelling timer during shift end:", timerError);
+        // Continue with shift end even if timer cancellation fails
+      }
+    }
+
     // Immediately update UI state
     setShowModal(false);
     setIsShiftActive(false);
@@ -1933,7 +1954,7 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Add function to cancel timer
+  // Modify the handleCancelTimer function to handle 404 responses
   const handleCancelTimer = async () => {
     try {
       showInAppNotification("Cancelling auto-end timer...", "info");
@@ -1954,14 +1975,24 @@ export default function EmployeeShiftTracker() {
       }
     } catch (error: any) {
       console.error("Error cancelling timer:", error);
-      showInAppNotification(
-        error.response?.data?.error || "Failed to cancel timer",
-        "error"
-      );
+      
+      // Handle 404 response (no active timer) as a non-error condition
+      if (error.response?.status === 404) {
+        // No active timer found, which is fine - reset the UI
+        setTimerDuration(null);
+        setTimerEndTime(null);
+        showInAppNotification("No active timer found", "info");
+      } else {
+        // For other errors, show the error message
+        showInAppNotification(
+          error.response?.data?.error || "Failed to cancel timer",
+          "error"
+        );
+      }
     }
   };
 
-  // Add function to check for existing timer when component mounts
+  // Update the checkExistingTimer function
   const checkExistingTimer = async () => {
     try {
       // Only check if we don't have a timer set locally
@@ -1986,15 +2017,17 @@ export default function EmployeeShiftTracker() {
           }
         }
       }
-    } catch (error) {
-      // Don't treat 404 (not found) as an error - this is an expected condition
-      if ((error as any).response && (error as any).response.status === 404) {
-        console.log("No active timer found - this is normal");
-        return; // No timer exists, which is fine
+    } catch (error: any) {
+      // Handle 404 (not found) as an expected condition
+      if (error.response?.status === 404) {
+        console.log(`[TIMER] No active timer found for ${user?.role} - this is normal`);
+        // Ensure local state is reset
+        setTimerDuration(null);
+        setTimerEndTime(null);
+      } else {
+        // Log other errors that are actual problems
+        console.error(`[TIMER] Error checking for existing timer:`, error);
       }
-      
-      // Log other errors that are actual problems
-      console.error("Error checking for existing timer:", error);
     }
   };
 

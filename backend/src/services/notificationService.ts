@@ -232,23 +232,48 @@ class NotificationService {
         userIds = [notification.user_id];
       }
 
-      // For test notifications, first create a record
+      // For new notifications, first validate user_id and create a record
       if (notification.id === 0) {
-        const result = await client.query(
-          `INSERT INTO push_notifications 
-           (user_id, title, message, type, priority, data) 
-           VALUES ($1, $2, $3, $4, $5, $6) 
-           RETURNING id`,
-          [
-            notification.user_id,
-            notification.title,
-            notification.message,
-            notification.type || "test",
-            notification.priority || "default",
-            notification.data || {},
-          ]
-        );
-        notification.id = result.rows[0].id;
+        // Make sure user_id is valid (not 0 or empty)
+        if (!notification.user_id || notification.user_id === '0') {
+          console.warn(`[PUSH] Skipping DB record creation due to invalid user_id: ${notification.user_id}`);
+          // Assign a temporary ID to continue without DB insertion
+          notification.id = -1;
+        } else {
+          try {
+            // Check if user exists first
+            const userExists = await client.query(
+              `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`,
+              [notification.user_id]
+            );
+            
+            if (userExists.rows[0].exists) {
+              const result = await client.query(
+                `INSERT INTO push_notifications 
+                 (user_id, title, message, type, priority, data) 
+                 VALUES ($1, $2, $3, $4, $5, $6) 
+                 RETURNING id`,
+                [
+                  notification.user_id,
+                  notification.title,
+                  notification.message,
+                  notification.type || "test",
+                  notification.priority || "default",
+                  notification.data || {},
+                ]
+              );
+              notification.id = result.rows[0].id;
+            } else {
+              console.warn(`[PUSH] Skipping DB record creation due to non-existent user_id: ${notification.user_id}`);
+              // Assign a temporary ID to continue without DB insertion
+              notification.id = -1;
+            }
+          } catch (dbError) {
+            console.error(`[PUSH] Error creating notification record:`, dbError);
+            // Assign a temporary ID to continue without DB insertion
+            notification.id = -1;
+          }
+        }
       }
 
       const tokenResult = await client.query(
@@ -341,13 +366,15 @@ class NotificationService {
         };
       }
 
-      // Update notification as sent
-      await client.query(
-        `UPDATE push_notifications
-         SET sent = true, sent_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [notification.id]
-      );
+      // Update notification as sent if it's a valid database record
+      if (notification.id > 0) {
+        await client.query(
+          `UPDATE push_notifications
+           SET sent = true, sent_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [notification.id]
+        );
+      }
 
       return {
         success: results.expo.success || results.fcm.success,
@@ -496,13 +523,35 @@ class NotificationService {
   }
 
   async sendRoleNotification(
-    managementId: number,
+    senderId: number,
     role: string,
     notification: Omit<PushNotification, "id" | "user_id">,
     excludeSender: boolean = false
   ): Promise<void> {
     const client = await pool.connect();
     try {
+      // First validate senderId - use a valid existing user or fallback to a system user
+      let validSenderId = senderId;
+      
+      // If senderId is invalid (0 or negative), try to find a system user or the first admin
+      if (!senderId || senderId <= 0) {
+        try {
+          // Try to find a system user or the first admin as fallback
+          const fallbackResult = await client.query(
+            `SELECT id FROM users WHERE role = 'management' ORDER BY id LIMIT 1`
+          );
+          
+          if (fallbackResult.rows.length > 0) {
+            validSenderId = fallbackResult.rows[0].id;
+            console.log(`[NOTIFICATION] Using fallback sender ID ${validSenderId} instead of invalid ID ${senderId}`);
+          } else {
+            console.warn(`[NOTIFICATION] Cannot find a valid fallback user ID, role notifications may fail`);
+          }
+        } catch (error) {
+          console.error(`[NOTIFICATION] Error finding fallback sender:`, error);
+        }
+      }
+      
       // Get all users with the specified role, excluding the sender if needed
       const query = excludeSender
         ? `SELECT DISTINCT u.id 
@@ -517,16 +566,20 @@ class NotificationService {
            WHERE u.role = $1 
            AND dt.is_active = true`;
 
-      const params = excludeSender ? [role, managementId] : [role];
+      const params = excludeSender ? [role, senderId] : [role];
       const users = await client.query(query, params);
 
       if (users.rows.length > 0) {
+        // Get the first recipient to use as a valid user_id for the notification
+        const firstRecipientId = users.rows[0].id;
+        
         // Send push notification to all users at once
+        // Use the first recipient's ID for DB storage to avoid FK constraint issues
         await this.sendPushNotification(
           {
             ...notification,
             id: 0,
-            user_id: managementId.toString(), // sender's ID
+            user_id: firstRecipientId.toString(), // Use first recipient instead of sender
           },
           users.rows.map((user) => user.id.toString())
         );
@@ -540,7 +593,11 @@ class NotificationService {
             notification.type
           );
         }
+      } else {
+        console.log(`[NOTIFICATION] No ${role} users found to send notification to`);
       }
+    } catch (error) {
+      console.error(`[NOTIFICATION] Error in sendRoleNotification:`, error);
     } finally {
       client.release();
     }

@@ -6,11 +6,12 @@ const shiftService = new ShiftTrackingService();
 // Define a type for the user property
 type AuthUser = {
   id: string | number;
+  role: string;
   [key: string]: any;
 };
 
 export const shiftTimerController = {
-    // Set an auto-end timer for the current shift
+    // Set an auto-end timer for the current shift (works for all roles: employee, group-admin, management)
     async setTimer(req: Request, res: Response): Promise<void> {
         try {
             // Type assertion for user
@@ -19,42 +20,62 @@ export const shiftTimerController = {
             const { durationHours } = req.body;
 
             // Validate input
-            if (!durationHours || typeof durationHours !== 'number' || durationHours <= 0 || durationHours > 24) {
-                res.status(400).json({ 
-                    success: false, 
-                    error: 'Duration must be a positive number between 0 and 24 hours' 
-                });
+            if (!durationHours || typeof durationHours !== 'number') {
+                res.status(400).json({ success: false, error: 'Duration in hours is required and must be a number' });
                 return;
             }
 
-            // Set the timer
-            const timer = await shiftService.setShiftTimer(userId, durationHours);
+            if (durationHours <= 0 || durationHours > 24) {
+                res.status(400).json({ success: false, error: 'Duration must be between 0 and 24 hours' });
+                return;
+            }
 
-            res.status(200).json({
-                success: true,
-                message: 'Auto-end timer set successfully',
-                timer: {
-                    duration: timer.timer_duration_hours,
-                    endTime: timer.end_time
+            // First check if user has an active shift
+            try {
+                const timer = await shiftService.setShiftTimer(userId, durationHours);
+                
+                // Return the timer information
+                res.status(200).json({
+                    success: true,
+                    message: `Auto-end timer set successfully for ${durationHours} hours`,
+                    timer: {
+                        id: timer.id,
+                        userId: userId,
+                        durationHours: durationHours,
+                        endTime: timer.end_time,
+                        role: user.role
+                    }
+                });
+            } catch (error: any) {
+                // Check for specific error messages
+                if (error.message === 'No active shift found') {
+                    res.status(400).json({ 
+                        success: false, 
+                        error: 'No active shift found. You must start a shift before setting an auto-end timer.' 
+                    });
+                    return;
                 }
-            });
+                
+                console.error(`Error setting shift timer for user ${userId}:`, error);
+                res.status(500).json({ 
+                    success: false, 
+                    error: 'Failed to set timer. Please ensure you have an active shift and try again.' 
+                });
+            }
         } catch (error: any) {
-            console.error('Error setting shift timer:', error);
-            res.status(500).json({ 
-                success: false, 
-                error: error.message || 'Failed to set shift timer' 
-            });
+            console.error('Unexpected error in setTimer:', error);
+            res.status(500).json({ success: false, error: 'An unexpected error occurred' });
         }
     },
 
-    // Cancel the auto-end timer for the current shift
+    // Cancel the auto-end timer for the current shift (works for all roles)
     async cancelTimer(req: Request, res: Response): Promise<void> {
         try {
             // Type assertion for user
             const user = (req as any).user as AuthUser;
             const userId = Number(user.id);
 
-            // Cancel the timer
+            // Cancel the timer - ShiftTrackingService will handle the role-specific logic
             const cancelled = await shiftService.cancelShiftTimer(userId);
 
             if (cancelled) {
@@ -69,7 +90,7 @@ export const shiftTimerController = {
                 });
             }
         } catch (error: any) {
-            console.error('Error cancelling shift timer:', error);
+            console.error(`Error cancelling shift timer for user ${(req as any).user?.id}:`, error);
             res.status(500).json({ 
                 success: false, 
                 error: error.message || 'Failed to cancel shift timer' 
@@ -77,14 +98,14 @@ export const shiftTimerController = {
         }
     },
 
-    // Get the current auto-end timer for the active shift
+    // Get the current auto-end timer for the active shift (works for all roles)
     async getTimer(req: Request, res: Response): Promise<void> {
         try {
             // Type assertion for user
             const user = (req as any).user as AuthUser;
             const userId = Number(user.id);
 
-            // Get the timer
+            // Get the timer - ShiftTrackingService will handle the role-specific logic
             const timer = await shiftService.getCurrentShiftTimer(userId);
 
             if (timer) {
@@ -95,7 +116,8 @@ export const shiftTimerController = {
                         shiftId: timer.shift_id,
                         durationHours: timer.timer_duration_hours,
                         endTime: timer.end_time,
-                        startTime: timer.start_time
+                        startTime: timer.start_time,
+                        roleType: timer.role_type
                     }
                 });
             } else {
@@ -105,7 +127,7 @@ export const shiftTimerController = {
                 });
             }
         } catch (error: any) {
-            console.error('Error getting shift timer:', error);
+            console.error(`Error getting shift timer for user ${(req as any).user?.id}:`, error);
             res.status(500).json({ 
                 success: false, 
                 error: error.message || 'Failed to retrieve shift timer' 

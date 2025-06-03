@@ -257,7 +257,7 @@ export default function SplashScreen() {
                 letterSpacing: 0.5,
               }}
             >
-              Powered by Loginware.ai
+              Powered by Tecosoft.ai
             </Text>
           </Animated.View>
         </View>

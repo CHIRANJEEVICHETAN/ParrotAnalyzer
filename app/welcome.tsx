@@ -198,7 +198,7 @@ export default function Welcome() {
                             marginTop: 20,
                             letterSpacing: 0.5
                         }}>
-                            Powered by Loginware.ai
+                            Powered by Tecosoft.ai
                         </Text>
                     </Animated.View>
                 </View>
