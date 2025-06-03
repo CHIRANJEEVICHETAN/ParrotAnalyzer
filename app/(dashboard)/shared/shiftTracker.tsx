@@ -1531,6 +1531,9 @@ export default function EmployeeShiftTracker() {
 
       const now = new Date();
 
+      // Get current location for all roles
+      const appLocation = await safeGetCurrentLocation();
+      
       // Update UI immediately
       setShiftStart(now);
       setIsShiftActive(true);
@@ -1549,21 +1552,21 @@ export default function EmployeeShiftTracker() {
       // Perform API call and storage updates in background
       InteractionManager.runAfterInteractions(async () => {
         try {
-          // Include location data in the API call for employee role only
-          const locationData = user?.role === 'employee' && currentLocation
-            ? {
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude,
-                accuracy: currentLocation.accuracy || 0,
-              }
-            : undefined;
+          // Prepare location data for PostGIS point type
+          const locationData = appLocation ? {
+            latitude: appLocation.latitude,
+            longitude: appLocation.longitude,
+            accuracy: appLocation.accuracy || 0,
+            // Format point data for PostgreSQL
+            point: `(${appLocation.longitude},${appLocation.latitude})` // Note: PostGIS point format is (longitude,latitude)
+          } : undefined;
 
           // Start shift API call using role-specific endpoint
           await axios.post(
             `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/start`,
             {
               startTime: formatDateForBackend(now),
-              location: locationData, // Include location data only for employees
+              location: locationData, // Include location data for all roles
             },
             {
               headers: { Authorization: `Bearer ${token}` },
@@ -1704,6 +1707,9 @@ export default function EmployeeShiftTracker() {
       }
     }
 
+    // Get current location for end shift
+    const appLocation = await safeGetCurrentLocation();
+
     // Immediately update UI state
     setShowModal(false);
     setIsShiftActive(false);
@@ -1767,14 +1773,14 @@ export default function EmployeeShiftTracker() {
         // Cancel all shift-related notifications
         await cancelShiftNotifications();
 
-        // Include location data in the API call for employee role only
-        const locationData = user?.role === 'employee' && currentLocation
-          ? {
-              latitude: currentLocation.latitude,
-              longitude: currentLocation.longitude,
-              accuracy: currentLocation.accuracy || 0,
-            }
-          : undefined;
+        // Prepare location data for PostGIS point type
+        const locationData = appLocation ? {
+          latitude: appLocation.latitude,
+          longitude: appLocation.longitude,
+          accuracy: appLocation.accuracy || 0,
+          // Format point data for PostgreSQL
+          point: `(${appLocation.longitude},${appLocation.latitude})` // Note: PostGIS point format is (longitude,latitude)
+        } : undefined;
 
         // Send notification based on role
         if (user?.role !== "management") {
@@ -1804,7 +1810,7 @@ export default function EmployeeShiftTracker() {
             `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
             {
               endTime: formatDateForBackend(now),
-              location: locationData, // Include location data only for employees
+              location: locationData, // Include location data for all roles
             },
             {
               headers: { Authorization: `Bearer ${token}` },

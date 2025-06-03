@@ -720,17 +720,28 @@ router.post(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const { startTime } = req.body;
+      const { startTime, location } = req.body;
       const localStartTime = startTime
         ? convertToLocalTime(startTime)
         : "CURRENT_TIMESTAMP";
 
-      // Start new shift with provided startTime
+      // Format the location as PostgreSQL point data type if provided
+      let locationQuery = '';
+      let locationParam: number[] = []; // Explicitly type the array as number[]
+      
+      if (location && location.latitude !== undefined && location.longitude !== undefined) {
+        locationQuery = ', location_start = point($3, $4)';
+        locationParam = [location.longitude, location.latitude]; // PostGIS expects (longitude, latitude)
+      }
+
+      // Start new shift with provided startTime and location
       const result = await client.query(
-        `INSERT INTO management_shifts (user_id, start_time, status)
-       VALUES ($1, $2::timestamp, 'active')
-       RETURNING id, start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time`,
-        [req.user.id, localStartTime]
+        `INSERT INTO management_shifts (user_id, start_time, status${locationQuery ? ', location_start' : ''})
+       VALUES ($1, $2::timestamp, 'active'${locationQuery ? ', point($3, $4)' : ''})
+       RETURNING id, start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time${
+         locationQuery ? ', location_start' : ''
+       }`,
+        [req.user.id, localStartTime, ...locationParam]
       );
 
       // Send attendance to Sparrow Uncomment Later When needed
@@ -759,7 +770,7 @@ router.post(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const { endTime } = req.body;
+      const { endTime, location } = req.body;
       const localEndTime = endTime
         ? convertToLocalTime(endTime)
         : "CURRENT_TIMESTAMP";
@@ -787,14 +798,27 @@ router.post(
         [req.user.id, activeShift.rows[0].start_time, localEndTime]
       );
 
-      // End shift with provided endTime
+      // Format location data for update query if provided
+      let locationQuery = '';
+      const queryParams = [
+        localEndTime, 
+        expenses.rows[0].total_expenses, 
+        activeShift.rows[0].id
+      ];
+      
+      if (location && location.latitude !== undefined && location.longitude !== undefined) {
+        locationQuery = ', location_end = point($4, $5)';
+        queryParams.push(location.longitude, location.latitude); // PostGIS expects (longitude, latitude)
+      }
+
+      // End shift with provided endTime and location
       const result = await client.query(
         `UPDATE management_shifts 
        SET end_time = $1::timestamp,
            duration = $1::timestamp - start_time,
            status = 'completed',
            total_expenses = $2,
-           updated_at = CURRENT_TIMESTAMP
+           updated_at = CURRENT_TIMESTAMP${locationQuery}
        WHERE id = $3
        RETURNING 
          id, 
@@ -802,8 +826,8 @@ router.post(
          end_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as end_time,
          duration,
          status,
-         total_expenses`,
-        [localEndTime, expenses.rows[0].total_expenses, activeShift.rows[0].id]
+         total_expenses${locationQuery ? ', location_start, location_end' : ''}`,
+        queryParams
       );
 
       // Send attendance to Sparrow Uncomment Later When needed
