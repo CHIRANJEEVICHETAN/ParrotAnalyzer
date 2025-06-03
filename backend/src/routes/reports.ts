@@ -183,21 +183,15 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
       console.error('Error checking/adding category column:', err);
     }
 
-    // Build additional filter conditions
-    let additionalFilters = '';
-    const queryParams: Array<string | number | Date> = [adminId, startDate, endDate];
-    let paramIndex = 4; // Start from 4 since we have 3 parameters already
-
+    // Build parameters array
+    const baseParams: Array<string | number | Date> = [adminId, startDate, endDate];
+    
     if (employeeId) {
-      additionalFilters += ` AND user_id = $${paramIndex}`;
-      queryParams.push(employeeId);
-      paramIndex++;
+      baseParams.push(employeeId);
     }
-
+    
     if (department) {
-      additionalFilters += ` AND user_id IN (SELECT id FROM users WHERE department = $${paramIndex})`;
-      queryParams.push(department);
-      paramIndex++;
+      baseParams.push(department);
     }
 
     // Monthly data query with error handling
@@ -211,10 +205,11 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
         WHERE group_admin_id = $1
         AND date >= $2
         AND date <= $3
-        ${additionalFilters}
+        ${employeeId ? ' AND user_id = $4' : ''}
+        ${department ? ' AND user_id IN (SELECT id FROM users WHERE department = $5)' : ''}
         GROUP BY TO_CHAR(date, 'Mon')
         ORDER BY MIN(date)
-      `, queryParams);
+      `, baseParams);
     } catch (err) {
       console.error('Error fetching monthly data:', err);
       monthlyData = { rows: [] };
@@ -230,7 +225,8 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
         WHERE group_admin_id = $1
         AND date >= $2
         AND date <= $3
-        ${additionalFilters}
+        ${employeeId ? ` AND user_id = $4` : ''}
+        ${department ? ` AND user_id IN (SELECT id FROM users WHERE department = $5)` : ''}
         AND lodging_expenses > 0
         
         UNION ALL
@@ -242,7 +238,8 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
         WHERE group_admin_id = $1
         AND date >= $2
         AND date <= $3
-        ${additionalFilters}
+        ${employeeId ? ` AND user_id = $4` : ''}
+        ${department ? ` AND user_id IN (SELECT id FROM users WHERE department = $5)` : ''}
         AND daily_allowance > 0
         
         UNION ALL
@@ -254,7 +251,8 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
         WHERE group_admin_id = $1
         AND date >= $2
         AND date <= $3
-        ${additionalFilters}
+        ${employeeId ? ` AND user_id = $4` : ''}
+        ${department ? ` AND user_id IN (SELECT id FROM users WHERE department = $5)` : ''}
         AND diesel > 0
         
         UNION ALL
@@ -266,7 +264,8 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
         WHERE group_admin_id = $1
         AND date >= $2
         AND date <= $3
-        ${additionalFilters}
+        ${employeeId ? ` AND user_id = $4` : ''}
+        ${department ? ` AND user_id IN (SELECT id FROM users WHERE department = $5)` : ''}
         AND toll_charges > 0
         
         UNION ALL
@@ -278,7 +277,8 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
         WHERE group_admin_id = $1
         AND date >= $2
         AND date <= $3
-        ${additionalFilters}
+        ${employeeId ? ` AND user_id = $4` : ''}
+        ${department ? ` AND user_id IN (SELECT id FROM users WHERE department = $5)` : ''}
         AND other_expenses > 0
       )
       SELECT 
@@ -292,7 +292,7 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
       FROM category_totals
       WHERE population > 0
       ORDER BY population DESC
-    `, queryParams);
+    `, baseParams);
 
     // Remove the manual percentage calculation since it's now part of the query
     const processedCategoryData = categoryData.rows.map(row => ({
@@ -322,8 +322,9 @@ router.get('/expenses/overview', authMiddleware, adminMiddleware, async (req: Cu
         WHERE group_admin_id = $1
         AND date >= $2
         AND date <= $3
-        ${additionalFilters}
-      `, queryParams);
+        ${employeeId ? ` AND user_id = $4` : ''}
+        ${department ? ` AND user_id IN (SELECT id FROM users WHERE department = $5)` : ''}
+      `, baseParams);
     } catch (err) {
       console.error('Error fetching summary data:', err);
       summaryData = {
@@ -767,24 +768,30 @@ router.get('/attendance-analytics',
       const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
       const department = req.query.department as string;
       
-      // Build filter conditions
+      // Format dates for consistent parameter handling
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+      
+      // Build parameters array
+      const baseParams: Array<string | number> = [adminId, startDateStr, endDateStr];
+      
+      // Prepare filter conditions
       let employeeFilter = '';
-      const baseParams: Array<string | number | Date> = [adminId];
-      let paramIndex = 2;
-
+      let departmentFilter = '';
+      let paramIndex = 4;
+      
       if (employeeId) {
-        employeeFilter = ` AND u.id = $${paramIndex}`;
+        employeeFilter = ` AND user_id = $${paramIndex}`;
         baseParams.push(employeeId);
         paramIndex++;
       }
-
+      
       if (department) {
-        employeeFilter += ` AND u.department = $${paramIndex}`;
+        departmentFilter = ` AND u.department = $${paramIndex}`;
         baseParams.push(department);
-        paramIndex++;
       }
       
-      // Add debug query to check if admin has any employees
+      // Debug query for employee check
       const employeeCheck = await client.query(`
         SELECT COUNT(*) as employee_count 
         FROM users 
@@ -798,98 +805,130 @@ router.get('/attendance-analytics',
       const dailyQuery = `
         WITH days AS (
           SELECT generate_series(0, 6) as day
-        )
-        SELECT 
-          days.day,
-          COALESCE(COUNT(DISTINCT es.user_id), 0) as attendance_count,
-          COALESCE(COUNT(DISTINCT CASE 
-            WHEN es.status = 'active' AND 
-                 EXTRACT(HOUR FROM es.start_time) <= 9 
-            THEN es.user_id 
-          END), 0) as on_time_count
-        FROM days
-        LEFT JOIN (
+        ),
+        shifts AS (
           SELECT 
-            EXTRACT(DOW FROM start_time::date) as shift_day,
+            EXTRACT(DOW FROM start_time::date)::integer as shift_day,
             user_id,
             status,
             start_time
-          FROM employee_shifts es
-          WHERE start_time >= $2
-          AND start_time <= $3
-        ) es ON es.shift_day = days.day
-        LEFT JOIN users u ON es.user_id = u.id AND u.group_admin_id = $1
-        ${employeeFilter}
+          FROM employee_shifts
+          WHERE start_time >= $2::date
+          AND start_time <= $3::date
+          ${employeeId ? employeeFilter : ''}
+        )
+        SELECT 
+          days.day,
+          COALESCE(COUNT(DISTINCT s.user_id), 0) as attendance_count,
+          COALESCE(COUNT(DISTINCT CASE 
+            WHEN s.status = 'active' AND 
+                 EXTRACT(HOUR FROM s.start_time) <= 9 
+            THEN s.user_id 
+          END), 0) as on_time_count
+        FROM days
+        LEFT JOIN shifts s ON days.day = s.shift_day
+        LEFT JOIN users u ON s.user_id = u.id 
+        WHERE u.group_admin_id = $1 OR u.id IS NULL
+        ${department ? departmentFilter : ''}
         GROUP BY days.day
         ORDER BY days.day`;
 
       // Get weekly trend for line chart
       const weeklyQuery = `
+        WITH filtered_shifts AS (
+          SELECT 
+            es.start_time,
+            es.end_time,
+            es.duration,
+            es.user_id,
+            es.status
+          FROM employee_shifts es
+          JOIN users u ON es.user_id = u.id
+          WHERE u.group_admin_id = $1 
+          AND es.start_time >= $2::date
+          AND es.start_time <= $3::date
+          ${employeeId ? employeeFilter : ''}
+          ${department ? departmentFilter : ''}
+        )
         SELECT 
-          DATE_TRUNC('week', start_time) as week,
-          COUNT(DISTINCT es.user_id) as attendance_count,
+          DATE_TRUNC('week', start_time)::date as week,
+          COUNT(DISTINCT user_id) as attendance_count,
           COALESCE(AVG(
             CASE 
-              WHEN es.duration IS NOT NULL THEN 
-                EXTRACT(EPOCH FROM es.duration)/3600
-              WHEN es.end_time IS NOT NULL THEN 
-                EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600
+              WHEN duration IS NOT NULL THEN 
+                EXTRACT(EPOCH FROM duration)/3600
+              WHEN end_time IS NOT NULL THEN 
+                EXTRACT(EPOCH FROM (end_time - start_time))/3600
               ELSE NULL 
             END
           ), 0) as avg_hours
-        FROM employee_shifts es
-        JOIN users u ON es.user_id = u.id
-        WHERE u.group_admin_id = $1 
-        AND es.start_time >= $2
-        AND es.start_time <= $3
-        ${employeeFilter}
-        GROUP BY DATE_TRUNC('week', start_time)
+        FROM filtered_shifts
+        GROUP BY DATE_TRUNC('week', start_time)::date
         ORDER BY week`;
 
       // Get heatmap data
       const heatmapQuery = `
+        WITH filtered_shifts AS (
+          SELECT 
+            es.start_time,
+            es.user_id
+          FROM employee_shifts es
+          JOIN users u ON es.user_id = u.id
+          WHERE u.group_admin_id = $1 
+          AND es.start_time >= $2::date
+          AND es.start_time <= $3::date
+          ${employeeId ? employeeFilter : ''}
+          ${department ? departmentFilter : ''}
+        )
         SELECT 
           start_time::date as date,
-          COUNT(DISTINCT es.user_id) as count
-        FROM employee_shifts es
-        JOIN users u ON es.user_id = u.id
-        WHERE u.group_admin_id = $1 
-        AND es.start_time >= $2
-        AND es.start_time <= $3
-        ${employeeFilter}
+          COUNT(DISTINCT user_id) as count
+        FROM filtered_shifts
         GROUP BY start_time::date
         ORDER BY date`;
 
       // Get overall metrics
       const metricsQuery = `
-        WITH metrics AS (
+        WITH filtered_shifts AS (
           SELECT 
-            COUNT(DISTINCT es.user_id) as total_employees,
+            es.user_id,
+            es.status,
+            es.duration,
+            es.start_time,
+            es.end_time,
+            es.total_kilometers,
+            es.total_expenses
+          FROM employee_shifts es
+          JOIN users u ON es.user_id = u.id
+          WHERE u.group_admin_id = $1 
+          AND es.start_time >= $2::date
+          AND es.start_time <= $3::date
+          ${employeeId ? employeeFilter : ''}
+          ${department ? departmentFilter : ''}
+        ),
+        metrics AS (
+          SELECT 
+            COUNT(DISTINCT user_id) as total_employees,
             COALESCE(AVG(
               CASE 
-                WHEN es.duration IS NOT NULL THEN 
-                  EXTRACT(EPOCH FROM es.duration)/3600
-                WHEN es.end_time IS NOT NULL THEN 
-                  EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600
+                WHEN duration IS NOT NULL THEN 
+                  EXTRACT(EPOCH FROM duration)/3600
+                WHEN end_time IS NOT NULL THEN 
+                  EXTRACT(EPOCH FROM (end_time - start_time))/3600
                 ELSE NULL 
               END
             ), 0) as avg_hours,
             COUNT(DISTINCT CASE 
-              WHEN es.status = 'active' AND 
-                   EXTRACT(HOUR FROM es.start_time) <= 9 
-              THEN es.user_id 
+              WHEN status = 'active' AND 
+                   EXTRACT(HOUR FROM start_time) <= 9 
+              THEN user_id 
             END)::float / 
-            NULLIF(COUNT(DISTINCT es.user_id), 0) * 100 as on_time_rate,
+            NULLIF(COUNT(DISTINCT user_id), 0) * 100 as on_time_rate,
             SUM(total_kilometers) as total_distance,
             SUM(total_expenses) as total_expenses,
-            COUNT(CASE WHEN es.status = 'active' THEN 1 END) as active_shifts,
-            COUNT(CASE WHEN es.status = 'completed' THEN 1 END) as completed_shifts
-          FROM employee_shifts es
-          JOIN users u ON es.user_id = u.id
-          WHERE u.group_admin_id = $1 
-          AND es.start_time >= $2
-          AND es.start_time <= $3
-          ${employeeFilter}
+            COUNT(CASE WHEN status = 'active' THEN 1 END) as active_shifts,
+            COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_shifts
+          FROM filtered_shifts
         )
         SELECT 
           total_employees,
@@ -917,23 +956,134 @@ router.get('/attendance-analytics',
         ORDER BY department
       `;
 
-      const queryParams: Array<string | number | Date> = [...baseParams, startDate, endDate];
+      // Get leave information
+      const leaveQuery = `
+        SELECT 
+          u.id as employee_id,
+          u.name as employee_name,
+          u.employee_number,
+          u.department,
+          lr.start_date,
+          lr.end_date,
+          CASE 
+            WHEN lr.days_requested > 0 THEN lr.days_requested
+            WHEN lr.end_date >= lr.start_date THEN (lr.end_date - lr.start_date) + 1
+            ELSE 0
+          END as days_count,
+          lt.name as leave_type,
+          lt.is_paid
+        FROM leave_requests lr
+        JOIN users u ON lr.user_id = u.id
+        JOIN leave_types lt ON lr.leave_type_id = lt.id
+        WHERE u.group_admin_id = $1
+        AND lr.status = 'approved'
+        AND (
+          (lr.start_date >= $2::date AND lr.start_date <= $3::date)
+          OR
+          (lr.end_date >= $2::date AND lr.end_date <= $3::date)
+          OR
+          (lr.start_date <= $2::date AND lr.end_date >= $3::date)
+        )
+        ${employeeId ? employeeFilter.replace('user_id', 'lr.user_id') : ''}
+        ${department ? departmentFilter : ''}
+        ORDER BY lr.start_date
+      `;
 
-      const [dailyResult, weeklyResult, heatmapResult, metricsResult, employeesResult, departmentsResult] = await Promise.all([
-        client.query(dailyQuery, queryParams),
-        client.query(weeklyQuery, queryParams),
-        client.query(heatmapQuery, queryParams),
-        client.query(metricsQuery, queryParams),
+      // Get monthly attendance report
+      const monthlyQuery = `
+        WITH months AS (
+          SELECT generate_series(
+            date_trunc('month', $2::date), 
+            date_trunc('month', $3::date),
+            '1 month'::interval
+          ) AS month
+        ),
+        monthly_data AS (
+          SELECT 
+            DATE_TRUNC('month', es.start_time) as month,
+            COUNT(DISTINCT es.user_id) as present_count,
+            COUNT(DISTINCT DATE(es.start_time)) as working_days,
+            ROUND(AVG(EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600)::numeric, 1) as avg_hours
+          FROM employee_shifts es
+          JOIN users u ON es.user_id = u.id
+          WHERE u.group_admin_id = $1
+          AND es.start_time >= $2::date
+          AND es.start_time <= $3::date
+          ${employeeId ? employeeFilter.replace('user_id', 'es.user_id') : ''}
+          ${department ? departmentFilter : ''}
+          GROUP BY DATE_TRUNC('month', es.start_time)
+        )
+        SELECT 
+          TO_CHAR(m.month, 'Mon YYYY') as month_name,
+          m.month as month_date,
+          COALESCE(md.present_count, 0) as present_count,
+          COALESCE(md.working_days, 0) as working_days,
+          COALESCE(md.avg_hours, 0) as avg_hours
+        FROM months m
+        LEFT JOIN monthly_data md ON DATE_TRUNC('month', md.month) = m.month
+        ORDER BY m.month
+      `;
+
+      // Get yearly attendance report
+      const yearlyQuery = `
+        WITH years AS (
+          SELECT DISTINCT 
+            EXTRACT(YEAR FROM generate_series(
+              $2::date, 
+              $3::date,
+              '1 day'::interval
+            )::date) as year
+        ),
+        yearly_data AS (
+          SELECT 
+            EXTRACT(YEAR FROM es.start_time) as year,
+            COUNT(DISTINCT es.user_id) as total_employees,
+            COUNT(DISTINCT DATE(es.start_time)) as working_days,
+            ROUND(AVG(EXTRACT(EPOCH FROM (es.end_time - es.start_time))/3600)::numeric, 1) as avg_hours,
+            ROUND(SUM(es.total_kilometers)::numeric, 1) as total_distance,
+            ROUND(SUM(es.total_expenses)::numeric, 1) as total_expenses
+          FROM employee_shifts es
+          JOIN users u ON es.user_id = u.id
+          WHERE u.group_admin_id = $1
+          AND es.start_time >= $2::date
+          AND es.start_time <= $3::date
+          ${employeeId ? employeeFilter.replace('user_id', 'es.user_id') : ''}
+          ${department ? departmentFilter : ''}
+          GROUP BY EXTRACT(YEAR FROM es.start_time)
+        )
+        SELECT 
+          y.year,
+          COALESCE(yd.total_employees, 0) as total_employees,
+          COALESCE(yd.working_days, 0) as working_days,
+          COALESCE(yd.avg_hours, 0) as avg_hours,
+          COALESCE(yd.total_distance, 0) as total_distance,
+          COALESCE(yd.total_expenses, 0) as total_expenses
+        FROM years y
+        LEFT JOIN yearly_data yd ON yd.year = y.year
+        ORDER BY y.year
+      `;
+
+      const [dailyResult, weeklyResult, monthlyResult, yearlyResult, heatmapResult, metricsResult, employeesResult, departmentsResult, leaveResult] = await Promise.all([
+        client.query(dailyQuery, baseParams),
+        client.query(weeklyQuery, baseParams),
+        client.query(monthlyQuery, baseParams),
+        client.query(yearlyQuery, baseParams),
+        client.query(heatmapQuery, baseParams),
+        client.query(metricsQuery, baseParams),
         client.query(employeesQuery, [adminId]),
-        client.query(departmentsQuery, [adminId])
+        client.query(departmentsQuery, [adminId]),
+        client.query(leaveQuery, baseParams)
       ]);
 
       // Log the results
       console.log('Query results:', {
         dailyCount: dailyResult.rows.length,
         weeklyCount: weeklyResult.rows.length,
+        monthlyCount: monthlyResult.rows.length,
+        yearlyCount: yearlyResult.rows.length,
         heatmapCount: heatmapResult.rows.length,
-        hasMetrics: !!metricsResult.rows.length
+        hasMetrics: !!metricsResult.rows.length,
+        leaveCount: leaveResult.rows.length
       });
 
       const response = {
@@ -947,6 +1097,8 @@ router.get('/attendance-analytics',
           attendance_count: 0, 
           avg_hours: 0 
         }),
+        monthly: monthlyResult.rows.length ? monthlyResult.rows : [],
+        yearly: yearlyResult.rows.length ? yearlyResult.rows : [],
         heatmap: heatmapResult.rows.length ? heatmapResult.rows : [],
         metrics: metricsResult.rows[0] || {
           total_employees: 0,
@@ -958,7 +1110,18 @@ router.get('/attendance-analytics',
           completed_shifts: 0
         },
         employees: employeesResult.rows || [],
-        departments: departmentsResult.rows.map(row => row.department) || []
+        departments: departmentsResult.rows.map(row => row.department) || [],
+        leave: leaveResult.rows.map(row => ({
+          employeeId: row.employee_id,
+          employeeName: row.employee_name,
+          employeeNumber: row.employee_number,
+          department: row.department,
+          startDate: new Date(row.start_date).toISOString(),
+          endDate: new Date(row.end_date).toISOString(),
+          daysCount: parseFloat(row.days_count || '0'),
+          leaveType: row.leave_type,
+          isPaid: row.is_paid
+        }))
       };
 
       console.log('Sending response for attendance analytics');
@@ -991,9 +1154,14 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     const department = req.query.department as string;
 
-    // Build filter conditions
+    // Format dates for consistent parameter handling
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    // Build parameters array and filter conditions
+    const queryParams: Array<string | number> = [adminId, startDateStr, endDateStr];
     let employeeFilter = '';
-    const queryParams: Array<string | number | Date> = [adminId, startDate, endDate];
+    let departmentFilter = '';
     let paramIndex = 4; // Start from 4 since we have 3 parameters already
 
     if (employeeId) {
@@ -1003,30 +1171,31 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
     }
 
     if (department) {
-      employeeFilter += ` AND et.assigned_to IN (SELECT id FROM users WHERE department = $${paramIndex})`;
+      departmentFilter = ` AND u.department = $${paramIndex}`;
       queryParams.push(department);
-      paramIndex++;
     }
 
     // Get task status distribution for pie chart
     const statusQuery = `
       SELECT 
-        status,
+        et.status,
         COUNT(*) as count
       FROM employee_tasks et
-      WHERE assigned_by = $1
-      AND created_at >= $2
-      AND created_at <= $3
+      JOIN users u ON et.assigned_to = u.id
+      WHERE et.assigned_by = $1
+      AND et.created_at >= $2::date
+      AND et.created_at <= $3::date
       ${employeeFilter}
-      GROUP BY status
+      ${departmentFilter}
+      GROUP BY et.status
       ORDER BY count DESC`;
 
     // Get daily task creation trend for line chart
     const trendQuery = `
       WITH days AS (
         SELECT generate_series(
-          date_trunc('day', $2::timestamp),
-          date_trunc('day', $3::timestamp),
+          date_trunc('day', $2::date),
+          date_trunc('day', $3::date),
           '1 day'::interval
         ) as day
       )
@@ -1037,23 +1206,28 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
       LEFT JOIN employee_tasks et ON 
         date_trunc('day', et.created_at) = days.day
         AND et.assigned_by = $1
+      LEFT JOIN users u ON et.assigned_to = u.id
+      WHERE (et.id IS NULL OR (et.assigned_by = $1 
         ${employeeFilter}
+        ${departmentFilter}))
       GROUP BY days.day
       ORDER BY days.day`;
 
     // Get task priority distribution for bar chart
     const priorityQuery = `
       SELECT 
-        priority,
+        et.priority,
         COUNT(*) as count
       FROM employee_tasks et
-      WHERE assigned_by = $1
-      AND created_at >= $2
-      AND created_at <= $3
+      JOIN users u ON et.assigned_to = u.id
+      WHERE et.assigned_by = $1
+      AND et.created_at >= $2::date
+      AND et.created_at <= $3::date
       ${employeeFilter}
-      GROUP BY priority
+      ${departmentFilter}
+      GROUP BY et.priority
       ORDER BY 
-        CASE priority
+        CASE et.priority
           WHEN 'high' THEN 1
           WHEN 'medium' THEN 2
           WHEN 'low' THEN 3
@@ -1065,18 +1239,20 @@ router.get('/task-analytics', authMiddleware, adminMiddleware, async (req: Custo
       WITH task_metrics AS (
         SELECT 
           COUNT(*) as total_tasks,
-          COUNT(DISTINCT assigned_to) as assigned_employees,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END)::float / 
+          COUNT(DISTINCT et.assigned_to) as assigned_employees,
+          COUNT(CASE WHEN et.status = 'completed' THEN 1 END)::float / 
             NULLIF(COUNT(*), 0) * 100 as completion_rate,
-          COUNT(CASE WHEN due_date < CURRENT_TIMESTAMP 
-                     AND status != 'completed' 
+          COUNT(CASE WHEN et.due_date < CURRENT_TIMESTAMP 
+                     AND et.status != 'completed' 
                   THEN 1 END) as overdue_tasks,
           (COUNT(*)::decimal / 30.0) as avg_tasks_per_day
         FROM employee_tasks et
-        WHERE assigned_by = $1
-        AND created_at >= $2
-        AND created_at <= $3
+        JOIN users u ON et.assigned_to = u.id
+        WHERE et.assigned_by = $1
+        AND et.created_at >= $2::date
+        AND et.created_at <= $3::date
         ${employeeFilter}
+        ${departmentFilter}
       )
       SELECT 
         total_tasks,
@@ -1159,9 +1335,14 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     const department = req.query.department as string;
 
-    // Build filter conditions
+    // Format dates for consistent parameter handling
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    // Build parameters array and filter conditions
+    const queryParams: Array<string | number> = [adminId, startDateStr, endDateStr];
     let employeeFilter = '';
-    const queryParams: Array<string | number | Date> = [adminId, startDate, endDate];
+    let departmentFilter = '';
     let paramIndex = 4; // Start from 4 since we have 3 parameters already
 
     if (employeeId) {
@@ -1171,9 +1352,8 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
     }
 
     if (department) {
-      employeeFilter += ` AND e.user_id IN (SELECT id FROM users WHERE department = $${paramIndex})`;
+      departmentFilter = ` AND u.department = $${paramIndex}`;
       queryParams.push(department);
-      paramIndex++;
     }
 
     // Get expense distribution by category
@@ -1182,42 +1362,52 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
         SELECT 
           'Lodging' as category, lodging_expenses as amount
         FROM expenses e
+        JOIN users u ON e.user_id = u.id
         WHERE e.group_admin_id = $1 
-        AND e.created_at >= $2
-        AND e.created_at <= $3
+        AND e.created_at >= $2::date
+        AND e.created_at <= $3::date
         ${employeeFilter}
+        ${departmentFilter}
         UNION ALL
         SELECT 
           'Daily Allowance', daily_allowance
         FROM expenses e
+        JOIN users u ON e.user_id = u.id
         WHERE e.group_admin_id = $1 
-        AND e.created_at >= $2
-        AND e.created_at <= $3
+        AND e.created_at >= $2::date
+        AND e.created_at <= $3::date
         ${employeeFilter}
+        ${departmentFilter}
         UNION ALL
         SELECT 
           'Fuel', diesel
         FROM expenses e
+        JOIN users u ON e.user_id = u.id
         WHERE e.group_admin_id = $1 
-        AND e.created_at >= $2
-        AND e.created_at <= $3
+        AND e.created_at >= $2::date
+        AND e.created_at <= $3::date
         ${employeeFilter}
+        ${departmentFilter}
         UNION ALL
         SELECT 
           'Toll', toll_charges
         FROM expenses e
+        JOIN users u ON e.user_id = u.id
         WHERE e.group_admin_id = $1 
-        AND e.created_at >= $2
-        AND e.created_at <= $3
+        AND e.created_at >= $2::date
+        AND e.created_at <= $3::date
         ${employeeFilter}
+        ${departmentFilter}
         UNION ALL
         SELECT 
           'Other', other_expenses
         FROM expenses e
+        JOIN users u ON e.user_id = u.id
         WHERE e.group_admin_id = $1 
-        AND e.created_at >= $2
-        AND e.created_at <= $3
+        AND e.created_at >= $2::date
+        AND e.created_at <= $3::date
         ${employeeFilter}
+        ${departmentFilter}
       )
       SELECT 
         category,
@@ -1235,10 +1425,12 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
         COUNT(*) as trip_count,
         ROUND(SUM(total_amount)::numeric, 2) as total_amount
       FROM expenses e
+      JOIN users u ON e.user_id = u.id
       WHERE e.group_admin_id = $1 
-      AND e.created_at >= $2
-      AND e.created_at <= $3
+      AND e.created_at >= $2::date
+      AND e.created_at <= $3::date
       ${employeeFilter}
+      ${departmentFilter}
       AND location IS NOT NULL
       GROUP BY location
       ORDER BY total_amount DESC
@@ -1247,17 +1439,19 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
     // Get transport type distribution
     const transportQuery = `
       SELECT 
-        vehicle_type,
+        e.vehicle_type,
         COUNT(*) as trip_count,
-        ROUND(SUM(total_kilometers)::numeric, 2) as total_distance,
-        ROUND(SUM(total_amount)::numeric, 2) as total_amount
+        ROUND(SUM(e.total_kilometers)::numeric, 2) as total_distance,
+        ROUND(SUM(e.total_amount)::numeric, 2) as total_amount
       FROM expenses e
+      JOIN users u ON e.user_id = u.id
       WHERE e.group_admin_id = $1 
-      AND e.created_at >= $2
-      AND e.created_at <= $3
+      AND e.created_at >= $2::date
+      AND e.created_at <= $3::date
       ${employeeFilter}
-      AND vehicle_type IS NOT NULL
-      GROUP BY vehicle_type
+      ${departmentFilter}
+      AND e.vehicle_type IS NOT NULL
+      GROUP BY e.vehicle_type
       ORDER BY total_amount DESC`;
 
     // Get overall metrics
@@ -1269,10 +1463,12 @@ router.get('/travel-analytics', authMiddleware, adminMiddleware, async (req: Cus
         ROUND(SUM(total_amount)::numeric, 2) as total_expenses,
         ROUND(AVG(total_amount)::numeric, 2) as avg_trip_cost
       FROM expenses e
+      JOIN users u ON e.user_id = u.id
       WHERE e.group_admin_id = $1
-      AND e.created_at >= $2
-      AND e.created_at <= $3
-      ${employeeFilter}`;
+      AND e.created_at >= $2::date
+      AND e.created_at <= $3::date
+      ${employeeFilter}
+      ${departmentFilter}`;
 
     // Get employees for filtering
     const employeesQuery = `
@@ -1435,24 +1631,24 @@ router.get('/performance-analytics', authMiddleware, adminMiddleware, async (req
       task_metrics AS (
         SELECT 
           ROUND(
-            (COUNT(CASE WHEN status = 'completed' THEN 1 END)::float * 100 / 
+            (COUNT(CASE WHEN et.status = 'completed' THEN 1 END)::float * 100 / 
             NULLIF(COUNT(*), 0))::numeric, 
             1
           ) as task_completion_rate
-        FROM employee_tasks
-        WHERE assigned_by = $1
-          AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        FROM employee_tasks et
+        WHERE et.assigned_by = $1
+          AND et.created_at >= CURRENT_DATE - INTERVAL '30 days'
       ),
       expense_metrics AS (
         SELECT 
           ROUND(
-            (COUNT(CASE WHEN status = 'approved' THEN 1 END)::float * 100 / 
+            (COUNT(CASE WHEN e.status = 'approved' THEN 1 END)::float * 100 / 
             NULLIF(COUNT(*), 0))::numeric, 
             1
           ) as expense_approval_rate
-        FROM expenses
-        WHERE group_admin_id = $1
-          AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        FROM expenses e
+        WHERE e.group_admin_id = $1
+          AND e.created_at >= CURRENT_DATE - INTERVAL '30 days'
       )
       SELECT 
         em.total_employees,
@@ -1586,13 +1782,13 @@ router.get('/leave-analytics', authMiddleware, adminMiddleware, async (req: Cust
         (SELECT count FROM employee_count) as employee_count,
         json_agg(
           json_build_object(
-            'leave_type', name,
+            'leave_type', lt.name,
             'total_available', total_available,
             'total_used', total_used,
             'total_pending', total_pending
           )
         ) as leave_types_balances
-      FROM leave_type_balances`;
+      FROM leave_type_balances lt`;
 
     // Get monthly trend
     const trendQuery = `
