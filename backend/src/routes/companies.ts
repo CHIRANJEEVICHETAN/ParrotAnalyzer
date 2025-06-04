@@ -11,7 +11,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 10 * 1024 * 1024, // 10MB limit
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -88,11 +88,12 @@ router.post('/',
         managementPhone, 
         managementPassword,
         managementGender,
+        managementEmployeeNumber,
         userLimit
       } = req.body;
 
       // Validate required fields
-      if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword || !managementGender) {
+      if (!companyName || !companyEmail || !managementName || !managementEmail || !managementPassword || !managementGender || !managementEmployeeNumber) {
         return res.status(400).json({ 
           error: 'Missing required fields'
         });
@@ -171,10 +172,11 @@ router.post('/',
           password, 
           role,
           gender,
-          company_id
+          company_id,
+          employee_number
         )
-        VALUES ($1, $2, $3, $4, 'management', $5, $6)`,
-        [managementName, managementEmail, managementPhone, hashedPassword, managementGender.toLowerCase(), companyId]
+        VALUES ($1, $2, $3, $4, 'management', $5, $6, $7)`,
+        [managementName, managementEmail, managementPhone, hashedPassword, managementGender.toLowerCase(), companyId, managementEmployeeNumber]
       );
 
       await client.query('COMMIT');
@@ -195,6 +197,8 @@ router.post('/',
           errorMessage = 'Management email already exists';
         } else if (error.message.includes('users_phone_key')) {
           errorMessage = 'Phone number already exists';
+        } else if (error.message.includes('users_employee_number_key')) {
+          errorMessage = 'Employee number already exists';
         }
       }
       

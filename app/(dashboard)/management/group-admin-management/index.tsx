@@ -12,6 +12,7 @@ interface GroupAdmin {
   name: string;
   email: string;
   phone: string;
+  employee_number: string;
   created_at: string;
 }
 
@@ -79,7 +80,8 @@ export default function GroupAdminsList() {
 
   const filteredAdmins = groupAdmins.filter(admin => 
     admin.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    admin.email.toLowerCase().includes(searchQuery.toLowerCase())
+    admin.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (admin.employee_number && admin.employee_number.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -199,6 +201,11 @@ export default function GroupAdminsList() {
                       <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
                         {admin.phone}
                       </Text>
+                      {admin.employee_number && (
+                        <Text className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                          ID: {admin.employee_number}
+                        </Text>
+                      )}
                       <Text className={`mt-2 text-sm ${
                         theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
                       }`}>

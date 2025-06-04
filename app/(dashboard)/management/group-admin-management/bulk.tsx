@@ -196,7 +196,7 @@ export default function BulkUpload() {
           const details = uploadError.response.data.details;
           Alert.alert(
             "Invalid CSV Format",
-            `${details}\n\nPlease ensure your CSV file includes all required headers: name, email, phone, password, gender.`,
+            `${details}\n\nPlease ensure your CSV file includes all required headers: name, email, employee_number, phone, password, gender.`,
             [{ text: "OK" }]
           );
         } else {
@@ -257,7 +257,7 @@ export default function BulkUpload() {
               { color: theme === "dark" ? "#BFDBFE" : "#1E40AF" },
             ]}
           >
-            Required columns: name, email, phone, password, gender
+            Required columns: name, email, employee_number, phone, password, gender
           </Text>
           <Text
             style={[
@@ -265,7 +265,7 @@ export default function BulkUpload() {
               { color: theme === "dark" ? "#93C5FD" : "#1D4ED8" },
             ]}
           >
-            Example: John Doe,john@example.com,+916748363636,password123,male
+            Example: John Doe,john@example.com,EMP001,+916748363636,password123,male
           </Text>
         </View>
 
@@ -289,10 +289,13 @@ export default function BulkUpload() {
               { color: theme === "dark" ? "#FDE68A" : "#92400E" },
             ]}
           >
-            • Duplicate emails in your CSV file{"\n"}• Emails that already exist
-            in the system{"\n"}• Passwords less than 8 characters{"\n"}• Invalid
-            gender values (use male, female, or other){"\n"}• Missing required
-            fields
+            • Duplicate emails in your CSV file{"\n"}
+            • Duplicate employee numbers in your CSV file{"\n"}
+            • Emails that already exist in the system{"\n"}
+            • Employee numbers that already exist in the system{"\n"}
+            • Passwords less than 8 characters{"\n"}
+            • Invalid gender values (use male, female, or other){"\n"}
+            • Missing required fields
           </Text>
         </View>
 

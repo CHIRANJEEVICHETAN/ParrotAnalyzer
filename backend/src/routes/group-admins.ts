@@ -22,6 +22,7 @@ router.get('/', verifyToken, async (req: CustomRequest, res: Response) => {
         u.name,
         u.email,
         u.phone,
+        u.employee_number,
         u.created_at,
         c.name as company_name
       FROM users u
@@ -82,9 +83,9 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { name, email, phone, password, gender } = req.body;
+    const { name, email, phone, password, gender, employeeNumber } = req.body;
 
-    if (!name || !email || !password || !gender) {
+    if (!name || !email || !password || !gender || !employeeNumber) {
       return res.status(400).json({ 
         error: 'Missing required fields'
       });
@@ -112,6 +113,19 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
         [req.user?.id]
       );
       companyId = userResult.rows[0].company_id;
+    }
+
+    // Check if employee number already exists
+    const employeeNumberCheck = await client.query(
+      'SELECT id FROM users WHERE employee_number = $1',
+      [employeeNumber]
+    );
+
+    if (employeeNumberCheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        errors: { employeeNumber: 'Employee number already exists' }
+      });
     }
 
     // Check user limit before creating
@@ -143,10 +157,10 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const result = await client.query(
-      `INSERT INTO users (name, email, phone, password, role, company_id, gender, management_id)
-       VALUES ($1, $2, $3, $4, 'group-admin', $5, $6, $7)
-       RETURNING id, name, email, phone, created_at`,
-      [name, email, phone || null, hashedPassword, companyId, gender.toLowerCase(), req.user?.id]
+      `INSERT INTO users (name, email, phone, password, role, company_id, gender, management_id, employee_number)
+       VALUES ($1, $2, $3, $4, 'group-admin', $5, $6, $7, $8)
+       RETURNING id, name, email, phone, employee_number, created_at`,
+      [name, email, phone || null, hashedPassword, companyId, gender.toLowerCase(), req.user?.id, employeeNumber]
     );
 
     await client.query('COMMIT');
@@ -154,6 +168,20 @@ router.post('/', verifyToken, async (req: CustomRequest, res: Response) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error creating group admin:', error);
+    
+    // Handle specific errors
+    if (error instanceof Error) {
+      if (error.message.includes('users_email_key')) {
+        return res.status(400).json({ 
+          errors: { email: 'Email already exists' }
+        });
+      } else if (error.message.includes('users_employee_number_key')) {
+        return res.status(400).json({ 
+          errors: { employeeNumber: 'Employee number already exists' }
+        });
+      }
+    }
+    
     res.status(500).json({ error: 'Failed to create group admin' });
   } finally {
     client.release();
@@ -226,7 +254,7 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
     });
 
     // Validate required headers
-    const requiredHeaders = ["name", "email", "password", "gender"];
+    const requiredHeaders = ["name", "email", "employee_number", "password", "gender"];
     const missingHeaders = requiredHeaders.filter(
       (header) => !(header in headers)
     );
@@ -241,6 +269,11 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
     // Check for duplicate emails in the CSV file
     const emailSet = new Set();
     const duplicateEmails: string[] = [];
+    
+    // Also check for duplicate employee numbers
+    const employeeNumberSet = new Set();
+    const duplicateEmployeeNumbers: string[] = [];
+    
     for (let i = 1; i < parsedRows.length; i++) {
       const email = parsedRows[i][headers["email"]]?.trim();
       if (email) {
@@ -250,6 +283,15 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
           emailSet.add(email);
         }
       }
+      
+      const empNumber = parsedRows[i][headers["employee_number"]]?.trim();
+      if (empNumber) {
+        if (employeeNumberSet.has(empNumber)) {
+          duplicateEmployeeNumbers.push(empNumber);
+        } else {
+          employeeNumberSet.add(empNumber);
+        }
+      }
     }
 
     if (duplicateEmails.length > 0) {
@@ -257,6 +299,14 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
       return res.status(400).json({
         error: "Duplicate emails found in CSV file",
         details: duplicateEmails,
+      });
+    }
+    
+    if (duplicateEmployeeNumbers.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: "Duplicate employee numbers found in CSV file",
+        details: duplicateEmployeeNumbers,
       });
     }
 
@@ -276,6 +326,26 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
         return res.status(400).json({
           error: "Emails already exist in the database",
           details: existingEmails,
+        });
+      }
+    }
+    
+    // Check for existing employee numbers in the database
+    const employeeNumbers = Array.from(employeeNumberSet);
+    if (employeeNumbers.length > 0) {
+      const existingEmployeeNumbersResult = await client.query(
+        `SELECT employee_number FROM users WHERE employee_number = ANY($1)`,
+        [employeeNumbers]
+      );
+
+      if (existingEmployeeNumbersResult.rows.length > 0) {
+        const existingEmpNumbers = existingEmployeeNumbersResult.rows.map(
+          (row) => row.employee_number
+        );
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "Employee numbers already exist in the database",
+          details: existingEmpNumbers,
         });
       }
     }
@@ -301,6 +371,7 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
           phone: row[headers["phone"]]?.trim(),
           password: row[headers["password"]]?.trim(),
           gender: row[headers["gender"]]?.trim().toLowerCase(),
+          employee_number: row[headers["employee_number"]]?.trim(),
         };
 
         // Validate required fields
@@ -309,6 +380,7 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
         if (!groupAdmin.email) validationErrors.push("Email is required");
         else if (!emailRegex.test(groupAdmin.email))
           validationErrors.push("Invalid email format");
+        if (!groupAdmin.employee_number) validationErrors.push("Employee number is required");
         if (!groupAdmin.password) validationErrors.push("Password is required");
         else if (groupAdmin.password.length < 8)
           validationErrors.push("Password must be at least 8 characters");
@@ -333,9 +405,9 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
         const hashedPassword = await bcrypt.hash(groupAdmin.password, salt);
 
         const result = await client.query(
-          `INSERT INTO users (name, email, phone, password, role, company_id, gender, management_id)
-           VALUES ($1, $2, $3, $4, 'group-admin', $5, $6, $7)
-           RETURNING id, name, email, phone`,
+          `INSERT INTO users (name, email, phone, password, role, company_id, gender, management_id, employee_number)
+           VALUES ($1, $2, $3, $4, 'group-admin', $5, $6, $7, $8)
+           RETURNING id, name, email, phone, employee_number`,
           [
             groupAdmin.name,
             groupAdmin.email,
@@ -344,6 +416,7 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
             companyId,
             groupAdmin.gender,
             req.user?.id,
+            groupAdmin.employee_number
           ]
         );
 
@@ -358,7 +431,13 @@ router.post('/bulk', verifyToken, upload.single('file'), async (req: CustomReque
         if (error.code) {
           switch (error.code) {
             case "23505": // unique_violation
-              errorMessage = "Email already exists";
+              if (error.detail?.includes('email')) {
+                errorMessage = "Email already exists";
+              } else if (error.detail?.includes('employee_number')) {
+                errorMessage = "Employee number already exists";
+              } else {
+                errorMessage = "Duplicate value found";
+              }
               break;
             case "23503": // foreign_key_violation
               errorMessage = "Invalid reference (foreign key violation)";

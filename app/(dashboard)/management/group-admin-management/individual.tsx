@@ -12,6 +12,7 @@ interface GroupAdminFormData {
   phone: string;
   password: string;
   gender: string;
+  employeeNumber: string;
 }
 
 interface ValidationErrors {
@@ -37,6 +38,7 @@ export default function IndividualUpload() {
     phone: '',
     password: '',
     gender: '',
+    employeeNumber: '',
   });
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,6 +91,11 @@ export default function IndividualUpload() {
       errors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       errors.email = 'Invalid email format';
+    }
+
+    // Employee Number validation
+    if (!formData.employeeNumber.trim()) {
+      errors.employeeNumber = 'Employee number is required';
     }
 
     // Password validation
@@ -146,7 +153,7 @@ export default function IndividualUpload() {
             text: 'OK',
             onPress: () => {
               // Clear form and navigate back
-              setFormData({ name: '', email: '', phone: '', password: '', gender: '' });
+              setFormData({ name: '', email: '', phone: '', password: '', gender: '', employeeNumber: '' });
               router.back();
             }
           }]
@@ -198,6 +205,7 @@ export default function IndividualUpload() {
         {[
           { label: 'Full Name', key: 'name', placeholder: 'Enter full name' },
           { label: 'Email Address', key: 'email', placeholder: 'Enter email address', keyboardType: 'email-address' },
+          { label: 'Employee Number', key: 'employeeNumber', placeholder: 'Enter employee number' },
           { 
             label: 'Phone Number', 
             key: 'phone', 

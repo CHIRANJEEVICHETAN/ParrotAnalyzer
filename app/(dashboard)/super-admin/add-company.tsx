@@ -19,6 +19,7 @@ interface CompanyFormData {
   managementName: string;
   managementEmail: string;
   managementPhone: string;
+  managementEmployeeNumber: string;
   managementPassword: string;
   managementGender: string;
   userLimit: string;
@@ -59,6 +60,7 @@ export default function AddCompany() {
     managementName: '',
     managementEmail: '',
     managementPhone: '',
+    managementEmployeeNumber: '',
     managementPassword: '',
     managementGender: '',
     userLimit: '',
@@ -116,6 +118,7 @@ export default function AddCompany() {
     }
     if (!formData.companyAddress) newErrors.companyAddress = 'Company address is required';
     if (!formData.managementName) newErrors.managementName = 'Management name is required';
+    if (!formData.managementEmployeeNumber) newErrors.managementEmployeeNumber = 'Employee number is required';
     if (!formData.managementEmail || !/\S+@\S+\.\S+/.test(formData.managementEmail)) {
       newErrors.managementEmail = 'Valid management email is required';
     }
@@ -229,6 +232,12 @@ export default function AddCompany() {
           ...prev,
           managementEmail: 'Email already exists'
         }));
+      } else if (error.response?.data?.details?.includes('users_employee_number_key')) {
+        errorMessage = 'This employee number is already registered. Please use a different employee number.';
+        setErrors(prev => ({
+          ...prev,
+          managementEmployeeNumber: 'Employee number already exists'
+        }));
       }
       
       Alert.alert('Error', errorMessage);
@@ -297,6 +306,13 @@ export default function AddCompany() {
           icon: 'person',
           keyboardType: 'default',
           placeholder: 'Enter management name'
+        },
+        {
+          key: 'managementEmployeeNumber',
+          label: 'Employee Number',
+          icon: 'id-card',
+          keyboardType: 'default',
+          placeholder: 'Enter employee number'
         },
         {
           key: 'managementEmail',
