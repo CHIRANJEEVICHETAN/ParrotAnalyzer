@@ -49,17 +49,20 @@ export class ErrorLoggingService {
             const errorType = error.code || error.name || 'UNKNOWN_ERROR';
             const message = error.message || 'An unknown error occurred';
             const stackTrace = error.stack || '';
+            const timestamp = new Date(); // Explicitly create timestamp
 
             await pool.query(
                 `INSERT INTO error_logs (
+                    timestamp,
                     service,
                     error_type,
                     message,
                     user_id,
                     metadata,
                     stack_trace
-                ) VALUES ($1, $2, $3, $4, $5, $6)`,
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                 [
+                    timestamp, // Add timestamp as first parameter
                     service,
                     errorType,
                     message,
@@ -72,7 +75,7 @@ export class ErrorLoggingService {
             // Cache in Redis for quick access
             if (userId) {
                 await this.cacheUserError(userId, {
-                    timestamp: new Date().toISOString(),
+                    timestamp: timestamp.toISOString(),
                     service,
                     errorType,
                     message,
@@ -88,7 +91,7 @@ export class ErrorLoggingService {
                 errorType,
                 message,
                 userId,
-                timestamp: new Date().toISOString()
+                timestamp: timestamp.toISOString()
             });
         } catch (loggingError) {
             // If we can't log to the database, log to console as fallback

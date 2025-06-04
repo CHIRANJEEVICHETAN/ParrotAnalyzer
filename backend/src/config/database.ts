@@ -14,6 +14,9 @@ export const pool = new Pool({
   ssl: {
     ca: fs.readFileSync(caPath).toString(),
   },
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
 
 // Database initialization functions

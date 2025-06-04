@@ -16,19 +16,42 @@ const errorLogCleanup = new CronJob('0 2 * * *', async () => {
     }
 });
 
-// Process shift timers every minute
+// Process shift timers every minute with retry and exponential backoff
 const shiftTimerProcessor = new CronJob('*/1 * * * *', async () => {
-    try {
-        console.log(`[${new Date().toISOString()}] Processing shift timers...`);
-        const endedShifts = await shiftService.processPendingTimers();
-        
-        if (endedShifts > 0) {
-            console.log(`[${new Date().toISOString()}] Successfully auto-ended ${endedShifts} shifts based on timer settings`);
+    let attempt = 0;
+    const maxAttempts = 3;
+    const baseDelay = 1000; // 1 second initial delay
+    
+    const processWithRetry = async () => {
+        try {
+            console.log(`[${new Date().toISOString()}] Processing shift timers (attempt ${attempt + 1}/${maxAttempts})...`);
+            const endedShifts = await shiftService.processPendingTimers();
+            
+            if (endedShifts > 0) {
+                console.log(`[${new Date().toISOString()}] Successfully auto-ended ${endedShifts} shifts based on timer settings`);
+            }
+            return true; // Success
+        } catch (error) {
+            attempt++;
+            console.error(`[${new Date().toISOString()}] Error processing shift timers (attempt ${attempt}/${maxAttempts}):`, error);
+            
+            // If we have exhausted retries, log the error but don't retry anymore
+            if (attempt >= maxAttempts) {
+                errorLogger.logError(error, 'ShiftTimerProcessor');
+                return false;
+            }
+            
+            // Calculate exponential backoff delay
+            const delay = baseDelay * Math.pow(2, attempt - 1);
+            console.log(`Retrying in ${delay}ms...`);
+            
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return processWithRetry(); // Retry recursively
         }
-    } catch (error) {
-        console.error(`[${new Date().toISOString()}] Error processing shift timers:`, error);
-        errorLogger.logError(error, 'ShiftTimerProcessor');
-    }
+    };
+    
+    await processWithRetry();
 });
 
 // Send timer reminder notifications every minute (5-minute reminder before shift ends)
