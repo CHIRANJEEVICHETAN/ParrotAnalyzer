@@ -1149,10 +1149,21 @@ export default function EmployeeShiftTracker() {
           return;
         }
 
-        // Get current location
+        // Get current location and immediately update the store
         const location = await getCurrentLocation();
-
-        if (!location) {
+        
+        if (location) {
+          // Update the store with the fresh location
+          useLocationStore.getState().setCurrentLocation(location);
+          
+          // Also update address
+          const appLocation = convertToLocation(location);
+          if (appLocation?.latitude && appLocation?.longitude) {
+            getLocationAddress(appLocation.latitude, appLocation.longitude)
+              .then(address => setCurrentAddress(address))
+              .catch(error => console.log("Error getting address:", error));
+          }
+        } else {
           setLocationErrorMessage(
             "Unable to determine your current location. Please ensure you have granted location permissions."
           );
@@ -1435,7 +1446,7 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Update the validateLocationForShift function to use safeGetCurrentLocation
+  // Update the validateLocationForShift function to use the location store
   const validateLocationForShift = async (): Promise<boolean> => {
     // Management and group-admin roles don't need location validation
     if (user?.role === 'management' || user?.role === 'group-admin') {
@@ -1454,15 +1465,19 @@ export default function EmployeeShiftTracker() {
         return false;
       }
 
-      // Try to use cached location first if it's recent enough (last 30 seconds)
-      let appLocation = currentLocation;
-      if (
-        !appLocation ||
-        !appLocation.timestamp ||
-        new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000
-      ) {
+      // Try to use cached location from the store first if it's recent enough (last 30 seconds)
+      let appLocation = convertToLocation(currentLocation);
+      const isLocationStale = !appLocation?.timestamp || 
+        new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000;
+      
+      if (!appLocation || isLocationStale) {
         // Get fresh location if cached one is old or missing
-        const appLocation = await safeGetCurrentLocation();
+        const freshLocation = await getCurrentLocation();
+        if (freshLocation) {
+          appLocation = convertToLocation(freshLocation);
+          // Update the store with the fresh location
+          useLocationStore.getState().setCurrentLocation(freshLocation);
+        }
       }
 
       if (!appLocation) {
@@ -1531,8 +1546,25 @@ export default function EmployeeShiftTracker() {
 
       const now = new Date();
 
-      // Get current location for all roles
-      const appLocation = await safeGetCurrentLocation();
+      // Get location from the store first instead of fetching fresh
+      let appLocation: AppLocation | null = convertToLocation(currentLocation);
+      
+      // If store location is null or older than 30 seconds, try to get a new one in background
+      const isLocationStale = !appLocation?.timestamp || 
+        (new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000);
+      
+      if (!appLocation || isLocationStale) {
+        // Don't await this - we'll use what we have and update later if needed
+        getCurrentLocation().then(freshLocation => {
+          if (freshLocation) {
+            // Save the fresh location to the store
+            useLocationStore.getState().setCurrentLocation(freshLocation);
+            console.log("Updated location store with fresh location data");
+          }
+        }).catch(error => {
+          console.error("Background location update failed:", error);
+        });
+      }
       
       // Update UI immediately
       setShiftStart(now);
@@ -1707,8 +1739,24 @@ export default function EmployeeShiftTracker() {
       }
     }
 
-    // Get current location for end shift
-    const appLocation = await safeGetCurrentLocation();
+    // Get location from the store instead of fetching fresh
+    let appLocation: AppLocation | null = convertToLocation(currentLocation);
+    
+    // If store location is null or older than 30 seconds, try to get a new one in background
+    const isLocationStale = !appLocation?.timestamp || 
+      (new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000);
+    
+    if (!appLocation || isLocationStale) {
+      // Don't await this - we'll use what we have and update later if needed
+      getCurrentLocation().then(freshLocation => {
+        if (freshLocation) {
+          // Save the fresh location to the store
+          useLocationStore.getState().setCurrentLocation(freshLocation);
+        }
+      }).catch(error => {
+        console.error("Background location update failed:", error);
+      });
+    }
 
     // Immediately update UI state
     setShowModal(false);
@@ -2349,6 +2397,32 @@ export default function EmployeeShiftTracker() {
       setIsAddressRefreshing(false);
     }
   };
+
+  // Add a new useEffect to periodically update location in the background 
+  // when the app is active and in the foreground
+  useEffect(() => {
+    // Create a periodic refresh for location data when app is in foreground
+    const locationRefreshInterval = setInterval(async () => {
+      try {
+        // Only refresh when app is in foreground
+        if (AppState.currentState === 'active') {
+          console.log("Background location refresh");
+          const location = await getCurrentLocation();
+          
+          if (location) {
+            // Update the store with fresh location
+            useLocationStore.getState().setCurrentLocation(location);
+          }
+        }
+      } catch (error) {
+        console.error("Background location refresh failed:", error);
+      }
+    }, 60000); // Refresh every 60 seconds when app is in foreground
+    
+    return () => {
+      clearInterval(locationRefreshInterval);
+    };
+  }, [user?.role]);
 
   return (
     <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>

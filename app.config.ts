@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Parrot Analyzer",
   slug: "parraotanalyzer",
-  version: "1.1.3",
+  version: "1.1.4",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "myapp",

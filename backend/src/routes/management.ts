@@ -4,7 +4,7 @@ import { pool } from '../config/database';
 import { CustomRequest } from '../types';
 import multer from 'multer';
 import { verifyToken } from "../middleware/auth";
-// import { sendAttendanceToSparrow, getEmployeeCode } from '../services/sparrowAttendanceService'; // Uncomment Later When needed
+import { sendAttendanceToSparrow, getEmployeeCode } from '../services/sparrowAttendanceService'; // Uncomment Later When needed
 
 const router = express.Router();
 
@@ -745,10 +745,10 @@ router.post(
       );
 
       // Send attendance to Sparrow Uncomment Later When needed
-      // const employeeCode = await getEmployeeCode(req.user.id);
-      // if (employeeCode) {
-      //   await sendAttendanceToSparrow([employeeCode]);
-      // }
+      const employeeCode = await getEmployeeCode(req.user.id);
+      if (employeeCode) {
+        await sendAttendanceToSparrow([employeeCode]);
+      }
 
       res.json(result.rows[0]);
     } catch (error) {
@@ -831,10 +831,10 @@ router.post(
       );
 
       // Send attendance to Sparrow Uncomment Later When needed
-      // const employeeCode = await getEmployeeCode(req.user.id);
-      // if (employeeCode) {
-      //   await sendAttendanceToSparrow([employeeCode]);
-      // }
+      const employeeCode = await getEmployeeCode(req.user.id);
+      if (employeeCode) {
+        await sendAttendanceToSparrow([employeeCode]);
+      }
 
       await client.query("COMMIT");
       res.json(result.rows[0]);

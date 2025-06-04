@@ -6,6 +6,9 @@ import { PoolClient } from 'pg';
 
 const router = express.Router();
 
+// Add a geocoding cache to reduce API calls
+const geocodingCache: Record<string, string> = {};
+
 // Add this function at the top with other imports
 async function getCompanyDetails(client: PoolClient, userId: number) {
   const result = await client.query(`
@@ -34,6 +37,98 @@ async function getCompanyDetails(client: PoolClient, userId: number) {
     address: result.rows[0].address,
     contact: result.rows[0].phone // Use phone column directly
   };
+}
+
+// Replace the reverseGeocode function with this improved version that uses the cache
+async function reverseGeocode(coordinates: any): Promise<string> {
+  // If no coordinates, return placeholder
+  if (!coordinates) {
+    return 'N/A';
+  }
+  
+  try {
+    let latitude: number | undefined;
+    let longitude: number | undefined;
+    
+    // Handle different formats of coordinates
+    if (typeof coordinates === 'string') {
+      // PostgreSQL point format: "(longitude,latitude)"
+      const match = coordinates.match(/\(\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*\)/);
+      if (match) {
+        longitude = parseFloat(match[1]);
+        latitude = parseFloat(match[3]);
+      }
+    } else if (coordinates.x !== undefined && coordinates.y !== undefined) {
+      // PostgreSQL point object format: { x: longitude, y: latitude }
+      longitude = coordinates.x;
+      latitude = coordinates.y;
+    } else if (coordinates.longitude !== undefined && coordinates.latitude !== undefined) {
+      // Standard GeoJSON-like format
+      longitude = coordinates.longitude;
+      latitude = coordinates.latitude;
+    }
+    
+    // Check if we were able to extract valid coordinates
+    if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) {
+      console.log('Invalid or unparseable coordinates:', coordinates);
+      return 'N/A';
+    }
+    
+    // Create a cache key using rounded coordinates (reduce API calls for nearby points)
+    const cacheKey = `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+    
+    // Check if we have this location cached
+    if (geocodingCache[cacheKey]) {
+      return geocodingCache[cacheKey];
+    }
+    
+    // Use Google Maps Geocoding API to get address
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      console.warn('No Google Maps API key found, returning coordinates');
+      const result = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      geocodingCache[cacheKey] = result;
+      return result;
+    }
+    
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}`
+    );
+    
+    const data = await response.json();
+    
+    let result;
+    if (data.status === 'OK' && data.results && data.results.length > 0) {
+      // Get the first result which is typically the most accurate
+      const address = data.results[0].formatted_address;
+      // Return a shortened version of the address
+      result = shortenAddress(address);
+    } else {
+      result = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+    }
+    
+    // Cache the result
+    geocodingCache[cacheKey] = result;
+    return result;
+  } catch (error) {
+    console.error('Error with reverse geocoding:', error);
+    return 'N/A';
+  }
+}
+
+// Helper function to shorten addresses
+function shortenAddress(address: string): string {
+  if (!address) return 'N/A';
+  
+  // Split address components
+  const parts = address.split(',');
+  
+  // Return first 2-3 parts for a concise display
+  if (parts.length > 3) {
+    return parts.slice(0, 2).join(',');
+  }
+  
+  return address;
 }
 
 // Helper function to process date filters
@@ -561,14 +656,17 @@ async function getAttendanceReportData(client: PoolClient, adminId: number, filt
         es.total_kilometers as distance,
         es.total_expenses as expenses,
         es.ended_automatically,
-        (SELECT CONCAT(ROUND(el.latitude::numeric, 5), ', ', ROUND(el.longitude::numeric, 5)) 
-         FROM employee_locations el 
-         WHERE el.shift_id = es.id 
-         ORDER BY el.timestamp ASC LIMIT 1) as start_location,
-        (SELECT CONCAT(ROUND(el.latitude::numeric, 5), ', ', ROUND(el.longitude::numeric, 5)) 
-         FROM employee_locations el 
-         WHERE el.shift_id = es.id 
-         ORDER BY el.timestamp DESC LIMIT 1) as end_location
+        -- Convert point type to string representation that's easier to parse
+        CASE 
+          WHEN es.location_start IS NOT NULL 
+          THEN '(' || es.location_start[0] || ',' || es.location_start[1] || ')'
+          ELSE NULL
+        END as location_start,
+        CASE 
+          WHEN es.location_end IS NOT NULL 
+          THEN '(' || es.location_end[0] || ',' || es.location_end[1] || ')'
+          ELSE NULL
+        END as location_end
       FROM employee_shifts es
       JOIN users u ON es.user_id = u.id
       WHERE es.user_id = $1
@@ -577,6 +675,50 @@ async function getAttendanceReportData(client: PoolClient, adminId: number, filt
       ORDER BY es.start_time`,
       [employeeId, startDateStr, endDateStr]
     );
+    
+    // Process the shift details to include geocoded addresses
+    console.log('Processing shift details with locations');
+    const processedShiftDetails = [];
+    for (const shift of shiftDetailsResult.rows) {
+      try {
+        // Debug logging to see what's coming from the database
+        if (shift.id === shiftDetailsResult.rows[0]?.id) {
+          console.log('Sample location data format:', { 
+            location_start: shift.location_start,
+            location_end: shift.location_end,
+            type_start: typeof shift.location_start,
+            type_end: typeof shift.location_end
+          });
+        }
+        
+        // Handle null/undefined values with fallbacks
+        let startLocation = 'N/A';
+        let endLocation = 'N/A';
+        
+        // Only try to geocode if we have data
+        if (shift.location_start) {
+          startLocation = await reverseGeocode(shift.location_start);
+        }
+        
+        if (shift.location_end) {
+          endLocation = await reverseGeocode(shift.location_end);
+        }
+        
+        processedShiftDetails.push({
+          ...shift,
+          start_location: startLocation,
+          end_location: endLocation
+        });
+      } catch (error) {
+        console.error('Error processing location for shift:', shift.shift_id, error);
+        // Add the shift with default N/A locations to avoid losing data
+        processedShiftDetails.push({
+          ...shift,
+          start_location: 'N/A',
+          end_location: 'N/A'
+        });
+      }
+    }
     
     // Get expense data for this employee in the period
     const expenseDetailsResult = await client.query(`
@@ -639,7 +781,7 @@ async function getAttendanceReportData(client: PoolClient, adminId: number, filt
     
     // Map shifts and expenses to dates
     const shiftsMap: Record<string, any[]> = {};
-    for (const shift of shiftDetailsResult.rows) {
+    for (const shift of processedShiftDetails) {
       try {
         const dateKey = new Date(shift.date).toISOString().split('T')[0];
         if (!shiftsMap[dateKey]) {
