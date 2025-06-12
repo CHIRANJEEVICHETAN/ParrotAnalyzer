@@ -16,21 +16,6 @@ import AuthContext from "./context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Updates from 'expo-updates';
 
-useEffect(() => {
-  let current = AppState.currentState;
-  const sub = AppState.addEventListener('change', async next => {
-    if (current.match(/inactive|background/) && next === 'active') {
-      const { isAvailable } = await Updates.checkForUpdateAsync();
-      if (isAvailable) {
-        await Updates.fetchUpdateAsync();
-        await Updates.reloadAsync();
-      }
-    }
-    current = next;
-  });
-  return () => sub.remove();
-}, []);
-
 export default function SplashScreen() {
   const router = useRouter();
   const { theme } = ThemeContext.useTheme();
@@ -42,6 +27,22 @@ export default function SplashScreen() {
   const rotateAnim = new Animated.Value(0);
   const slideUpAnim = new Animated.Value(50);
   const textFadeAnim = new Animated.Value(0);
+
+  // Check for updates when app comes to foreground
+  useEffect(() => {
+    let current = AppState.currentState;
+    const sub = AppState.addEventListener('change', async next => {
+      if (current.match(/inactive|background/) && next === 'active') {
+        const { isAvailable } = await Updates.checkForUpdateAsync();
+        if (isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      }
+      current = next;
+    });
+    return () => sub.remove();
+  }, []);
 
   // Animation and navigation logic
   useEffect(() => {
