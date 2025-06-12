@@ -28,151 +28,202 @@ export class LocationTrackingService {
       isBackgroundUpdate?: boolean;
     }
   ) {
-    try {
-      // Validate the location data before proceeding
-      if (
-        typeof location.latitude !== "number" ||
-        typeof location.longitude !== "number" ||
-        isNaN(location.latitude) ||
-        isNaN(location.longitude)
-      ) {
-        throw new Error(
-          `Invalid coordinates: lat=${location.latitude}, lng=${location.longitude}`
+    // Implement retry logic with exponential backoff
+    const maxRetries = 3;
+    let retryCount = 0;
+    let lastError: Error | null = null;
+
+    while (retryCount <= maxRetries) {
+      try {
+        // Validate the location data before proceeding
+        if (
+          typeof location.latitude !== "number" ||
+          typeof location.longitude !== "number" ||
+          isNaN(location.latitude) ||
+          isNaN(location.longitude)
+        ) {
+          throw new Error(
+            `Invalid coordinates: lat=${location.latitude}, lng=${location.longitude}`
+          );
+        }
+
+        // Ensure numeric fields are properly typed
+        const sanitizedLocation = {
+          latitude: Number(location.latitude),
+          longitude: Number(location.longitude),
+          accuracy:
+            location.accuracy !== undefined ? Number(location.accuracy) : null,
+          battery_level:
+            location.battery_level !== undefined
+              ? Number(location.battery_level)
+              : null,
+          is_moving: Boolean(location.is_moving),
+          is_tracking_active: Boolean(location.is_tracking_active),
+          timestamp: location.timestamp || new Date().toISOString(),
+          isBackgroundUpdate: Boolean(location.isBackgroundUpdate),
+        };
+
+        console.log(
+          `Storing location for user ${userId}: ${JSON.stringify(
+            sanitizedLocation
+          )}`
         );
-      }
 
-      // Ensure numeric fields are properly typed
-      const sanitizedLocation = {
-        latitude: Number(location.latitude),
-        longitude: Number(location.longitude),
-        accuracy:
-          location.accuracy !== undefined ? Number(location.accuracy) : null,
-        battery_level:
-          location.battery_level !== undefined
-            ? Number(location.battery_level)
-            : null,
-        is_moving: Boolean(location.is_moving),
-        is_tracking_active: Boolean(location.is_tracking_active),
-        timestamp: location.timestamp || new Date().toISOString(),
-        isBackgroundUpdate: Boolean(location.isBackgroundUpdate),
-      };
+        // If no shift ID was provided, check if there's an active shift
+        if (!shiftId) {
+          const activeShiftResult = await pool.query(
+            `SELECT employee_shifts.id FROM employee_shifts 
+             WHERE employee_shifts.user_id = $1 AND employee_shifts.end_time IS NULL
+             ORDER BY employee_shifts.start_time DESC LIMIT 1`,
+            [userId]
+          );
 
-      console.log(
-        `Storing location for user ${userId}: ${JSON.stringify(
-          sanitizedLocation
-        )}`
-      );
+          if (activeShiftResult.rows.length > 0) {
+            console.log(
+              `Found active shift ${activeShiftResult.rows[0].id} for user ${userId}`
+            );
+            shiftId = activeShiftResult.rows[0].id;
+          }
+        }
 
-      // If no shift ID was provided, check if there's an active shift
-      if (!shiftId) {
-        const activeShiftResult = await pool.query(
-          `SELECT employee_shifts.id FROM employee_shifts 
-           WHERE employee_shifts.user_id = $1 AND employee_shifts.end_time IS NULL
-           ORDER BY employee_shifts.start_time DESC LIMIT 1`,
+        // Insert location into employee_locations table
+        const result = await pool.query(
+          `INSERT INTO employee_locations 
+          (user_id, shift_id, latitude, longitude, accuracy, is_moving, battery_level, timestamp, is_tracking_active)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          RETURNING employee_locations.id`,
+          [
+            userId,
+            shiftId,
+            sanitizedLocation.latitude,
+            sanitizedLocation.longitude,
+            sanitizedLocation.accuracy,
+            sanitizedLocation.is_moving,
+            sanitizedLocation.battery_level,
+            sanitizedLocation.timestamp,
+            sanitizedLocation.is_tracking_active,
+          ]
+        );
+
+        const locationId = result.rows[0].id;
+
+        // Cache the latest location in Redis for quick access
+        // First, get comprehensive employee details
+        const employeeResult = await pool.query(
+          `SELECT u.id, u.name, u.employee_number, u.department, u.designation 
+           FROM users u
+           WHERE u.id = $1`,
           [userId]
         );
 
-        if (activeShiftResult.rows.length > 0) {
-          console.log(
-            `Found active shift ${activeShiftResult.rows[0].id} for user ${userId}`
-          );
-          shiftId = activeShiftResult.rows[0].id;
-        }
-      }
-
-      // Insert location into employee_locations table
-      const result = await pool.query(
-        `INSERT INTO employee_locations 
-        (user_id, shift_id, latitude, longitude, accuracy, is_moving, battery_level, timestamp, is_tracking_active)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING employee_locations.id`,
-        [
-          userId,
-          shiftId,
-          sanitizedLocation.latitude,
-          sanitizedLocation.longitude,
-          sanitizedLocation.accuracy,
-          sanitizedLocation.is_moving,
-          sanitizedLocation.battery_level,
-          sanitizedLocation.timestamp,
-          sanitizedLocation.is_tracking_active,
-        ]
-      );
-
-      const locationId = result.rows[0].id;
-
-      // Cache the latest location in Redis for quick access
-      // First, get comprehensive employee details
-      const employeeResult = await pool.query(
-        `SELECT u.id, u.name, u.employee_number, u.department, u.designation 
-         FROM users u
-         WHERE u.id = $1`,
-        [userId]
-      );
-
-      // Get device info for the employee
-      const deviceResult = await pool.query(
-        `SELECT device_tokens.device_type, device_tokens.device_name
-         FROM device_tokens
-         WHERE device_tokens.user_id = $1
-         AND device_tokens.is_active = true
-         ORDER BY device_tokens.last_used_at DESC
-         LIMIT 1`,
-        [userId]
-      );
-
-      const deviceInfo =
-        deviceResult.rows.length > 0
-          ? `${deviceResult.rows[0].device_name || ""} (${
-              deviceResult.rows[0].device_type || "unknown"
-            })`
-          : "Unknown device";
-
-      // Prepare the location data with employee details for caching
-      const cacheData = {
-        ...sanitizedLocation,
-        lastUpdated: new Date().toISOString(),
-        employee:
-          employeeResult.rows.length > 0
-            ? {
-                id: userId,
-                name: employeeResult.rows[0].name,
-                employeeNumber: employeeResult.rows[0].employee_number,
-                department: employeeResult.rows[0].department,
-                designation: employeeResult.rows[0].designation,
-                deviceInfo,
-              }
-            : null,
-      };
-
-      await redis.set(
-        `location:${userId}`,
-        JSON.stringify(cacheData),
-        "EX",
-        300 // Expire after 5 minutes
-      );
-
-      // If this is part of an active shift, update the shift's location history
-      if (shiftId) {
-        await this.updateShiftLocationHistory(
-          userId,
-          shiftId,
-          sanitizedLocation
+        // Get device info for the employee
+        const deviceResult = await pool.query(
+          `SELECT device_tokens.device_type, device_tokens.device_name
+           FROM device_tokens
+           WHERE device_tokens.user_id = $1
+           AND device_tokens.is_active = true
+           ORDER BY device_tokens.last_used_at DESC
+           LIMIT 1`,
+          [userId]
         );
+
+        const deviceInfo =
+          deviceResult.rows.length > 0
+            ? `${deviceResult.rows[0].device_name || ""} (${
+                deviceResult.rows[0].device_type || "unknown"
+              })`
+            : "Unknown device";
+
+        // Prepare the location data with employee details for caching
+        const cacheData = {
+          ...sanitizedLocation,
+          lastUpdated: new Date().toISOString(),
+          employee:
+            employeeResult.rows.length > 0
+              ? {
+                  id: userId,
+                  name: employeeResult.rows[0].name,
+                  employeeNumber: employeeResult.rows[0].employee_number,
+                  department: employeeResult.rows[0].department,
+                  designation: employeeResult.rows[0].designation,
+                  deviceInfo,
+                }
+              : null,
+        };
+
+        try {
+          // Check if the key exists and what type it is
+          const keyType = await redis.type(`location:${userId}`);
+          
+          // If key exists but is not a string, delete it first
+          if (keyType !== 'none' && keyType !== 'string') {
+            await redis.del(`location:${userId}`);
+          }
+          
+          // Now set the new value
+          await redis.set(
+            `location:${userId}`,
+            JSON.stringify(cacheData),
+            "EX",
+            300 // Expire after 5 minutes
+          );
+        } catch (redisError: any) {
+          console.warn(`Redis error when caching location for user ${userId}:`, redisError);
+          // Continue execution, as this is not critical for location tracking
+        }
+
+        // If this is part of an active shift, update the shift's location history
+        if (shiftId) {
+          await this.updateShiftLocationHistory(
+            userId,
+            shiftId,
+            sanitizedLocation
+          );
+        }
+
+        // Check if the location is within any geofence and record transitions
+        await this.checkGeofenceTransitions(userId, shiftId, {
+          latitude: sanitizedLocation.latitude,
+          longitude: sanitizedLocation.longitude,
+        });
+
+        // Handle database connection error with retry
+        if (retryCount > 0) {
+          console.log(`Retry attempt ${retryCount} for user ${userId} succeeded after previous failure`);
+        }
+        
+        return locationId; // Return on success
+      } catch (error: any) {
+        lastError = error;
+        
+        // Check if this is a connection error
+        const isConnectionError = error.message?.includes('remaining connection slots') || 
+                                 error.code === '53300' || 
+                                 error.code === '08006' ||
+                                 error.code === '08001';
+        
+        if (!isConnectionError || retryCount >= maxRetries) {
+          // If it's not a connection error or we've exceeded retries, log and throw
+          console.error("Error storing location:", error);
+          logLocationError(error, userId, location);
+          throw error;
+        }
+        
+        // For connection errors, we'll retry with backoff
+        retryCount++;
+        const backoffTime = Math.min(100 * Math.pow(2, retryCount), 3000); // Exponential backoff with 3s max
+        console.warn(`Database connection error, retrying (${retryCount}/${maxRetries}) after ${backoffTime}ms: ${error.message}`);
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
       }
-
-      // Check if the location is within any geofence and record transitions
-      await this.checkGeofenceTransitions(userId, shiftId, {
-        latitude: sanitizedLocation.latitude,
-        longitude: sanitizedLocation.longitude,
-      });
-
-      return locationId;
-    } catch (error) {
-      console.error("Error storing location:", error);
-      logLocationError(error, userId, location);
-      throw error;
     }
+    
+    // This code should never be reached, but TypeScript wants a return statement
+    if (lastError) {
+      throw lastError;
+    }
+    return -1;
   }
 
   /**
@@ -375,32 +426,59 @@ export class LocationTrackingService {
 
       // Get previous status from Redis
       const prevStatusKey = `geofence:${userId}`;
-      const prevStatus = await redis.get(prevStatusKey);
-      const previousGeofenceId = prevStatus
-        ? JSON.parse(prevStatus).geofenceId
-        : null;
+      let previousGeofenceId = null;
+      
+      try {
+        const prevStatus = await redis.get(prevStatusKey);
+        if (prevStatus) {
+          const parsedStatus = JSON.parse(prevStatus);
+          previousGeofenceId = parsedStatus.geofenceId;
+        }
+      } catch (redisError: any) {
+        console.warn(`Redis error when retrieving geofence status for user ${userId}:`, redisError);
+        // If there's an error, we'll proceed with previousGeofenceId as null
+        
+        // If it's a WRONGTYPE error, try to clean up the key
+        if (redisError.message && redisError.message.includes('WRONGTYPE')) {
+          try {
+            await redis.del(prevStatusKey);
+            console.log(`Deleted invalid Redis key ${prevStatusKey} to fix WRONGTYPE error`);
+          } catch (delError) {
+            console.error(`Failed to delete invalid Redis key ${prevStatusKey}:`, delError);
+          }
+        }
+      }
 
       // If there's a transition, record it
-      if (geofenceId !== previousGeofenceId && shiftId) {
+      if (geofenceId !== previousGeofenceId) {
         // Determine event type
         const eventType = geofenceId ? "entry" : "exit";
 
-        // Record the transition
+        // Record the transition only if we have a valid shift_id
         if (
-          eventType === "entry" ||
-          (eventType === "exit" && previousGeofenceId)
+          shiftId && // Ensure we have a valid shift_id before inserting
+          (eventType === "entry" ||
+          (eventType === "exit" && previousGeofenceId))
         ) {
-          await pool.query(
-            `INSERT INTO geofence_events 
-             (user_id, geofence_id, shift_id, event_type, timestamp)
-             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
-            [
-              userId,
-              eventType === "entry" ? geofenceId : previousGeofenceId,
-              shiftId,
-              eventType,
-            ]
-          );
+          try {
+            await pool.query(
+              `INSERT INTO geofence_events 
+              (user_id, geofence_id, shift_id, event_type, timestamp)
+              VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+              [
+                userId,
+                eventType === "entry" ? geofenceId : previousGeofenceId,
+                shiftId,
+                eventType,
+              ]
+            );
+          } catch (error) {
+            console.warn(
+              `Failed to record geofence ${eventType} event: User ID ${userId}, Geofence ID ${eventType === "entry" ? geofenceId : previousGeofenceId}, Shift ID ${shiftId}`,
+              error
+            );
+            // Log the error but don't throw it to avoid interrupting location updates
+          }
         }
       }
 
@@ -418,16 +496,30 @@ export class LocationTrackingService {
       );
 
       // Update Redis with new status
-      await redis.set(
-        prevStatusKey,
-        JSON.stringify({
-          isInGeofence,
-          geofenceId,
-          timestamp: new Date().toISOString(),
-        }),
-        "EX",
-        300 // Expire after 5 minutes
-      );
+      try {
+        // First, check if the key exists and what type it is
+        const keyType = await redis.type(prevStatusKey);
+        
+        // If key exists but is not a string, delete it first
+        if (keyType !== 'none' && keyType !== 'string') {
+          await redis.del(prevStatusKey);
+        }
+        
+        // Now set the new value
+        await redis.set(
+          prevStatusKey,
+          JSON.stringify({
+            isInGeofence,
+            geofenceId,
+            timestamp: new Date().toISOString(),
+          }),
+          "EX",
+          300 // Expire after 5 minutes
+        );
+      } catch (redisError: any) {
+        console.warn(`Redis error when updating geofence status for user ${userId}:`, redisError);
+        // Continue execution, as this is not critical
+      }
 
       return {
         isInGeofence,

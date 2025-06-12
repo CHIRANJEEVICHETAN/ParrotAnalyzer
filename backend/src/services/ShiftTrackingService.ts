@@ -269,7 +269,9 @@ export class ShiftTrackingService {
 
             const shiftId = shiftResult.rows[0][idColumn];
             const startTime = new Date(shiftResult.rows[0][startColumn]);
-            const endTime = new Date(startTime.getTime() + durationHours * 60 * 60 * 1000);
+            
+            // Calculate end time in milliseconds, but don't create Date object yet
+            const endTimeMs = startTime.getTime() + durationHours * 60 * 60 * 1000;
 
             // Check for existing timer and delete it
             await client.query(
@@ -277,13 +279,14 @@ export class ShiftTrackingService {
                 [userId]
             );
 
-            // Store the shift table name along with the shift ID to avoid foreign key issues
+            // Use PostgreSQL's TIMESTAMP arithmetic instead of JavaScript Date
+            // This ensures consistent timezone handling in the database
             const timerResult = await client.query(
                 `INSERT INTO shift_timer_settings 
                 (shift_id, user_id, timer_duration_hours, end_time, role_type, shift_table_name) 
-                VALUES ($1, $2, $3, $4, $5, $6) 
+                VALUES ($1, $2, $3, $4::timestamp + ($5 || ' hours')::interval, $6, $7) 
                 RETURNING *`,
-                [shiftId, userId, durationHours, endTime, userRole, table]
+                [shiftId, userId, durationHours, shiftResult.rows[0][startColumn], durationHours, userRole, table]
             );
 
             await client.query('COMMIT');
@@ -315,7 +318,7 @@ export class ShiftTrackingService {
         }
     }
 
-    // Update getCurrentShiftTimer to use shift_table_name
+    // Update getCurrentShiftTimer to use shift_table_name and handle timezone consistently
     async getCurrentShiftTimer(userId: number): Promise<any> {
         const client = await pool.connect();
         try {
@@ -333,8 +336,19 @@ export class ShiftTrackingService {
             const shiftTableName = await this.getShiftTableNameFromRole(userRole);
             
             // Query appropriate shift table based on role and shift_table_name
+            // Return timestamps in ISO format to ensure proper timezone handling
             const result = await client.query(
-                `SELECT sts.*, s.start_time 
+                `SELECT 
+                    sts.id, 
+                    sts.shift_id, 
+                    sts.user_id, 
+                    sts.timer_duration_hours,
+                    sts.end_time AT TIME ZONE 'UTC' as end_time_utc,
+                    sts.role_type,
+                    sts.shift_table_name,
+                    sts.completed,
+                    sts.notification_sent,
+                    s.start_time AT TIME ZONE 'UTC' as start_time_utc
                 FROM shift_timer_settings sts
                 JOIN ${shiftTableName} s ON sts.shift_id = s.id
                 WHERE sts.user_id = $1 
@@ -344,7 +358,17 @@ export class ShiftTrackingService {
                 [userId, userRole]
             );
 
-            return result.rows[0] || null;
+            if (result.rows.length === 0) {
+                return null;
+            }
+
+            // Rename fields to standard names for consistency
+            const timer = result.rows[0];
+            return {
+                ...timer,
+                start_time: timer.start_time_utc,
+                end_time: timer.end_time_utc
+            };
         } catch (error) {
             console.error('Error fetching shift timer:', error);
             throw error;
@@ -362,12 +386,14 @@ export class ShiftTrackingService {
             await client.query('BEGIN');
             
             // Get all pending timers regardless of role
+            // Use explicit timezone comparisons to avoid server timezone settings affecting results
             const timerResult = await client.query(
-                `SELECT sts.id, sts.shift_id, sts.user_id, sts.end_time, 
+                `SELECT sts.id, sts.shift_id, sts.user_id, 
+                        sts.end_time AT TIME ZONE 'UTC' as end_time, 
                         sts.timer_duration_hours, sts.role_type, sts.shift_table_name
                 FROM shift_timer_settings sts
                 WHERE sts.completed = FALSE
-                AND sts.end_time <= NOW()`
+                AND sts.end_time <= NOW() AT TIME ZONE 'UTC'`
             );
 
             // Process each shift that needs to end
@@ -596,18 +622,18 @@ export class ShiftTrackingService {
     async sendTimerReminders(reminderMinutes: number = 5): Promise<number> {
         try {
             // Find timers that need reminders (end time approaching within the reminder window but notification not yet sent)
-            const reminderTime = new Date(Date.now() + reminderMinutes * 60 * 1000);
+            // Use PostgreSQL's interval arithmetic for consistent timezone handling
             
             const timerResult = await pool.query(
-                `SELECT sts.id, sts.shift_id, sts.user_id, sts.end_time, 
+                `SELECT sts.id, sts.shift_id, sts.user_id, 
+                        sts.end_time AT TIME ZONE 'UTC' as end_time, 
                         sts.timer_duration_hours, sts.role_type, sts.shift_table_name, u.name 
                 FROM shift_timer_settings sts
                 JOIN users u ON sts.user_id = u.id
                 WHERE sts.completed = FALSE 
                 AND sts.notification_sent = FALSE
-                AND sts.end_time <= $1
-                AND sts.end_time > NOW()`,
-                [reminderTime]
+                AND sts.end_time <= (NOW() AT TIME ZONE 'UTC' + interval '${reminderMinutes} minutes')
+                AND sts.end_time > NOW() AT TIME ZONE 'UTC'`
             );
 
             let sentCount = 0;

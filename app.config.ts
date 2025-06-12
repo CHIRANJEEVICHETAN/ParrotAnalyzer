@@ -14,6 +14,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   userInterfaceStyle: "automatic",
   assetBundlePatterns: ["**/*"],
   newArchEnabled: true,
+  updates: {
+    url: "https://u.expo.dev/593351fc-6ce3-4e49-8d3e-f0d33c486168",
+  },
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.loginware.parrotanalyzer",

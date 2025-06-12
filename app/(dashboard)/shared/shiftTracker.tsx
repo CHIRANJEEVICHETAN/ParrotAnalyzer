@@ -1594,7 +1594,7 @@ export default function EmployeeShiftTracker() {
           } : undefined;
 
           // Start shift API call using role-specific endpoint
-          await axios.post(
+          const response = await axios.post(
             `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/start`,
             {
               startTime: formatDateForBackend(now),
@@ -1604,6 +1604,40 @@ export default function EmployeeShiftTracker() {
               headers: { Authorization: `Bearer ${token}` },
             }
           );
+          
+          // Check for Sparrow warnings in successful responses
+          if (response.data.sparrowWarning) {
+            let message = response.data.sparrowMessage || "There was an issue with the attendance system.";
+            let shouldPreventShiftStart = false;
+            
+            // Handle specific error types
+            if (response.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
+              message = response.data.sparrowErrors?.[0] || "You need to wait before starting another shift.";
+              shouldPreventShiftStart = true;
+              
+              // Cancel the UI update for shift start since we're preventing it
+              setShiftStart(null);
+              setIsShiftActive(false);
+              setElapsedTime(0);
+              pulseAnim.setValue(1);
+              rotateAnim.setValue(0);
+              
+              showInAppNotification(message, "error");
+              return; // Prevent continuing with shift start
+              
+            } else if (response.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR') {
+              message = response.data.sparrowErrors?.[0] || "Your roster has not been created for today. Your shift has been tracked in this app, but not in the attendance system.";
+              showInAppNotification(message, "warning");
+            } else if (response.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR') {
+              message = response.data.sparrowErrors?.[0] || "There is an issue with your schedule. Your shift has been tracked in this app, but not in the attendance system.";
+              showInAppNotification(message, "warning");
+            } else {
+              showInAppNotification(message, "warning");
+            }
+          } else {
+            // Show success message for successful attendance registration
+            showInAppNotification("Your attendance has been successfully registered in the Sparrow system.", "success");
+          }
 
           // Send notification to appropriate recipients based on role
           if (user?.role !== "management") {
@@ -1852,9 +1886,8 @@ export default function EmployeeShiftTracker() {
           );
         }
 
-        await Promise.all([
-          // API call using role-specific endpoint with location data
-          axios.post(
+                  // Make API call first to check for warnings
+          const shiftEndResponse = await axios.post(
             `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
             {
               endTime: formatDateForBackend(now),
@@ -1863,14 +1896,44 @@ export default function EmployeeShiftTracker() {
             {
               headers: { Authorization: `Bearer ${token}` },
             }
-          ),
-          // Storage updates
-          AsyncStorage.removeItem(`${user?.role}-shiftStatus`),
-          AsyncStorage.setItem(
-            `${user?.role}-shiftHistory`,
-            JSON.stringify([newShiftData, ...shiftHistory])
-          ),
-        ]);
+          );
+          
+          // Check for Sparrow warnings in successful responses
+          if (shiftEndResponse.data.sparrowWarning) {
+            let message = shiftEndResponse.data.sparrowMessage || "There was an issue with the attendance system.";
+            
+            // Handle specific error types
+            if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
+              message = shiftEndResponse.data.sparrowErrors?.[0] || "You need to wait before ending your shift.";
+              
+              // Show error message and prevent shift end
+              showInAppNotification(message, "error");
+              
+              // Don't proceed with ending the shift
+              return;
+              
+            } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR') {
+              message = shiftEndResponse.data.sparrowErrors?.[0] || "Your roster has not been created for today. Your shift has been tracked in this app, but not in the attendance system.";
+              showInAppNotification(message, "warning");
+            } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR') {
+              message = shiftEndResponse.data.sparrowErrors?.[0] || "There is an issue with your schedule. Your shift has been tracked in this app, but not in the attendance system.";
+              showInAppNotification(message, "warning");
+            } else {
+              showInAppNotification(message, "warning");
+            }
+          } else {
+            // Show success message for successful attendance registration
+            showInAppNotification("Your shift has ended and attendance has been successfully registered in the Sparrow system.", "success");
+          }
+          
+                    // Storage updates
+          await Promise.all([
+            AsyncStorage.removeItem(`${user?.role}-shiftStatus`),
+            AsyncStorage.setItem(
+              `${user?.role}-shiftHistory`,
+              JSON.stringify([newShiftData, ...shiftHistory])
+            )
+          ]);
 
         // Refresh data in background
         await Promise.all([loadShiftHistoryFromBackend(), fetchRecentShifts()]);
@@ -1963,7 +2026,7 @@ export default function EmployeeShiftTracker() {
     outputRange: ["0deg", "360deg"],
   });
 
-  // Update the handleSetTimer function
+  // Update the handleSetTimer function with proper timezone handling
   const handleSetTimer = async (hours: number) => {
     try {
       // Show loading state immediately
@@ -1978,8 +2041,15 @@ export default function EmployeeShiftTracker() {
       );
 
       if (response.data.success) {
-        // Update local state with the timer information
-        const endTime = new Date(response.data.timer.endTime);
+        // Parse the UTC timestamp from the response and create a Date object
+        // The date constructor will automatically convert UTC to local time
+        const endTimeString = response.data.timer.endTime;
+        console.log("Received end time from server:", endTimeString);
+        
+        // Create a date object that correctly interprets the time
+        const endTime = new Date(endTimeString);
+        console.log("Parsed end time as local date:", endTime.toString());
+        
         setTimerDuration(hours);
         setTimerEndTime(endTime);
 
@@ -2046,7 +2116,7 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Update the checkExistingTimer function
+  // Update the checkExistingTimer function with proper timezone handling
   const checkExistingTimer = async () => {
     try {
       // Only check if we don't have a timer set locally
@@ -2057,8 +2127,17 @@ export default function EmployeeShiftTracker() {
         );
 
         if (response.data.success && response.data.timer) {
+          // Log the response to help debug timezone issues
+          console.log("Retrieved timer from server:", response.data.timer);
+          
           // Set local state based on server timer
-          const endTime = new Date(response.data.timer.endTime);
+          const endTimeString = response.data.timer.endTime;
+          console.log("Server returned end time:", endTimeString);
+          
+          // Create a date object that correctly interprets the time
+          const endTime = new Date(endTimeString);
+          console.log("Parsed end time as local date:", endTime.toString());
+          
           setTimerDuration(response.data.timer.durationHours);
           setTimerEndTime(endTime);
           

@@ -24,7 +24,18 @@
       "env": {
         "EXPO_PUBLIC_APP_VERSION": "1.1.4"
       },
+      "channel": "production",
       "autoIncrement": true
+    },
+    "staging": {
+      "node": "22.14.0",
+      "env": {
+        "EXPO_PUBLIC_APP_VERSION": "1.1.4",
+        "EXPO_PUBLIC_API_URL": "http://192.168.0.106:3000"
+      },
+      "channel": "staging",
+      "developmentClient": false,
+      "distribution": "internal"
     }
   },
   "submit": {

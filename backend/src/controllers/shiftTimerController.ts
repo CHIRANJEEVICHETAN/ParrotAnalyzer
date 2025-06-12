@@ -34,7 +34,7 @@ export const shiftTimerController = {
             try {
                 const timer = await shiftService.setShiftTimer(userId, durationHours);
                 
-                // Return the timer information
+                // Return the timer information with ISO formatted dates for consistency
                 res.status(200).json({
                     success: true,
                     message: `Auto-end timer set successfully for ${durationHours} hours`,
@@ -42,7 +42,7 @@ export const shiftTimerController = {
                         id: timer.id,
                         userId: userId,
                         durationHours: durationHours,
-                        endTime: timer.end_time,
+                        endTime: timer.end_time.toISOString(), // Ensure ISO format for timezone consistency
                         role: user.role
                     }
                 });
@@ -109,14 +109,15 @@ export const shiftTimerController = {
             const timer = await shiftService.getCurrentShiftTimer(userId);
 
             if (timer) {
+                // Format dates as ISO strings to ensure consistent timezone handling
                 res.status(200).json({
                     success: true,
                     timer: {
                         id: timer.id,
                         shiftId: timer.shift_id,
                         durationHours: timer.timer_duration_hours,
-                        endTime: timer.end_time,
-                        startTime: timer.start_time,
+                        endTime: timer.end_time.toISOString(), // Ensure ISO format for timezone consistency
+                        startTime: timer.start_time.toISOString(), // Ensure ISO format for timezone consistency
                         roleType: timer.role_type
                     }
                 });
