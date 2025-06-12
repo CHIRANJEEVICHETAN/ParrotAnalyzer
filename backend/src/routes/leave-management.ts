@@ -483,15 +483,45 @@ router.get(
           .json({ error: "User not associated with any company" });
       }
 
-      // Get both global leave types (company_id is NULL) and company-specific leave types
-      const result = await pool.query(
+      // First, get company-specific leave types
+      const companySpecificResult = await pool.query(
         `SELECT * FROM leave_types 
-       WHERE company_id IS NULL OR company_id = $1
-       ORDER BY created_at DESC`,
+         WHERE company_id = $1
+         ORDER BY name ASC`,
         [companyId]
       );
-
-      res.json(result.rows);
+      
+      // Get the names of company-specific leave types
+      const companySpecificNames = companySpecificResult.rows.map(row => row.name);
+      
+      let globalQuery;
+      let globalParams;
+      
+      // Handle the case when there are no company-specific types
+      if (companySpecificNames.length === 0) {
+        globalQuery = `
+          SELECT * FROM leave_types 
+          WHERE company_id IS NULL
+          ORDER BY name ASC`;
+        globalParams = [];
+      } else {
+        // Build a query with the correct number of parameters
+        const placeholders = companySpecificNames.map((_, i) => `$${i + 1}`).join(',');
+        globalQuery = `
+          SELECT * FROM leave_types 
+          WHERE company_id IS NULL
+          AND name NOT IN (${placeholders})
+          ORDER BY name ASC`;
+        globalParams = companySpecificNames;
+      }
+      
+      // Now get global leave types that don't have company-specific versions
+      const globalResult = await pool.query(globalQuery, globalParams);
+      
+      // Combine the results, with company-specific types first
+      const combinedResults = [...companySpecificResult.rows, ...globalResult.rows];
+      
+      res.json(combinedResults);
     } catch (error) {
       console.error("Error fetching leave types:", error);
       res.status(500).json({ error: "Failed to fetch leave types" });
@@ -607,10 +637,12 @@ router.put(
 
       // If this is a global leave type, create a company-specific copy
       if (globalCheck.rows.length > 0) {
+        const globalType = globalCheck.rows[0];
+        
         // Check if a leave type with this name already exists for this company
         const existingType = await pool.query(
           `SELECT * FROM leave_types WHERE name = $1 AND company_id = $2`,
-          [name, companyId]
+          [globalType.name, companyId]
         );
 
         if (existingType.rows.length > 0) {
@@ -671,12 +703,13 @@ router.put(
                   globalPolicy.rows[0].notice_period_days,
                   globalPolicy.rows[0].max_consecutive_days,
                   globalPolicy.rows[0].gender_specific,
-                  globalPolicy.rows[0].is_active,
+                  is_active, // Use the requested is_active value
                 ]
               );
             }
           } else {
             // Update the existing policy to ensure default_days doesn't exceed max_days
+            // And update is_active status
             const default_days = Math.min(
               policyCheck.rows[0].default_days,
               max_days
@@ -684,15 +717,15 @@ router.put(
 
             await pool.query(
               `UPDATE leave_policies
-               SET default_days = $1
-               WHERE leave_type_id = $2`,
-              [default_days, existingType.rows[0].id]
+               SET default_days = $1, is_active = $2
+               WHERE leave_type_id = $3`,
+              [default_days, is_active, existingType.rows[0].id]
             );
           }
 
           return res.json({
             ...result.rows[0],
-            message: "Updated company-specific copy of global leave type",
+            message: "Updated company-specific leave type settings",
           });
         }
 
@@ -703,12 +736,12 @@ router.put(
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING *`,
           [
-            name,
-            description,
-            requires_documentation,
-            max_days,
-            is_paid,
-            is_active,
+            globalType.name, // Use the original name from the global type
+            description || globalType.description,
+            requires_documentation !== undefined ? requires_documentation : globalType.requires_documentation,
+            max_days || globalType.max_days,
+            is_paid !== undefined ? is_paid : globalType.is_paid,
+            is_active, // Use the requested is_active value
             companyId,
           ]
         );
@@ -724,7 +757,7 @@ router.put(
           // Ensure default_days doesn't exceed max_days
           const default_days = Math.min(
             globalPolicy.rows[0].default_days,
-            max_days
+            max_days || globalType.max_days
           );
 
           await pool.query(
@@ -742,14 +775,14 @@ router.put(
               globalPolicy.rows[0].notice_period_days,
               globalPolicy.rows[0].max_consecutive_days,
               globalPolicy.rows[0].gender_specific,
-              globalPolicy.rows[0].is_active,
+              is_active, // Use the requested is_active value
             ]
           );
         }
 
         return res.json({
           ...result.rows[0],
-          message: "Created company-specific copy of global leave type",
+          message: "Created company-specific leave type settings",
         });
       }
 
@@ -792,11 +825,12 @@ router.put(
       );
 
       // If max_days was reduced, ensure no policy has default_days higher than max_days
+      // Also update is_active status in the leave policy to match the leave type
       await pool.query(
         `UPDATE leave_policies 
-         SET default_days = LEAST(default_days, $1) 
-         WHERE leave_type_id = $2`,
-        [max_days, id]
+         SET default_days = LEAST(default_days, $1), is_active = $2
+         WHERE leave_type_id = $3`,
+        [max_days, is_active, id]
       );
 
       res.json(result.rows[0]);
@@ -1961,11 +1995,10 @@ router.post(
           UPDATE leave_balances
           SET 
             used_days = used_days + $1,
-            pending_days = pending_days - $1,
-            updated_at = NOW()
-          WHERE user_id = $2 AND leave_type_id = $3 AND year = EXTRACT(YEAR FROM NOW())
+            pending_days = pending_days - $1
+          WHERE user_id = $2 AND leave_type_id = $3 AND year = $4
         `,
-            [request.days_requested, request.user_id, request.leave_type_id]
+            [request.days_requested, request.user_id, request.leave_type_id, request.year]
           );
         } else if (action === "reject") {
           // When rejecting, just decrease pending_days
@@ -1973,11 +2006,10 @@ router.post(
             `
           UPDATE leave_balances
           SET 
-            pending_days = pending_days - $1,
-            updated_at = NOW()
-          WHERE user_id = $2 AND leave_type_id = $3 AND year = EXTRACT(YEAR FROM NOW())
+            pending_days = pending_days - $1
+          WHERE user_id = $2 AND leave_type_id = $3 AND year = $4
         `,
-            [request.days_requested, request.user_id, request.leave_type_id]
+            [request.days_requested, request.user_id, request.leave_type_id, request.year]
           );
         }
       }
