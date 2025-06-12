@@ -1622,17 +1622,47 @@ export default function EmployeeShiftTracker() {
               pulseAnim.setValue(1);
               rotateAnim.setValue(0);
               
-              showInAppNotification(message, "error");
+              // Use modal for a more prominent error display
+              setModalData({
+                title: "Attendance Error",
+                message: message,
+                type: "info",
+                showCancel: false,
+              });
+              setShowModal(true);
               return; // Prevent continuing with shift start
               
             } else if (response.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR') {
               message = response.data.sparrowErrors?.[0] || "Your roster has not been created for today. Your shift has been tracked in this app, but not in the attendance system.";
-              showInAppNotification(message, "warning");
+              
+              // Use modal for a more prominent error display
+              setModalData({
+                title: "Roster Warning",
+                message: message,
+                type: "info",
+                showCancel: false,
+              });
+              setShowModal(true);
             } else if (response.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR') {
               message = response.data.sparrowErrors?.[0] || "There is an issue with your schedule. Your shift has been tracked in this app, but not in the attendance system.";
-              showInAppNotification(message, "warning");
+              
+              // Use modal for a more prominent error display
+              setModalData({
+                title: "Schedule Warning",
+                message: message,
+                type: "info",
+                showCancel: false,
+              });
+              setShowModal(true);
             } else {
-              showInAppNotification(message, "warning");
+              // Use modal for a more prominent error display
+              setModalData({
+                title: "Attendance Warning",
+                message: message,
+                type: "info",
+                showCancel: false,
+              });
+              setShowModal(true);
             }
           } else {
             // Show success message for successful attendance registration
@@ -1672,21 +1702,24 @@ export default function EmployeeShiftTracker() {
           // Schedule persistent notification
           await schedulePersistentNotification();
 
-          // Update modal with success message
-          setModalData({
-            title: "Shift Started",
-            message: `Your shift has started at ${format(
-              now,
-              "hh:mm a"
-            )}. The timer will continue running even if you close the app.`,
-            type: "success",
-            showCancel: false,
-          });
+          // Update modal with success message (only if no warning modal was shown)
+          if (!response.data.sparrowWarning) {
+            setModalData({
+              title: "Shift Started",
+              message: `Your shift has started at ${format(
+                now,
+                "hh:mm a"
+              )}. The timer will continue running even if you close the app.`,
+              type: "success",
+              showCancel: false,
+            });
+            setShowModal(true);
 
-          // Show warning messages after shift start confirmation with new combined modal
-          setTimeout(() => {
-            showWarningMessages();
-          }, 1500);
+            // Show warning messages after shift start confirmation with new combined modal
+            setTimeout(() => {
+              showWarningMessages();
+            }, 1500);
+          }
         } catch (error: any) {
           // Revert UI state on error
           setShiftStart(null);
@@ -1695,21 +1728,28 @@ export default function EmployeeShiftTracker() {
           pulseAnim.setValue(1);
           rotateAnim.setValue(0);
 
-          showInAppNotification(
-            error.response?.data?.error ||
-              "Failed to start shift. Please try again.",
-            "error"
-          );
+          // Use modal for a more prominent error display
+          setModalData({
+            title: "Error Starting Shift",
+            message: error.response?.data?.error || "Failed to start shift. Please try again.",
+            type: "info",
+            showCancel: false,
+          });
+          setShowModal(true);
         }
       });
     } catch (error: any) {
       // Handle any unexpected errors
       console.error("Error starting shift:", error);
-      showInAppNotification(
-        error.message ||
-          "An unexpected error occurred while starting your shift",
-        "error"
-      );
+      
+      // Use modal for a more prominent error display
+      setModalData({
+        title: "Error Starting Shift",
+        message: error.message || "An unexpected error occurred while starting your shift",
+        type: "info",
+        showCancel: false,
+      });
+      setShowModal(true);
 
       // Reset UI
       setShiftStart(null);
@@ -1886,54 +1926,89 @@ export default function EmployeeShiftTracker() {
           );
         }
 
-                  // Make API call first to check for warnings
-          const shiftEndResponse = await axios.post(
-            `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
-            {
-              endTime: formatDateForBackend(now),
-              location: locationData, // Include location data for all roles
-            },
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-          
-          // Check for Sparrow warnings in successful responses
-          if (shiftEndResponse.data.sparrowWarning) {
-            let message = shiftEndResponse.data.sparrowMessage || "There was an issue with the attendance system.";
-            
-            // Handle specific error types
-            if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
-              message = shiftEndResponse.data.sparrowErrors?.[0] || "You need to wait before ending your shift.";
-              
-              // Show error message and prevent shift end
-              showInAppNotification(message, "error");
-              
-              // Don't proceed with ending the shift
-              return;
-              
-            } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR') {
-              message = shiftEndResponse.data.sparrowErrors?.[0] || "Your roster has not been created for today. Your shift has been tracked in this app, but not in the attendance system.";
-              showInAppNotification(message, "warning");
-            } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR') {
-              message = shiftEndResponse.data.sparrowErrors?.[0] || "There is an issue with your schedule. Your shift has been tracked in this app, but not in the attendance system.";
-              showInAppNotification(message, "warning");
-            } else {
-              showInAppNotification(message, "warning");
-            }
-          } else {
-            // Show success message for successful attendance registration
-            showInAppNotification("Your shift has ended and attendance has been successfully registered in the Sparrow system.", "success");
+        // Make API call first to check for warnings
+        const shiftEndResponse = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
+          {
+            endTime: formatDateForBackend(now),
+            location: locationData, // Include location data for all roles
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
           }
+        );
           
-                    // Storage updates
-          await Promise.all([
-            AsyncStorage.removeItem(`${user?.role}-shiftStatus`),
-            AsyncStorage.setItem(
-              `${user?.role}-shiftHistory`,
-              JSON.stringify([newShiftData, ...shiftHistory])
-            )
-          ]);
+        // Check for Sparrow warnings in successful responses
+        if (shiftEndResponse.data.sparrowWarning) {
+          let message = shiftEndResponse.data.sparrowMessage || "There was an issue with the attendance system.";
+          
+          // Handle specific error types
+          if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
+            message = shiftEndResponse.data.sparrowErrors?.[0] || "You need to wait before ending your shift.";
+            
+            // Show error message and prevent shift end
+            setModalData({
+              title: "Attendance Error",
+              message: message,
+              type: "info",
+              showCancel: false,
+            });
+            setShowModal(true);
+            
+          } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR') {
+            message = shiftEndResponse.data.sparrowErrors?.[0] || "Your roster has not been created for today. Your shift has been tracked in this app, but not in the attendance system.";
+            
+            // Use modal for a more prominent error display
+            setModalData({
+              title: "Roster Warning",
+              message: message,
+              type: "info",
+              showCancel: false,
+            });
+            setShowModal(true);
+          } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR') {
+            message = shiftEndResponse.data.sparrowErrors?.[0] || "There is an issue with your schedule. Your shift has been tracked in this app, but not in the attendance system.";
+            
+            // Use modal for a more prominent error display
+            setModalData({
+              title: "Schedule Warning",
+              message: message,
+              type: "info",
+              showCancel: false,
+            });
+            setShowModal(true);
+          } else {
+            // Use modal for a more prominent error display
+            setModalData({
+              title: "Attendance Warning",
+              message: message,
+              type: "info",
+              showCancel: false,
+            });
+            setShowModal(true);
+          }
+        } else {
+          // Show success message for successful attendance registration
+          setModalData({
+            title: "Shift Completed",
+            message: `Your shift has ended and attendance has been successfully registered.\n\nTotal Duration: ${duration}\nStart: ${format(
+              shiftStart,
+              "hh:mm a"
+            )}\nEnd: ${format(now, "hh:mm a")}`,
+            type: "success",
+            showCancel: false,
+          });
+          setShowModal(true);
+        }
+          
+        // Storage updates
+        await Promise.all([
+          AsyncStorage.removeItem(`${user?.role}-shiftStatus`),
+          AsyncStorage.setItem(
+            `${user?.role}-shiftHistory`,
+            JSON.stringify([newShiftData, ...shiftHistory])
+          )
+        ]);
 
         // Refresh data in background
         await Promise.all([loadShiftHistoryFromBackend(), fetchRecentShifts()]);
@@ -1943,12 +2018,14 @@ export default function EmployeeShiftTracker() {
       } catch (error: any) {
         console.error("Error ending shift:", error);
 
-        // Show notification instead of alert
-        showInAppNotification(
-          error.response?.data?.error ||
-            "Failed to end shift. Please try again.",
-          "error"
-        );
+        // Use modal for a more prominent error display
+        setModalData({
+          title: "Error Ending Shift",
+          message: error.response?.data?.error || "Failed to end shift. Please try again.",
+          type: "info",
+          showCancel: false,
+        });
+        setShowModal(true);
 
         // Revert UI state
         setIsShiftActive(true);
