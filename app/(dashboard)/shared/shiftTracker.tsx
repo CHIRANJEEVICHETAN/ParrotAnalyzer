@@ -2118,25 +2118,24 @@ export default function EmployeeShiftTracker() {
       );
 
       if (response.data.success) {
-        // Parse the UTC timestamp from the response and create a Date object
-        // The date constructor will automatically convert UTC to local time
+        // The endTime from server is already in IST, no need for timezone conversion
         const endTimeString = response.data.timer.endTime;
-        console.log("Received end time from server:", endTimeString);
+        console.log("Received end time from server (IST):", endTimeString);
         
-        // Create a date object that correctly interprets the time
+        // Create a date object from the IST time string
         const endTime = new Date(endTimeString);
-        console.log("Parsed end time as local date:", endTime.toString());
+        console.log("Parsed end time as local date (IST):", endTime.toString());
         
         setTimerDuration(hours);
         setTimerEndTime(endTime);
 
-        // Show confirmation modal
+        // Show confirmation modal with IST time
         setModalData({
           title: "Timer Set",
           message: `Your shift will automatically end at ${format(
             endTime,
             "hh:mm a"
-          )}. This will happen even if the app is closed.`,
+          )} IST. This will happen even if the app is closed.`,
           type: "success",
           showCancel: false,
         });
@@ -2193,7 +2192,7 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Update the checkExistingTimer function with proper timezone handling
+  // Update the checkExistingTimer function to handle IST time
   const checkExistingTimer = async () => {
     try {
       // Only check if we don't have a timer set locally
@@ -2207,13 +2206,13 @@ export default function EmployeeShiftTracker() {
           // Log the response to help debug timezone issues
           console.log("Retrieved timer from server:", response.data.timer);
           
-          // Set local state based on server timer
+          // The endTime from server is already in IST
           const endTimeString = response.data.timer.endTime;
-          console.log("Server returned end time:", endTimeString);
+          console.log("Server returned end time (IST):", endTimeString);
           
-          // Create a date object that correctly interprets the time
+          // Create a date object from the IST time string
           const endTime = new Date(endTimeString);
-          console.log("Parsed end time as local date:", endTime.toString());
+          console.log("Parsed end time as local date (IST):", endTime.toString());
           
           setTimerDuration(response.data.timer.durationHours);
           setTimerEndTime(endTime);
@@ -2221,7 +2220,7 @@ export default function EmployeeShiftTracker() {
           // Only show notification if the timer is still in the future
           if (endTime > new Date()) {
             showInAppNotification(
-              `Auto-end timer active: Shift will end at ${format(endTime, "hh:mm a")}`,
+              `Auto-end timer active: Shift will end at ${format(endTime, "hh:mm a")} IST`,
               "info"
             );
           }

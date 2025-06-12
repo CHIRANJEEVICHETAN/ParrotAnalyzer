@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Parrot Analyzer",
   slug: "parraotanalyzer",
-  version: "1.1.4",
+  version: "1.1.5",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "myapp",
@@ -16,6 +16,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   newArchEnabled: true,
   updates: {
     url: "https://u.expo.dev/593351fc-6ce3-4e49-8d3e-f0d33c486168",
+    fallbackToCacheTimeout: 0,
+    checkAutomatically: "ON_LOAD",
   },
   ios: {
     supportsTablet: true,

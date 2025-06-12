@@ -270,27 +270,35 @@ export class ShiftTrackingService {
             const shiftId = shiftResult.rows[0][idColumn];
             const startTime = new Date(shiftResult.rows[0][startColumn]);
             
-            // Calculate end time in milliseconds, but don't create Date object yet
-            const endTimeMs = startTime.getTime() + durationHours * 60 * 60 * 1000;
-
             // Check for existing timer and delete it
             await client.query(
                 `DELETE FROM shift_timer_settings WHERE user_id = $1 AND completed = FALSE`,
                 [userId]
             );
 
-            // Use PostgreSQL's TIMESTAMP arithmetic instead of JavaScript Date
-            // This ensures consistent timezone handling in the database
+            // Set timezone to Asia/Kolkata (IST) for consistent handling
+            await client.query("SET timezone = 'Asia/Kolkata'");
+
+            // Insert timer with IST timezone
             const timerResult = await client.query(
                 `INSERT INTO shift_timer_settings 
                 (shift_id, user_id, timer_duration_hours, end_time, role_type, shift_table_name) 
-                VALUES ($1, $2, $3, $4::timestamp + ($5 || ' hours')::interval, $6, $7) 
-                RETURNING *`,
-                [shiftId, userId, durationHours, shiftResult.rows[0][startColumn], durationHours, userRole, table]
+                VALUES (
+                    $1, $2, $3, 
+                    $4::timestamp + ($5 || ' hours')::interval,
+                    $6, $7
+                ) 
+                RETURNING *, end_time AT TIME ZONE 'Asia/Kolkata' as ist_end_time`,
+                [shiftId, userId, durationHours, startTime, durationHours, userRole, table]
             );
 
             await client.query('COMMIT');
-            return timerResult.rows[0];
+            
+            // Return the timer with IST time
+            return {
+                ...timerResult.rows[0],
+                end_time: timerResult.rows[0].ist_end_time
+            };
         } catch (error) {
             await client.query('ROLLBACK');
             console.error('Error setting shift timer:', error);
@@ -318,7 +326,7 @@ export class ShiftTrackingService {
         }
     }
 
-    // Update getCurrentShiftTimer to use shift_table_name and handle timezone consistently
+    // Update getCurrentShiftTimer to handle IST timezone
     async getCurrentShiftTimer(userId: number): Promise<any> {
         const client = await pool.connect();
         try {
@@ -335,20 +343,21 @@ export class ShiftTrackingService {
             const userRole = userResult.rows[0].role;
             const shiftTableName = await this.getShiftTableNameFromRole(userRole);
             
-            // Query appropriate shift table based on role and shift_table_name
-            // Return timestamps in ISO format to ensure proper timezone handling
+            // Set timezone to Asia/Kolkata (IST)
+            await client.query("SET timezone = 'Asia/Kolkata'");
+
+            // Query with IST timezone
             const result = await client.query(
                 `SELECT 
                     sts.id, 
                     sts.shift_id, 
                     sts.user_id, 
                     sts.timer_duration_hours,
-                    sts.end_time AT TIME ZONE 'UTC' as end_time_utc,
+                    sts.end_time AT TIME ZONE 'Asia/Kolkata' as end_time,
                     sts.role_type,
                     sts.shift_table_name,
                     sts.completed,
-                    sts.notification_sent,
-                    s.start_time AT TIME ZONE 'UTC' as start_time_utc
+                    s.start_time AT TIME ZONE 'Asia/Kolkata' as start_time
                 FROM shift_timer_settings sts
                 JOIN ${shiftTableName} s ON sts.shift_id = s.id
                 WHERE sts.user_id = $1 
@@ -362,15 +371,9 @@ export class ShiftTrackingService {
                 return null;
             }
 
-            // Rename fields to standard names for consistency
-            const timer = result.rows[0];
-            return {
-                ...timer,
-                start_time: timer.start_time_utc,
-                end_time: timer.end_time_utc
-            };
+            return result.rows[0];
         } catch (error) {
-            console.error('Error fetching shift timer:', error);
+            console.error('Error getting shift timer:', error);
             throw error;
         } finally {
             client.release();
@@ -385,20 +388,26 @@ export class ShiftTrackingService {
         try {
             await client.query('BEGIN');
             
+            // Set timezone to IST for this session
+            await client.query("SET timezone = 'Asia/Kolkata'");
+            
             // Get all pending timers regardless of role
-            // Use explicit timezone comparisons to avoid server timezone settings affecting results
+            // Use IST timezone for comparisons
             const timerResult = await client.query(
                 `SELECT sts.id, sts.shift_id, sts.user_id, 
-                        sts.end_time AT TIME ZONE 'UTC' as end_time, 
+                        sts.end_time, 
                         sts.timer_duration_hours, sts.role_type, sts.shift_table_name
                 FROM shift_timer_settings sts
                 WHERE sts.completed = FALSE
-                AND sts.end_time <= NOW() AT TIME ZONE 'UTC'`
+                AND sts.end_time <= NOW()`
             );
+
+            console.log(`Found ${timerResult.rows.length} pending timers to process at ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}`);
 
             // Process each shift that needs to end
             for (const timer of timerResult.rows) {
                 try {
+                    console.log(`Processing timer for shift ${timer.shift_id}, user ${timer.user_id}, end time ${timer.end_time}`);
                     const userRole = timer.role_type;
                     const shiftTable = timer.shift_table_name || await this.getShiftTableNameFromRole(userRole);
                     const { idColumn, userColumn, startColumn, endColumn, statusColumn, durationColumn } = 
@@ -621,19 +630,20 @@ export class ShiftTrackingService {
     // Update sendTimerReminders to support all roles using shift_table_name
     async sendTimerReminders(reminderMinutes: number = 5): Promise<number> {
         try {
-            // Find timers that need reminders (end time approaching within the reminder window but notification not yet sent)
-            // Use PostgreSQL's interval arithmetic for consistent timezone handling
+            // Set timezone to IST for this session
+            await pool.query("SET timezone = 'Asia/Kolkata'");
             
+            // Find timers that need reminders (end time approaching within the reminder window but notification not yet sent)
             const timerResult = await pool.query(
                 `SELECT sts.id, sts.shift_id, sts.user_id, 
-                        sts.end_time AT TIME ZONE 'UTC' as end_time, 
+                        sts.end_time, 
                         sts.timer_duration_hours, sts.role_type, sts.shift_table_name, u.name 
                 FROM shift_timer_settings sts
                 JOIN users u ON sts.user_id = u.id
                 WHERE sts.completed = FALSE 
                 AND sts.notification_sent = FALSE
-                AND sts.end_time <= (NOW() AT TIME ZONE 'UTC' + interval '${reminderMinutes} minutes')
-                AND sts.end_time > NOW() AT TIME ZONE 'UTC'`
+                AND sts.end_time <= (NOW() + interval '${reminderMinutes} minutes')
+                AND sts.end_time > NOW()`
             );
 
             let sentCount = 0;
@@ -677,6 +687,7 @@ export class ShiftTrackingService {
                         [timer.id]
                     );
 
+                    console.log(`[${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}] Sent reminder notification for timer ID ${timer.id}, user ${timer.user_id}, shift ${timer.shift_id}`);
                     sentCount++;
                 } catch (error: any) {
                     console.error(`Error sending reminder for timer ID ${timer.id}:`, error);

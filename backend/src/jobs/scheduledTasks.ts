@@ -1,6 +1,7 @@
 import { CronJob } from 'cron';
 import { ErrorLoggingService } from '../services/ErrorLoggingService';
 import { ShiftTrackingService } from '../services/ShiftTrackingService';
+import { pool } from '../config/database';
 
 const errorLogger = new ErrorLoggingService();
 const shiftService = new ShiftTrackingService();
@@ -24,16 +25,26 @@ const shiftTimerProcessor = new CronJob('*/1 * * * *', async () => {
     
     const processWithRetry = async () => {
         try {
-            console.log(`[${new Date().toISOString()}] Processing shift timers (attempt ${attempt + 1}/${maxAttempts})...`);
+            // Set timezone to IST for consistent handling
+            await pool.query("SET timezone = 'Asia/Kolkata'");
+            
+            const currentTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+            console.log(`[${currentTime}] Processing shift timers (attempt ${attempt + 1}/${maxAttempts})...`);
+            
+            // Process pending timers
             const endedShifts = await shiftService.processPendingTimers();
             
             if (endedShifts > 0) {
-                console.log(`[${new Date().toISOString()}] Successfully auto-ended ${endedShifts} shifts based on timer settings`);
+                console.log(`[${currentTime}] Successfully auto-ended ${endedShifts} shifts based on timer settings`);
+            } else {
+                console.log(`[${currentTime}] No shifts to auto-end at this time`);
             }
+            
             return true; // Success
         } catch (error) {
             attempt++;
-            console.error(`[${new Date().toISOString()}] Error processing shift timers (attempt ${attempt}/${maxAttempts}):`, error);
+            const currentTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+            console.error(`[${currentTime}] Error processing shift timers (attempt ${attempt}/${maxAttempts}):`, error);
             
             // If we have exhausted retries, log the error but don't retry anymore
             if (attempt >= maxAttempts) {
@@ -57,14 +68,17 @@ const shiftTimerProcessor = new CronJob('*/1 * * * *', async () => {
 // Send timer reminder notifications every minute (5-minute reminder before shift ends)
 const shiftReminderSender = new CronJob('*/1 * * * *', async () => {
     try {
-        console.log(`[${new Date().toISOString()}] Sending shift timer reminders...`);
+        // Set timezone to IST for consistent handling
+        await pool.query("SET timezone = 'Asia/Kolkata'");
+        
+        console.log(`[${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}] Sending shift timer reminders...`);
         const sentReminders = await shiftService.sendTimerReminders(5);
         
         if (sentReminders > 0) {
-            console.log(`[${new Date().toISOString()}] Successfully sent ${sentReminders} shift ending reminders`);
+            console.log(`[${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}] Successfully sent ${sentReminders} shift ending reminders`);
         }
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] Error sending shift reminders:`, error);
+        console.error(`[${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}] Error sending shift reminders:`, error);
         errorLogger.logError(error, 'ShiftReminderSender');
     }
 });

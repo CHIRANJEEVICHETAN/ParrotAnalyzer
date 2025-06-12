@@ -7,12 +7,29 @@ import {
   Image,
   StatusBar,
   Platform,
+  AppState,
 } from "react-native";
 import { useRouter } from "expo-router";
 import ThemeContext from "./context/ThemeContext";
 import { LinearGradient } from "expo-linear-gradient";
 import AuthContext from "./context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Updates from 'expo-updates';
+
+useEffect(() => {
+  let current = AppState.currentState;
+  const sub = AppState.addEventListener('change', async next => {
+    if (current.match(/inactive|background/) && next === 'active') {
+      const { isAvailable } = await Updates.checkForUpdateAsync();
+      if (isAvailable) {
+        await Updates.fetchUpdateAsync();
+        await Updates.reloadAsync();
+      }
+    }
+    current = next;
+  });
+  return () => sub.remove();
+}, []);
 
 export default function SplashScreen() {
   const router = useRouter();
