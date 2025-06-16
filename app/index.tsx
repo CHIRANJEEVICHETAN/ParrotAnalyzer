@@ -15,11 +15,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import AuthContext from "./context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Updates from 'expo-updates';
+import * as Network from 'expo-network';
 
 export default function SplashScreen() {
   const router = useRouter();
   const { theme } = ThemeContext.useTheme();
-  const { isLoading, user } = AuthContext.useAuth();
+  const { isLoading, user, isOffline } = AuthContext.useAuth();
 
   // Animation refs
   const fadeAnim = new Animated.Value(0);
@@ -27,16 +28,27 @@ export default function SplashScreen() {
   const rotateAnim = new Animated.Value(0);
   const slideUpAnim = new Animated.Value(50);
   const textFadeAnim = new Animated.Value(0);
+  const offlineBadgeFadeAnim = useRef(new Animated.Value(0)).current;
 
   // Check for updates when app comes to foreground
   useEffect(() => {
     let current = AppState.currentState;
     const sub = AppState.addEventListener('change', async next => {
       if (current.match(/inactive|background/) && next === 'active') {
-        const { isAvailable } = await Updates.checkForUpdateAsync();
-        if (isAvailable) {
-          await Updates.fetchUpdateAsync();
-          await Updates.reloadAsync();
+        try {
+          // Check network connectivity before attempting update check
+          const networkState = await Network.getNetworkStateAsync();
+          if (networkState.isConnected && networkState.isInternetReachable) {
+            const { isAvailable } = await Updates.checkForUpdateAsync();
+            if (isAvailable) {
+              await Updates.fetchUpdateAsync();
+              await Updates.reloadAsync();
+            }
+          } else {
+            console.log("Offline mode: Skipping update check");
+          }
+        } catch (error) {
+          console.error("Error checking for updates:", error);
         }
       }
       current = next;
@@ -84,6 +96,16 @@ export default function SplashScreen() {
         ]),
       ]).start();
 
+      // Animate offline badge if in offline mode
+      if (isOffline) {
+        Animated.timing(offlineBadgeFadeAnim, {
+          toValue: 1,
+          duration: 500,
+          delay: 1000,
+          useNativeDriver: true,
+        }).start();
+      }
+
       // Navigate based on auth state
       const timer = setTimeout(() => {
         if (user) {
@@ -110,7 +132,7 @@ export default function SplashScreen() {
 
       return () => clearTimeout(timer);
     }
-  }, [isLoading, user]);
+  }, [isLoading, user, isOffline]);
 
   const isDark = theme === "dark";
   const spin = rotateAnim.interpolate({
@@ -258,6 +280,32 @@ export default function SplashScreen() {
             >
               Parrot Analyzer
             </Animated.Text>
+            
+            {/* Offline mode indicator */}
+            {isOffline && (
+              <Animated.View 
+                style={{
+                  opacity: offlineBadgeFadeAnim,
+                  marginTop: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 12,
+                  backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(239, 68, 68, 0.5)' : 'rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                <Text
+                  style={{
+                    color: isDark ? '#FCA5A5' : '#DC2626',
+                    fontSize: 14,
+                    fontWeight: '600',
+                  }}
+                >
+                  Offline Mode
+                </Text>
+              </Animated.View>
+            )}
           </Animated.View>
 
           <Animated.View

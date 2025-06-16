@@ -111,6 +111,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         isAndroidForegroundServiceEnabled: true,
       },
     ],
+    [
+      "@sentry/react-native/expo",
+      {
+        url: "https://sentry.io/",
+        project: process.env.SENTRY_PROJECT || "parrot-analyzer",
+        organization: process.env.SENTRY_ORG || "loginware",
+      }
+    ],
   ],
   experiments: {
     typedRoutes: true,
@@ -126,6 +134,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Make environment variables available in the app via Constants.expoConfig.extra
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
     apiUrl: process.env.EXPO_PUBLIC_API_URL,
+    sentryDsn: process.env.SENTRY_DSN,
   },
   owner: "loginware",
   runtimeVersion: {

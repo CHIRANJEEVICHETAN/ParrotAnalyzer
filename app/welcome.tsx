@@ -1,20 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import "./../app/utils/backgroundLocationTask";
 import { View, Text, TouchableOpacity, Animated, Image, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import ThemeContext from './context/ThemeContext';
-import { useEffect, useRef } from 'react';
+import AuthContext from './context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PermissionsModal from './components/PermissionsModal';
+import * as Network from 'expo-network';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function Welcome() {
     const router = useRouter();
     const { theme } = ThemeContext.useTheme();
+    const { isOffline } = AuthContext.useAuth();
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(50)).current;
     const scaleAnim = useRef(new Animated.Value(0.95)).current;
     const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+    const [networkState, setNetworkState] = useState<{isConnected: boolean, isInternetReachable: boolean | null}>({
+        isConnected: true,
+        isInternetReachable: true
+    });
+    const offlineBadgeFadeAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         Animated.parallel([
@@ -34,11 +42,41 @@ export default function Welcome() {
                 useNativeDriver: true,
             }),
         ]).start();
-    }, []);
+        
+        // Check network connectivity
+        checkNetworkStatus();
+        
+        // Animate offline badge if in offline mode
+        if (isOffline) {
+            Animated.timing(offlineBadgeFadeAnim, {
+                toValue: 1,
+                duration: 500,
+                delay: 1000,
+                useNativeDriver: true,
+            }).start();
+        }
+    }, [isOffline]);
+    
+    const checkNetworkStatus = async () => {
+        try {
+            const status = await Network.getNetworkStateAsync();
+            setNetworkState({
+                isConnected: status.isConnected === true,
+                isInternetReachable: status.isInternetReachable ?? null
+            });
+        } catch (error) {
+            console.error('Failed to check network status:', error);
+            // Default to assuming there's connectivity if we can't check
+            setNetworkState({ isConnected: true, isInternetReachable: true });
+        }
+    };
 
     const handleGetStarted = async () => {
         // Check if permissions have been requested before
         try {
+            // Check network connectivity first
+            await checkNetworkStatus();
+            
             const permissionsRequested = await AsyncStorage.getItem('permissionsRequested');
             if (permissionsRequested === 'true') {
                 // If permissions were already requested before, skip to sign in
@@ -157,7 +195,40 @@ export default function Welcome() {
                             letterSpacing: 0.5
                         }}>
                             Streamline Employee Tracking & Reporting
-                        </Text>
+                        </Text>                        
+                        {/* Offline indicator */}
+                        {isOffline && (
+                            <Animated.View 
+                                style={{
+                                    opacity: offlineBadgeFadeAnim,
+                                    marginTop: 8,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 6,
+                                    borderRadius: 12,
+                                    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                                    borderWidth: 1,
+                                    borderColor: isDark ? 'rgba(239, 68, 68, 0.5)' : 'rgba(239, 68, 68, 0.3)',
+                                }}
+                            >
+                                <Ionicons 
+                                    name="cloud-offline-outline" 
+                                    size={18} 
+                                    color={isDark ? '#FCA5A5' : '#DC2626'}
+                                />
+                                <Text
+                                    style={{
+                                        color: isDark ? '#FCA5A5' : '#DC2626',
+                                        fontSize: 14,
+                                        fontWeight: '600',
+                                        marginLeft: 6,
+                                    }}
+                                >
+                                    Offline Mode
+                                </Text>
+                            </Animated.View>
+                        )}
                     </Animated.View>
 
                     {/* Bottom Section */}
@@ -166,6 +237,34 @@ export default function Welcome() {
                         opacity: fadeAnim,
                         transform: [{ translateY: slideAnim }]
                     }}>
+                        {/* Network status indicator */}
+                        {(!networkState.isConnected || networkState.isInternetReachable === false) && (
+                            <View style={{
+                                backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(254, 202, 202, 0.8)',
+                                padding: 12,
+                                borderRadius: 8,
+                                marginBottom: 16,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                borderWidth: 1,
+                                borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(220, 38, 38, 0.3)',
+                            }}>
+                                <Ionicons 
+                                    name="wifi-outline" 
+                                    size={20} 
+                                    color={isDark ? '#FCA5A5' : '#DC2626'}
+                                    style={{ marginRight: 8 }}
+                                />
+                                <Text style={{
+                                    fontSize: 14,
+                                    color: isDark ? '#FCA5A5' : '#B91C1C',
+                                    flex: 1,
+                                }}>
+                                    No internet connection. Some features may be limited.
+                                </Text>
+                            </View>
+                        )}
+                    
                         <TouchableOpacity
                             style={{
                                 backgroundColor: isDark ? '#3B82F6' : '#6366F1',

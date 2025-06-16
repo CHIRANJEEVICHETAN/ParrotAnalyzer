@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 // Constants for storage keys (must match those in AuthContext)
 const AUTH_TOKEN_KEY = 'auth_token';
@@ -12,9 +12,11 @@ const USER_DATA_KEY = 'user_data';
  * @param token The JWT token string
  * @returns The decoded payload or null if invalid
  */
-export const decodeToken = (token: string) => {
+export const decodeToken = (token: string): any => {
   try {
     const base64Url = token.split('.')[1];
+    if (!base64Url) return null;
+    
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const jsonPayload = decodeURIComponent(
       atob(base64)
@@ -22,6 +24,7 @@ export const decodeToken = (token: string) => {
         .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
         .join('')
     );
+
     return JSON.parse(jsonPayload);
   } catch (error) {
     console.error('Error decoding token:', error);
@@ -34,16 +37,17 @@ export const decodeToken = (token: string) => {
  * @param token The JWT token string
  * @returns True if expired, false if valid, null if error
  */
-export const isTokenExpired = (token: string) => {
+export const isTokenExpired = (token: string): boolean => {
   try {
     const decoded = decodeToken(token);
-    if (!decoded || !decoded.exp) return null;
+    if (!decoded || !decoded.exp) return true;
     
-    const currentTime = Date.now() / 1000; // Convert to seconds
+    // Compare expiration timestamp with current time
+    const currentTime = Math.floor(Date.now() / 1000);
     return decoded.exp < currentTime;
   } catch (error) {
     console.error('Error checking token expiration:', error);
-    return null;
+    return true; // Consider expired if there's an error
   }
 };
 
@@ -61,8 +65,11 @@ export const getTokenDebugInfo = async () => {
     let secureRefreshToken = null;
     
     try {
-      secureAccessToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
-      secureRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      // Only try SecureStore on native platforms
+      if (Platform.OS !== 'web') {
+        secureAccessToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+        secureRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      }
     } catch (error) {
       console.error('Error accessing SecureStore:', error);
     }
@@ -79,42 +86,64 @@ export const getTokenDebugInfo = async () => {
     const refreshTokenMismatch = asyncRefreshToken !== secureRefreshToken && 
       asyncRefreshToken && secureRefreshToken;
     
+    // Check for missing tokens
+    const asyncAccessMissing = !asyncAccessToken && !!secureAccessToken;
+    const secureAccessMissing = !!asyncAccessToken && !secureAccessToken && Platform.OS !== 'web';
+    const asyncRefreshMissing = !asyncRefreshToken && !!secureRefreshToken;
+    const secureRefreshMissing = !!asyncRefreshToken && !secureRefreshToken && Platform.OS !== 'web';
+    
+    // Check if any token is expired
+    const asyncAccessExpired = asyncAccessToken ? isTokenExpired(asyncAccessToken) : false;
+    const secureAccessExpired = secureAccessToken ? isTokenExpired(secureAccessToken) : false;
+    const asyncRefreshExpired = asyncRefreshToken ? isTokenExpired(asyncRefreshToken) : false;
+    const secureRefreshExpired = secureRefreshToken ? isTokenExpired(secureRefreshToken) : false;
+    
+    // Missing refresh token is a critical issue
+    const refreshTokenMissing = !asyncRefreshToken && !secureRefreshToken;
+    
     return {
+      // Token objects with decoded data
       asyncStorage: {
-        accessToken: asyncAccessToken ? {
+        accessToken: asyncAccessToken ? { 
           token: asyncAccessToken,
           decoded: asyncAccessDecoded,
-          expired: isTokenExpired(asyncAccessToken)
+          expired: asyncAccessExpired 
         } : null,
-        refreshToken: asyncRefreshToken ? {
+        refreshToken: asyncRefreshToken ? { 
           token: asyncRefreshToken,
           decoded: asyncRefreshDecoded,
-          expired: isTokenExpired(asyncRefreshToken)
-        } : null
+          expired: asyncRefreshExpired 
+        } : null,
       },
-      secureStore: {
-        accessToken: secureAccessToken ? {
+      secureStore: Platform.OS !== 'web' ? {
+        accessToken: secureAccessToken ? { 
           token: secureAccessToken,
           decoded: secureAccessDecoded,
-          expired: isTokenExpired(secureAccessToken)
+          expired: secureAccessExpired 
         } : null,
-        refreshToken: secureRefreshToken ? {
+        refreshToken: secureRefreshToken ? { 
           token: secureRefreshToken,
           decoded: secureRefreshDecoded,
-          expired: isTokenExpired(secureRefreshToken)
-        } : null
-      },
+          expired: secureRefreshExpired 
+        } : null,
+      } : null,
+      // Issues summary
       issues: {
         accessTokenMismatch,
         refreshTokenMismatch,
-        asyncAccessMissing: !asyncAccessToken,
-        asyncRefreshMissing: !asyncRefreshToken,
-        secureAccessMissing: !secureAccessToken,
-        secureRefreshMissing: !secureRefreshToken
+        asyncAccessMissing,
+        secureAccessMissing,
+        asyncRefreshMissing,
+        secureRefreshMissing,
+        asyncAccessExpired,
+        secureAccessExpired,
+        asyncRefreshExpired, 
+        secureRefreshExpired,
+        refreshTokenMissing,
       }
     };
   } catch (error) {
-    console.error('Error generating token debug info:', error);
+    console.error('Error in getTokenDebugInfo:', error);
     return null;
   }
 };
@@ -139,7 +168,7 @@ export const showTokenDebugAlert = async () => {
     ? `AsyncStorage: Valid (exp: ${new Date(asyncStorage.accessToken.decoded.exp * 1000).toLocaleString()})\n`
     : 'AsyncStorage: Missing\n';
   
-  message += secureStore.accessToken
+  message += secureStore?.accessToken
     ? `SecureStore: Valid (exp: ${new Date(secureStore.accessToken.decoded.exp * 1000).toLocaleString()})\n`
     : 'SecureStore: Missing\n';
   
@@ -149,7 +178,7 @@ export const showTokenDebugAlert = async () => {
     ? `AsyncStorage: Valid (exp: ${new Date(asyncStorage.refreshToken.decoded.exp * 1000).toLocaleString()})\n` 
     : 'AsyncStorage: Missing\n';
   
-  message += secureStore.refreshToken
+  message += secureStore?.refreshToken
     ? `SecureStore: Valid (exp: ${new Date(secureStore.refreshToken.decoded.exp * 1000).toLocaleString()})\n`
     : 'SecureStore: Missing\n';
   
@@ -188,16 +217,21 @@ export const repairTokenIssues = async () => {
     
     const { asyncStorage, secureStore } = debugInfo;
     
+    // Skip secure store operations on web
+    if (Platform.OS === 'web') {
+      return true;
+    }
+    
     // Fix access token issues
-    if (asyncStorage.accessToken && !secureStore.accessToken) {
+    if (asyncStorage.accessToken && !secureStore?.accessToken) {
       // Copy from AsyncStorage to SecureStore
       await SecureStore.setItemAsync(AUTH_TOKEN_KEY, asyncStorage.accessToken.token);
       console.log('Copied access token from AsyncStorage to SecureStore');
-    } else if (!asyncStorage.accessToken && secureStore.accessToken) {
+    } else if (!asyncStorage.accessToken && secureStore?.accessToken) {
       // Copy from SecureStore to AsyncStorage
       await AsyncStorage.setItem(AUTH_TOKEN_KEY, secureStore.accessToken.token);
       console.log('Copied access token from SecureStore to AsyncStorage');
-    } else if (asyncStorage.accessToken && secureStore.accessToken &&
+    } else if (asyncStorage.accessToken && secureStore?.accessToken &&
                asyncStorage.accessToken.token !== secureStore.accessToken.token) {
       // Use SecureStore version as the source of truth
       await AsyncStorage.setItem(AUTH_TOKEN_KEY, secureStore.accessToken.token);
@@ -205,19 +239,33 @@ export const repairTokenIssues = async () => {
     }
     
     // Fix refresh token issues
-    if (asyncStorage.refreshToken && !secureStore.refreshToken) {
+    if (asyncStorage.refreshToken && !secureStore?.refreshToken) {
       // Copy from AsyncStorage to SecureStore
       await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, asyncStorage.refreshToken.token);
       console.log('Copied refresh token from AsyncStorage to SecureStore');
-    } else if (!asyncStorage.refreshToken && secureStore.refreshToken) {
+    } else if (!asyncStorage.refreshToken && secureStore?.refreshToken) {
       // Copy from SecureStore to AsyncStorage
       await AsyncStorage.setItem(REFRESH_TOKEN_KEY, secureStore.refreshToken.token);
       console.log('Copied refresh token from SecureStore to AsyncStorage');
-    } else if (asyncStorage.refreshToken && secureStore.refreshToken &&
+    } else if (asyncStorage.refreshToken && secureStore?.refreshToken &&
                asyncStorage.refreshToken.token !== secureStore.refreshToken.token) {
       // Use SecureStore version as the source of truth
       await AsyncStorage.setItem(REFRESH_TOKEN_KEY, secureStore.refreshToken.token);
       console.log('Synchronized refresh tokens using SecureStore as source of truth');
+    }
+    
+    // Copy user data
+    try {
+      const asyncUserData = await AsyncStorage.getItem(USER_DATA_KEY);
+      const secureUserData = await SecureStore.getItemAsync(USER_DATA_KEY);
+      
+      if (asyncUserData && !secureUserData) {
+        await SecureStore.setItemAsync(USER_DATA_KEY, asyncUserData);
+      } else if (!asyncUserData && secureUserData) {
+        await AsyncStorage.setItem(USER_DATA_KEY, secureUserData);
+      }
+    } catch (error) {
+      console.error('Error syncing user data:', error);
     }
     
     return true;
@@ -227,10 +275,82 @@ export const repairTokenIssues = async () => {
   }
 };
 
+// Helper function to clear all tokens from storage
+export const clearAllTokens = async () => {
+  try {
+    // Clear from AsyncStorage
+    await Promise.all([
+      AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+      AsyncStorage.removeItem(REFRESH_TOKEN_KEY),
+      AsyncStorage.removeItem(USER_DATA_KEY)
+    ]);
+    
+    // Clear from SecureStore on native platforms
+    if (Platform.OS !== 'web') {
+      await Promise.all([
+        SecureStore.deleteItemAsync(AUTH_TOKEN_KEY),
+        SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+        SecureStore.deleteItemAsync(USER_DATA_KEY)
+      ]);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error clearing all tokens:', error);
+    return false;
+  }
+};
+
+// Add a diagnostic logging function for debugging
+export const logStorageState = async () => {
+  try {
+    const debugInfo = await getTokenDebugInfo();
+    
+    console.log('=== TOKEN STORAGE DIAGNOSTIC ===');
+    console.log('Platform:', Platform.OS);
+    
+    if (debugInfo) {
+      // AsyncStorage tokens
+      console.log('\nAsyncStorage:');
+      console.log('- Access token:', debugInfo.asyncStorage.accessToken ? 
+        (debugInfo.asyncStorage.accessToken.expired ? 'EXPIRED' : 'VALID') : 'NOT FOUND');
+      console.log('- Refresh token:', debugInfo.asyncStorage.refreshToken ? 
+        (debugInfo.asyncStorage.refreshToken.expired ? 'EXPIRED' : 'VALID') : 'NOT FOUND');
+      
+      // SecureStore tokens (not available on web)
+      if (Platform.OS !== 'web') {
+        console.log('\nSecureStore:');
+        console.log('- Access token:', debugInfo.secureStore?.accessToken ? 
+          (debugInfo.secureStore.accessToken.expired ? 'EXPIRED' : 'VALID') : 'NOT FOUND');
+        console.log('- Refresh token:', debugInfo.secureStore?.refreshToken ? 
+          (debugInfo.secureStore.refreshToken.expired ? 'EXPIRED' : 'VALID') : 'NOT FOUND');
+      }
+      
+      // Issues
+      const issues = debugInfo.issues;
+      const issuesList = Object.entries(issues)
+        .filter(([_, hasIssue]) => hasIssue)
+        .map(([issue]) => issue);
+      
+      console.log('\nDetected Issues:', issuesList.length ? issuesList.join(', ') : 'None');
+    } else {
+      console.log('Failed to get token debug info');
+    }
+    
+    console.log('==============================');
+    return debugInfo;
+  } catch (error) {
+    console.error('Error logging storage state:', error);
+    return null;
+  }
+};
+
 export default {
   decodeToken,
   isTokenExpired,
   getTokenDebugInfo,
   showTokenDebugAlert,
-  repairTokenIssues
+  repairTokenIssues,
+  clearAllTokens,
+  logStorageState
 }; 
