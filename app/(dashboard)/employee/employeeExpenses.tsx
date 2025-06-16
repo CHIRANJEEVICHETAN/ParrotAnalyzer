@@ -31,6 +31,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Modal from "react-native-modal";
 import numberToWords from "./components/NumberToWords";
+import Constants from 'expo-constants';
 
 interface TravelDetail {
   id: number;
@@ -92,7 +93,7 @@ interface DocumentFile {
   isImage?: boolean;
 }
 
-const EXPO_PUBLIC_API_URL = process.env.EXPO_PUBLIC_API_URL;
+const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 const CACHE_KEYS = {
   EMPLOYEE_DETAILS: "employee_expense_details",
@@ -288,7 +289,7 @@ export default function EmployeeExpenses() {
         ] = `Bearer ${currentToken}`;
 
         const employeeResponse = await axios.get<EmployeeDetails>(
-          `${EXPO_PUBLIC_API_URL}/api/employee/details`
+          `${API_URL}/api/employee/details`
         );
 
         // Update form data with employee details
@@ -378,7 +379,7 @@ export default function EmployeeExpenses() {
 
       // First check if user can submit expenses anytime
       const userPermissionsResponse = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/employee/permissions`,
+        `${API_URL}/api/employee/permissions`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -511,7 +512,7 @@ export default function EmployeeExpenses() {
       }
 
       const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/expenses/submit`,
+        `${API_URL}/api/expenses/submit`,
         formDataToSend,
         {
           headers: {
@@ -538,7 +539,7 @@ export default function EmployeeExpenses() {
 
       // Send notification to group admin
       await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/employee-notifications/notify-admin`,
+        `${API_URL}/api/employee-notifications/notify-admin`,
         {
           title: `💰 New Expense Report - ${user?.name} (${formData.employeeNumber})`,
           message: `📊 Expense Details:\n🗓️ Date: ${format(

@@ -24,6 +24,7 @@ import axios from 'axios';
 import TaskList from './components/TaskList';
 import BottomNav from '../../components/BottomNav';
 import { employeeNavItems } from './utils/navigationItems';
+import Constants from 'expo-constants';
 // import PushNotificationService from '../../utils/pushNotificationService';
 
 // Add Task interface
@@ -46,6 +47,8 @@ interface TaskStats {
   completionRate: number;
   currentMonth: string;
 }
+
+const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 export default function EmployeeDashboard() {
   const { theme } = ThemeContext.useTheme();
@@ -217,7 +220,7 @@ export default function EmployeeDashboard() {
       console.log("Token:", token);
 
       const response = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/employee`,
+        `${API_URL}/api/tasks/employee`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -276,7 +279,7 @@ export default function EmployeeDashboard() {
       }
 
       const response = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/stats`,
+        `${API_URL}/api/tasks/stats`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
@@ -296,7 +299,7 @@ export default function EmployeeDashboard() {
   const handleUpdateTaskStatus = async (taskId: number, newStatus: string) => {
     try {
       await axios.patch(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/tasks/${taskId}/status`,
+        `${API_URL}/api/tasks/${taskId}/status`,
         { status: newStatus },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -306,7 +309,7 @@ export default function EmployeeDashboard() {
       if (updatedTask) {
         // Send notification to group admin
         await axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/employee-notifications/notify-admin`,
+          `${API_URL}/api/employee-notifications/notify-admin`,
           {
             title: `📋 Task Status Updated by ${user?.name}`,
             message:

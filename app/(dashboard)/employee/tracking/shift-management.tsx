@@ -13,6 +13,7 @@ import { useSocket } from '../../../hooks/useSocket';
 import { useShiftManagement } from '../../../hooks/useShiftManagement';
 import { useLocationTracking } from '../../../hooks/useLocationTracking';
 import useLocationStore from '../../../store/locationStore';
+import Constants from 'expo-constants';
 
 interface ShiftHistory {
   id: number;
@@ -77,7 +78,7 @@ export default function ShiftManagementScreen() {
       if (!user) return;
       
       try {
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+        const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
         const response = await axios.get(`${API_URL}/api/user-settings`);
         
         if (response.data && response.data.can_submit_expenses_anytime !== undefined) {

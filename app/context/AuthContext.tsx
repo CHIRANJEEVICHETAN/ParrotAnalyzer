@@ -9,6 +9,7 @@ import * as SecureStore from 'expo-secure-store';
 import useAdminLocationStore from "../store/adminLocationStore";
 import * as Network from 'expo-network';
 import { getTokenDebugInfo, repairTokenIssues, decodeToken, isTokenExpired } from '../utils/tokenDebugger';
+import Constants from 'expo-constants';
 
 type UserRole = "employee" | "group-admin" | "management" | "super-admin";
 
@@ -37,7 +38,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 // Storage keys
 const AUTH_TOKEN_KEY = "auth_token";

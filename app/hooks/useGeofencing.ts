@@ -5,6 +5,7 @@ import useGeofenceStore from '../store/geofenceStore';
 import { useSocket } from './useSocket';
 import { Geofence, GeoCoordinates, Location, GeofenceTransitionEvent } from '../types/liveTracking';
 import useLocationStore from '../store/locationStore';
+import Constants from 'expo-constants';
 
 interface UseGeofencingOptions {
   onGeofenceEnter?: (geofence: Geofence) => void;
@@ -15,7 +16,7 @@ interface UseGeofencingOptions {
   onError?: (error: string) => void;
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 // Define the calculateDistance function near the top of the file
 const calculateDistance = (

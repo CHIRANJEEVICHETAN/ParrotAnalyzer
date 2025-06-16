@@ -39,6 +39,7 @@ import { Point, cleanRoute, getRouteStats, formatDistance } from "../../../utils
 import LiveTrackingMap from "../../shared/components/map/LiveTrackingMap";
 import { showTokenDebugAlert } from "../../../utils/tokenDebugger";
 import BottomSheet, { BottomSheetFlatList } from '@gorhom/bottom-sheet';
+import Constants from 'expo-constants';
 
 // Add the MAX_ROUTE_POINTS constant to limit memory usage
 const MAX_ROUTE_POINTS = 500;
@@ -754,7 +755,8 @@ export default function GroupAdminTrackingDashboard() {
   const fetchEmployeeLocations = async () => {
     setIsLoading(true);
     try {
-      const API_URL = process.env.EXPO_PUBLIC_API_URL || "";
+      const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+
       const response = await axios.get(
         `${API_URL}/api/group-admin-tracking/active-locations`,
         {

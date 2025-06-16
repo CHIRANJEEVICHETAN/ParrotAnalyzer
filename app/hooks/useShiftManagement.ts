@@ -7,6 +7,7 @@ import { useLocationTracking } from './useLocationTracking';
 import { useSocket } from './useSocket';
 import { useGeofencing } from './useGeofencing';
 import * as ExpoLocation from 'expo-location';
+import Constants from 'expo-constants';
 
 interface UseShiftManagementOptions {
   onShiftStart?: (shiftData: ShiftLocation) => void;
@@ -14,7 +15,7 @@ interface UseShiftManagementOptions {
   onError?: (error: string) => void;
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 // Helper function to convert from Expo LocationObject to our Location type
 const convertLocation = (location: ExpoLocation.LocationObject): AppLocation => {

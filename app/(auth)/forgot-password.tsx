@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../context/ThemeContext';
 import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 
 interface PasswordValidation {
   hasMinLength: boolean;
@@ -26,6 +27,8 @@ interface PasswordValidation {
   hasNumber: boolean;
   hasSpecialChar: boolean;
 }
+
+const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 const validatePassword = (password: string): PasswordValidation => {
   return {
@@ -93,7 +96,7 @@ export default function ForgotPassword() {
     setIsLoading(true);
     setError('');
     try {
-      const response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/auth/forgot-password`, {
+      const response = await axios.post(`${API_URL}/auth/forgot-password`, {
         email,
       });
 
@@ -126,7 +129,7 @@ export default function ForgotPassword() {
     setIsLoading(true);
     setError('');
     try {
-      const response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/auth/verify-otp`, {
+      const response = await axios.post(`${API_URL}/auth/verify-otp`, {
         email,
         otp,
       });
@@ -168,7 +171,7 @@ export default function ForgotPassword() {
     setIsLoading(true);
     setError('');
     try {
-      const response = await axios.post(`${process.env.EXPO_PUBLIC_API_URL}/auth/reset-password`, {
+      const response = await axios.post(`${API_URL}/auth/reset-password`, {
         email,
         otp,
         newPassword,

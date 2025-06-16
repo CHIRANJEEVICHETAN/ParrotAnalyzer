@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
+import Constants from 'expo-constants';
 
 export default function CreateUser() {
     const { theme } = ThemeContext.useTheme();
@@ -22,7 +23,7 @@ export default function CreateUser() {
         department: '',
     });
 
-    const API_URL = process.env.EXPO_PUBLIC_API_URL;
+    const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
     const [errors, setErrors] = useState<Record<string, string>>({});
 
