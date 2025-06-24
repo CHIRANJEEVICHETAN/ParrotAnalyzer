@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Parrot Analyzer",
   slug: "parraotanalyzer",
-  version: "1.1.7",
+  version: "1.2.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "myapp",
@@ -68,14 +68,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-splash-screen",
       {
         image: "./assets/images/SplashScreen.png",
-        resizeMode: "cover",
+        resizeMode: "contain",
         backgroundColor: "#ffffff",
-        ios: {
-          enableFullScreenImage_legacy: false,
-        },
-        android: {
-          resizeMode: "contain",
-        },
       },
     ],
     [
@@ -123,7 +117,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         url: "https://sentry.io/",
         project: process.env.SENTRY_PROJECT || "parrot-analyzer",
         organization: process.env.SENTRY_ORG || "loginware",
-      }
+      },
     ],
   ],
   experiments: {

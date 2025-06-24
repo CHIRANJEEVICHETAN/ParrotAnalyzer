@@ -279,25 +279,24 @@ export class ShiftTrackingService {
             // Set timezone to Asia/Kolkata (IST) for consistent handling
             await client.query("SET timezone = 'Asia/Kolkata'");
 
-            // Insert timer with IST timezone
+            // Insert timer with IST timezone - store as timestamptz to preserve timezone
             const timerResult = await client.query(
                 `INSERT INTO shift_timer_settings 
                 (shift_id, user_id, timer_duration_hours, end_time, role_type, shift_table_name) 
                 VALUES (
                     $1, $2, $3, 
-                    $4::timestamp + ($5 || ' hours')::interval,
+                    ($4::timestamp AT TIME ZONE 'Asia/Kolkata' + ($5 || ' hours')::interval)::timestamptz,
                     $6, $7
                 ) 
-                RETURNING *, end_time AT TIME ZONE 'Asia/Kolkata' as ist_end_time`,
+                RETURNING *, end_time`,
                 [shiftId, userId, durationHours, startTime, durationHours, userRole, table]
             );
 
             await client.query('COMMIT');
             
-            // Return the timer with IST time
+            // Return the timer with timezone info preserved
             return {
-                ...timerResult.rows[0],
-                end_time: timerResult.rows[0].ist_end_time
+                ...timerResult.rows[0]
             };
         } catch (error) {
             await client.query('ROLLBACK');
@@ -346,14 +345,14 @@ export class ShiftTrackingService {
             // Set timezone to Asia/Kolkata (IST)
             await client.query("SET timezone = 'Asia/Kolkata'");
 
-            // Query with IST timezone
+            // Query with IST timezone and proper formatting
             const result = await client.query(
                 `SELECT 
                     sts.id, 
                     sts.shift_id, 
                     sts.user_id, 
                     sts.timer_duration_hours,
-                    sts.end_time AT TIME ZONE 'Asia/Kolkata' as end_time,
+                    sts.end_time,
                     sts.role_type,
                     sts.shift_table_name,
                     sts.completed,
@@ -446,11 +445,11 @@ export class ShiftTrackingService {
 
                     const user = userResult.rows[0];
 
-                    // Calculate elapsed time in seconds
-                    const elapsedSeconds = differenceInSeconds(
-                        new Date(timer.end_time),
-                        startTime
-                    );
+                    // Create end time in IST timezone - convert the timer.end_time to proper IST timestamp
+                    const endTimeIST = new Date(timer.end_time);
+                    
+                    // Calculate elapsed time in seconds using the actual IST times
+                    const elapsedSeconds = differenceInSeconds(endTimeIST, startTime);
 
                     // Format duration for update
                     let durationValue;
@@ -461,10 +460,10 @@ export class ShiftTrackingService {
                         // For employee shifts, calculate metrics
                         const metrics = await this.calculateShiftMetrics(timer.shift_id);
 
-                        // End employee shift with metrics
+                        // End employee shift with metrics - use AT TIME ZONE to ensure IST storage
                         await client.query(
                             `UPDATE ${shiftTable} 
-                            SET ${endColumn} = $1,
+                            SET ${endColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp,
                                 total_distance_km = $2,
                                 travel_time_minutes = $3,
                                 ended_automatically = TRUE,
@@ -504,14 +503,14 @@ export class ShiftTrackingService {
                             console.log(`Column check error (can be ignored): ${alterError.message}`);
                         }
                         
-                        // End the shift
+                        // End the shift - use AT TIME ZONE to ensure IST storage
                         await client.query(
                             `UPDATE ${shiftTable} 
-                            SET ${endColumn} = $1,
+                            SET ${endColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp,
                                 ended_automatically = TRUE,
                                 updated_at = CURRENT_TIMESTAMP,
                                 ${statusColumn} = 'completed',
-                                ${durationColumn} = $1 - ${startColumn}
+                                ${durationColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp - ${startColumn}
                             WHERE ${idColumn} = $2`,
                             [timer.end_time, timer.shift_id]
                         );
