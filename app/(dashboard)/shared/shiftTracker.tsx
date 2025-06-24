@@ -554,6 +554,12 @@ export default function EmployeeShiftTracker() {
     useState<NodeJS.Timeout | null>(null);
   const [isAddressRefreshing, setIsAddressRefreshing] = useState(false);
 
+  // Add button debouncing state and cooldown
+  const [isProcessingShift, setIsProcessingShift] = useState(false);
+  const [lastClickTime, setLastClickTime] = useState(0);
+  const [shiftCooldownUntil, setShiftCooldownUntil] = useState<Date | null>(null);
+  const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0);
+
   // Get the API endpoint based on user role
   const apiEndpoint = getApiEndpoint(user?.role || "employee");
 
@@ -644,12 +650,53 @@ export default function EmployeeShiftTracker() {
     fetchAndUpdateGeofencePermissions();
   }, []);
 
-  // Load persistent state
+  // Load persistent state and cooldown
   useEffect(() => {
     loadShiftStatus();
     loadShiftHistoryFromBackend();
     checkIfShiftAutoEnded(); // Add this line
+    loadShiftCooldown(); // Load any existing cooldown
   }, []);
+
+  // Load cooldown state from AsyncStorage
+  const loadShiftCooldown = async () => {
+    try {
+      const cooldownData = await AsyncStorage.getItem(`${user?.role}-shiftCooldown`);
+      if (cooldownData) {
+        const cooldownUntil = new Date(JSON.parse(cooldownData));
+        if (cooldownUntil > new Date()) {
+          setShiftCooldownUntil(cooldownUntil);
+        } else {
+          // Cooldown expired, remove from storage
+          await AsyncStorage.removeItem(`${user?.role}-shiftCooldown`);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading cooldown state:", error);
+    }
+  };
+
+  // Set cooldown state
+  const setShiftCooldown = async () => {
+    try {
+      const cooldownUntil = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
+      setShiftCooldownUntil(cooldownUntil);
+      await AsyncStorage.setItem(`${user?.role}-shiftCooldown`, JSON.stringify(cooldownUntil.toISOString()));
+    } catch (error) {
+      console.error("Error setting cooldown state:", error);
+    }
+  };
+
+  // Clear cooldown state
+  const clearShiftCooldown = async () => {
+    try {
+      setShiftCooldownUntil(null);
+      setCooldownTimeLeft(0);
+      await AsyncStorage.removeItem(`${user?.role}-shiftCooldown`);
+    } catch (error) {
+      console.error("Error clearing cooldown state:", error);
+    }
+  };
 
   // Animation effects
   useEffect(() => {
@@ -707,18 +754,30 @@ export default function EmployeeShiftTracker() {
     outputRange: ['0deg', '360deg'],
   });
 
-  // Timer effect
+  // Timer effect with cooldown countdown
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentTime(new Date());
+      const now = new Date();
+      setCurrentTime(now);
+      
       if (isShiftActive && shiftStart) {
-        setElapsedTime(differenceInSeconds(new Date(), shiftStart));
+        setElapsedTime(differenceInSeconds(now, shiftStart));
         updateEmployeeDashboard();
+      }
+
+      // Update cooldown countdown
+      if (shiftCooldownUntil) {
+        const timeLeft = Math.max(0, Math.ceil((shiftCooldownUntil.getTime() - now.getTime()) / 1000));
+        setCooldownTimeLeft(timeLeft);
+        
+        if (timeLeft === 0) {
+          clearShiftCooldown();
+        }
       }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isShiftActive, shiftStart]);
+  }, [isShiftActive, shiftStart, shiftCooldownUntil]);
 
   const loadShiftStatus = async () => {
     try {
@@ -1061,6 +1120,182 @@ export default function EmployeeShiftTracker() {
     }
   };
 
+  // Optimized notification scheduling for faster shift start
+  const scheduleFastNotifications = async () => {
+    try {
+      // Cancel any existing notifications first
+      if (notificationId) {
+        await Notifications.cancelScheduledNotificationAsync(notificationId);
+      }
+
+      // Quick permission check - use cached result if available
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== "granted") {
+        // Request permissions in background, don't block
+        Notifications.requestPermissionsAsync().catch(error => {
+          console.log("Permission request failed:", error);
+        });
+        return; // Skip notifications if no permission
+      }
+
+      // Set up notification channels for Android (optimized)
+      if (Platform.OS === "android") {
+        // Only set up active shift channel immediately, others can be done later
+        await Notifications.setNotificationChannelAsync(
+          NOTIFICATION_CHANNELS.ACTIVE_SHIFT,
+          {
+            name: "Active Shift",
+            importance: Notifications.AndroidImportance.HIGH,
+            sound: "default",
+            enableVibrate: true,
+            showBadge: true,
+          }
+        );
+      }
+
+      // Schedule the main active shift notification immediately
+      const activeShiftId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "🟢 Active Shift Running ⏰",
+          body: `⚡ Live: Your shift is in progress!\n🔔 Remember to end your shift before leaving\n⏱️ Started at: ${format(shiftStart || new Date(), "hh:mm a")}`,
+          priority: "max",
+          sticky: false,
+          color: "#3B82F6",
+          badge: 1,
+          ...(Platform.OS === "android" && {
+            channelId: NOTIFICATION_CHANNELS.ACTIVE_SHIFT,
+          }),
+          ...(Platform.OS === "ios" && {
+            interruptionLevel: "timeSensitive",
+          }),
+          data: {
+            type: "active-shift",
+            startTime: shiftStart?.toISOString() || new Date().toISOString(),
+            notificationId: "activeShift",
+          },
+        },
+        trigger: null,
+      });
+
+      // Store the main notification ID immediately
+      await AsyncStorage.setItem(
+        `${user?.role}-activeShiftNotificationId`,
+        activeShiftId
+      );
+
+      // Schedule warning and limit notifications in background
+      setTimeout(async () => {
+        try {
+          // Set up remaining notification channels for Android
+          if (Platform.OS === "android") {
+            await Promise.all([
+              Notifications.setNotificationChannelAsync(
+                NOTIFICATION_CHANNELS.SHIFT_WARNING,
+                {
+                  name: "Shift Warnings",
+                  importance: Notifications.AndroidImportance.MAX,
+                  sound: "default",
+                  enableVibrate: true,
+                  showBadge: true,
+                }
+              ),
+              Notifications.setNotificationChannelAsync(
+                NOTIFICATION_CHANNELS.SHIFT_LIMIT,
+                {
+                  name: "Shift Limit Alert",
+                  importance: Notifications.AndroidImportance.MAX,
+                  sound: "default",
+                  enableVibrate: true,
+                  showBadge: true,
+                }
+              )
+            ]);
+          }
+
+          // Calculate timing for warning and limit notifications
+          const now = new Date();
+          const shiftStartTime = shiftStart || now;
+          
+          const warningTime = new Date(shiftStartTime.getTime() + SHIFT_WARNING_TIME_MS);
+          const secondsUntilWarning = Math.max(
+            0, 
+            Math.floor((warningTime.getTime() - now.getTime()) / 1000)
+          );
+          
+          const limitTime = new Date(shiftStartTime.getTime() + SHIFT_LIMIT_TIME_MS);
+          const secondsUntilLimit = Math.max(
+            0, 
+            Math.floor((limitTime.getTime() - now.getTime()) / 1000)
+          );
+
+          let warningId: string | undefined;
+          let limitId: string | undefined;
+
+          // Schedule warning notification if needed
+          if (secondsUntilWarning > 0) {
+            warningId = await Notifications.scheduleNotificationAsync({
+              content: {
+                title: "⚠️ Shift Duration Warning",
+                body: "Your shift will reach 9 hours in 5 minutes. Please prepare to end your shift.",
+                priority: "max",
+                sound: true,
+                ...(Platform.OS === "android" && {
+                  channelId: NOTIFICATION_CHANNELS.SHIFT_WARNING,
+                }),
+                ...(Platform.OS === "ios" && {
+                  interruptionLevel: "timeSensitive",
+                }),
+              },
+              trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                repeats: false,
+                seconds: secondsUntilWarning,
+              },
+            });
+          }
+          
+          // Schedule limit notification if needed
+          if (secondsUntilLimit > 0) {
+            limitId = await Notifications.scheduleNotificationAsync({
+              content: {
+                title: "⛔ Shift Duration Limit Reached",
+                body: "You have completed 9 hours of work. Please end your shift now.",
+                priority: "max",
+                sound: true,
+                ...(Platform.OS === "android" && {
+                  channelId: NOTIFICATION_CHANNELS.SHIFT_LIMIT,
+                }),
+                ...(Platform.OS === "ios" && {
+                  interruptionLevel: "critical",
+                }),
+              },
+              trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                repeats: false,
+                seconds: secondsUntilLimit,
+              },
+            });
+          }
+
+          // Store all notification IDs
+          await AsyncStorage.setItem(
+            `${user?.role}-shiftNotifications`,
+            JSON.stringify({
+              activeShiftId,
+              warningId: warningId || null,
+              limitId: limitId || null,
+            })
+          );
+        } catch (error) {
+          console.error("Error scheduling delayed notifications:", error);
+        }
+      }, 100); // Small delay to not block the main thread
+
+    } catch (error) {
+      console.error("Error scheduling fast notifications:", error);
+    }
+  };
+
   // Add function to cancel all shift-related notifications
   const cancelShiftNotifications = async () => {
     try {
@@ -1130,42 +1365,55 @@ export default function EmployeeShiftTracker() {
 
   // Initialize location on component mount
   useEffect(() => {
-    const initializeLocation = async () => {
+    const initializeLocationPromptly = async () => {
       try {
         // Only initialize location for employee and group-admin roles
         if (user?.role === 'management') {
           return;
         }
         
-        // Check if location services are enabled
+        // First check if location services are enabled
         const locationEnabled = await Location.hasServicesEnabledAsync();
-        setIsLocationServiceEnabled(locationEnabled);
-
+        
         if (!locationEnabled) {
+          // Immediately show location prompt
           setLocationErrorMessage(
-            "Location services are required for tracking. Please enable location services to continue."
+            "Location services are required for shift tracking. Please enable location services to continue."
           );
           setShowLocationError(true);
+          setIsLocationServiceEnabled(false);
           return;
         }
 
-        // Get current location and immediately update the store
-        const location = await getCurrentLocation();
-        
-        if (location) {
-          // Update the store with the fresh location
-          useLocationStore.getState().setCurrentLocation(location);
+        setIsLocationServiceEnabled(true);
+
+        // Get current location with timeout
+        const locationPromise = getCurrentLocation();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Location timeout')), 10000);
+        });
+
+        try {
+          const location = await Promise.race([locationPromise, timeoutPromise]);
           
-          // Also update address
-          const appLocation = convertToLocation(location);
-          if (appLocation?.latitude && appLocation?.longitude) {
-            getLocationAddress(appLocation.latitude, appLocation.longitude)
-              .then(address => setCurrentAddress(address))
-              .catch(error => console.log("Error getting address:", error));
+          if (location) {
+            // Update the store with the fresh location only if it's a valid location object
+            if (location && typeof location === 'object' && 'coords' in location) {
+              useLocationStore.getState().setCurrentLocation(location as any);
+            }
+            
+            // Update address in background
+            const appLocation = convertToLocation(location);
+            if (appLocation?.latitude && appLocation?.longitude) {
+              getLocationAddress(appLocation.latitude, appLocation.longitude)
+                .then(address => setCurrentAddress(address))
+                .catch(error => console.log("Error getting address:", error));
+            }
           }
-        } else {
+        } catch (locationError) {
+          console.error("Location initialization failed:", locationError);
           setLocationErrorMessage(
-            "Unable to determine your current location. Please ensure you have granted location permissions."
+            "Unable to determine your current location. Please ensure location permissions are granted."
           );
           setShowLocationError(true);
         }
@@ -1178,8 +1426,44 @@ export default function EmployeeShiftTracker() {
       }
     };
 
-    initializeLocation();
+    initializeLocationPromptly();
   }, [user?.role]);
+
+  // Enhanced button validation with cooldown check
+  const isShiftActionAllowed = useCallback(() => {
+    const now = Date.now();
+    
+    // Check debounce (2 second rapid click protection)
+    if (now - lastClickTime < 2000) {
+      return { allowed: false, reason: "Please wait before clicking again" };
+    }
+    
+    // Check cooldown (5 minute protection after shift actions)
+    if (shiftCooldownUntil && shiftCooldownUntil > new Date()) {
+      const minutesLeft = Math.ceil(cooldownTimeLeft / 60);
+      return { 
+        allowed: false, 
+        reason: `Action cooldown active. Wait ${minutesLeft} minute${minutesLeft > 1 ? 's' : ''} before ${isShiftActive ? 'ending' : 'starting'} a shift.`
+      };
+    }
+    
+    setLastClickTime(now);
+    return { allowed: true, reason: null };
+  }, [lastClickTime, shiftCooldownUntil, cooldownTimeLeft, isShiftActive]);
+
+  // Centralized state update function
+  const updateShiftState = useCallback((isActive: boolean, startTime: Date | null) => {
+    setIsShiftActive(isActive);
+    setShiftStart(startTime);
+    setElapsedTime(startTime ? differenceInSeconds(new Date(), startTime) : 0);
+    
+    if (isActive && startTime) {
+      startAnimations();
+    } else {
+      pulseAnim.setValue(1);
+      rotateAnim.setValue(0);
+    }
+  }, [pulseAnim, rotateAnim, startAnimations]);
 
   // Fix the useEffect that updates battery level
   useEffect(() => {
@@ -1446,7 +1730,7 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Update the validateLocationForShift function to use the location store
+  // Optimized validateLocationForShift function for faster response
   const validateLocationForShift = async (): Promise<boolean> => {
     // Management and group-admin roles don't need location validation
     if (user?.role === 'management' || user?.role === 'group-admin') {
@@ -1455,7 +1739,7 @@ export default function EmployeeShiftTracker() {
     }
     
     try {
-      // First check if location services are enabled
+      // Quick location services check
       const locationEnabled = await Location.hasServicesEnabledAsync();
       if (!locationEnabled) {
         setLocationErrorMessage(
@@ -1465,18 +1749,34 @@ export default function EmployeeShiftTracker() {
         return false;
       }
 
-      // Try to use cached location from the store first if it's recent enough (last 30 seconds)
+      // Use cached location aggressively (allow up to 2 minutes old for faster response)
       let appLocation = convertToLocation(currentLocation);
       const isLocationStale = !appLocation?.timestamp || 
         new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000;
       
       if (!appLocation || isLocationStale) {
-        // Get fresh location if cached one is old or missing
-        const freshLocation = await getCurrentLocation();
-        if (freshLocation) {
-          appLocation = convertToLocation(freshLocation);
-          // Update the store with the fresh location
-          useLocationStore.getState().setCurrentLocation(freshLocation);
+        // Try to get fresh location with short timeout
+        try {
+          const locationPromise = getCurrentLocation();
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Location timeout')), 3000); // 3 second timeout
+          });
+          
+          const freshLocation = await Promise.race([locationPromise, timeoutPromise]);
+          if (freshLocation) {
+            appLocation = convertToLocation(freshLocation);
+            // Update the store with the fresh location only if it's a valid location object
+            if (freshLocation && typeof freshLocation === 'object' && 'coords' in freshLocation) {
+              useLocationStore.getState().setCurrentLocation(freshLocation as any);
+            }
+          }
+        } catch (locationError) {
+          // If fresh location fails but we have cached location, use it
+          if (appLocation) {
+            console.log("Using cached location due to fresh location timeout");
+          } else {
+            throw new Error("Unable to determine your current location");
+          }
         }
       }
 
@@ -1484,28 +1784,30 @@ export default function EmployeeShiftTracker() {
         throw new Error("Unable to determine your current location");
       }
 
-      // Check if location is within a geofence
+      // Quick geofence check
       const isInside = isLocationInAnyGeofence(appLocation);
 
-      // Implementation of new permission logic:
-      // 1. If user is inside geofence: Allow regardless of permission
+      // Fast permission logic:
+      // 1. If user is inside geofence: Allow immediately
       if (isInside) {
         setLocationValidated(true);
         return true;
       }
 
-      // 2. If user is outside geofence but has override permission: Allow
+      // 2. If user is outside geofence but has override permission: Allow with warning
       if (canOverrideGeofence) {
-        // Show a notification that they're using override permission
-        showInAppNotification(
-          "You are outside designated work areas but using your override permission to continue.",
-          "warning"
-        );
         setLocationValidated(true);
+        // Show async warning (don't block)
+        setTimeout(() => {
+          showInAppNotification(
+            "You are outside designated work areas but using your override permission to continue.",
+            "warning"
+          );
+        }, 100);
         return true;
       }
 
-      // 3. If user is outside geofence and doesn't have override permission: Show error
+      // 3. If user is outside geofence and doesn't have override permission: Block
       setLocationErrorMessage(
         "You don't have permission to start or end your shift outside designated work areas. Please move to a work area or contact your administrator for override permission."
       );
@@ -1518,254 +1820,232 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Make handleStartShift more responsive by updating UI more quickly
+  // Optimized handleStartShift - fast UI updates, background processing
   const handleStartShift = async () => {
+    // Enhanced validation with cooldown check
+    const validation = isShiftActionAllowed();
+    if (!validation.allowed || isProcessingShift) {
+      if (validation.reason) {
+        showInAppNotification(validation.reason, "warning");
+      }
+      return;
+    }
+
+    setIsProcessingShift(true);
+
     try {
-      // Update UI immediately to show we're processing
-      Animated.timing(pulseAnim, {
-        toValue: 1.05,
-        duration: 150,
-        useNativeDriver: true,
-      }).start();
+      const now = new Date();
 
-      // Only validate location for employee role
-      let isLocationValid = true;
+      // Quick location check for employees (non-blocking)
+      let locationData: any = undefined;
       if (user?.role === 'employee') {
-        isLocationValid = await validateLocationForShift();
+        try {
+          // Try to use cached location first for faster response
+          let appLocation = convertToLocation(currentLocation);
+          
+          // If no cached location or it's very stale (>5 minutes), get fresh location
+          const isLocationVeryStale = !appLocation?.timestamp || 
+            new Date().getTime() - new Date(appLocation.timestamp).getTime() > 300000;
+          
+          if (!appLocation || isLocationVeryStale) {
+            // Get location with shorter timeout for faster response
+            const locationPromise = getCurrentLocation();
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('Location timeout')), 5000); // 5 second timeout
+            });
+            
+            try {
+              const locationResult = await Promise.race([locationPromise, timeoutPromise]);
+              appLocation = locationResult ? convertToLocation(locationResult) : null;
+              
+              if (appLocation && locationResult && typeof locationResult === 'object' && 'coords' in locationResult) {
+                useLocationStore.getState().setCurrentLocation(locationResult as any);
+              }
+            } catch (locationError) {
+              console.log("Quick location fetch failed, using cached location");
+              // Continue with cached location or no location
+            }
+          }
 
-        if (!isLocationValid) {
-          // Reset animation if validation fails
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 150,
-            useNativeDriver: true,
-          }).start();
-          return;
+          // Quick geofence validation
+          if (appLocation) {
+            const isInside = isLocationInAnyGeofence(appLocation);
+            
+            // Only block if outside geofence AND no override permission
+            if (!isInside && !canOverrideGeofence) {
+              setLocationErrorMessage(
+                "You don't have permission to start your shift outside designated work areas. Please move to a work area or contact your administrator."
+              );
+              setShowLocationError(true);
+              setIsProcessingShift(false);
+              return;
+            }
+
+            locationData = {
+              latitude: appLocation.latitude,
+              longitude: appLocation.longitude,
+              accuracy: appLocation.accuracy || 0,
+            };
+          }
+        } catch (error) {
+          console.log("Location validation failed, proceeding without location data");
+          // Continue without blocking the shift start
         }
       }
 
-      const now = new Date();
+      // Show immediate UI feedback
+      Animated.timing(pulseAnim, {
+        toValue: 1.05,
+        duration: 100,
+        useNativeDriver: true,
+      }).start();
 
-      // Get location from the store first instead of fetching fresh
-      let appLocation: AppLocation | null = convertToLocation(currentLocation);
-      
-      // If store location is null or older than 30 seconds, try to get a new one in background
-      const isLocationStale = !appLocation?.timestamp || 
-        (new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000);
-      
-      if (!appLocation || isLocationStale) {
-        // Don't await this - we'll use what we have and update later if needed
-        getCurrentLocation().then(freshLocation => {
-          if (freshLocation) {
-            // Save the fresh location to the store
-            useLocationStore.getState().setCurrentLocation(freshLocation);
-            console.log("Updated location store with fresh location data");
-          }
-        }).catch(error => {
-          console.error("Background location update failed:", error);
-        });
-      }
-      
-      // Update UI immediately
-      setShiftStart(now);
-      setIsShiftActive(true);
-      setElapsedTime(0);
-      startAnimations();
+      // Make API call with shorter timeout for better responsiveness
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/start`,
+        {
+          startTime: formatDateForBackend(now),
+          location: locationData,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 8000, // Reduced to 8 second timeout
+        }
+      );
 
-      // Show feedback immediately
-      setModalData({
-        title: "Starting Shift",
-        message: `Your shift is starting at ${format(now, "hh:mm a")}...`,
-        type: "success",
-        showCancel: false,
-      });
-      setShowModal(true);
+      // Immediately update UI state after successful API response
+      updateShiftState(true, now);
 
-      // Perform API call and storage updates in background
-      InteractionManager.runAfterInteractions(async () => {
-        try {
-          // Prepare location data for PostGIS point type
-          const locationData = appLocation ? {
-            latitude: appLocation.latitude,
-            longitude: appLocation.longitude,
-            accuracy: appLocation.accuracy || 0,
-            // Format point data for PostgreSQL
-            point: `(${appLocation.longitude},${appLocation.latitude})` // Note: PostGIS point format is (longitude,latitude)
-          } : undefined;
+      // Store basic shift status immediately
+      await AsyncStorage.setItem(
+        `${user?.role}-shiftStatus`,
+        JSON.stringify({
+          isActive: true,
+          startTime: now.toISOString(),
+        })
+      );
 
-          // Start shift API call using role-specific endpoint
-          const response = await axios.post(
-            `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/start`,
-            {
-              startTime: formatDateForBackend(now),
-              location: locationData, // Include location data for all roles
-            },
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-          
-          // Check for Sparrow warnings in successful responses
-          if (response.data.sparrowWarning) {
-            let message = response.data.sparrowMessage || "There was an issue with the attendance system.";
-            let shouldPreventShiftStart = false;
-            
-            // Handle specific error types
-            if (response.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
-              message = response.data.sparrowErrors?.[0] || "You need to wait before starting another shift.";
-              shouldPreventShiftStart = true;
-              
-              // Cancel the UI update for shift start since we're preventing it
-              setShiftStart(null);
-              setIsShiftActive(false);
-              setElapsedTime(0);
-              pulseAnim.setValue(1);
-              rotateAnim.setValue(0);
-              
-              // Use modal for a more prominent error display
-              setModalData({
-                title: "Attendance Error",
-                message: message,
-                type: "info",
-                showCancel: false,
-              });
-              setShowModal(true);
-              return; // Prevent continuing with shift start
-              
-            } else if (response.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR') {
-              message = response.data.sparrowErrors?.[0] || "Your roster has not been created for today. Your shift has been tracked in this app, but not in the attendance system.";
-              
-              // Use modal for a more prominent error display
-              setModalData({
-                title: "Roster Warning",
-                message: message,
-                type: "info",
-                showCancel: false,
-              });
-              setShowModal(true);
-            } else if (response.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR') {
-              message = response.data.sparrowErrors?.[0] || "There is an issue with your schedule. Your shift has been tracked in this app, but not in the attendance system.";
-              
-              // Use modal for a more prominent error display
-              setModalData({
-                title: "Schedule Warning",
-                message: message,
-                type: "info",
-                showCancel: false,
-              });
-              setShowModal(true);
-            } else {
-              // Use modal for a more prominent error display
-              setModalData({
-                title: "Attendance Warning",
-                message: message,
-                type: "info",
-                showCancel: false,
-              });
-              setShowModal(true);
-            }
-          } else {
-            // Show success message for successful attendance registration
-            showInAppNotification("Your attendance has been successfully registered in the Sparrow system.", "success");
-          }
-
-          // Send notification to appropriate recipients based on role
-          if (user?.role !== "management") {
-            await axios.post(
-              `${process.env.EXPO_PUBLIC_API_URL}${getNotificationEndpoint(
-                user?.role || "employee"
-              )}`,
-              {
-                title: `🟢 Shift Started, by ${user?.name}`,
-                message: `👤 ${user?.name} has started their shift at ${format(
-                  now,
-                  "hh:mm a"
-                )} \n⏰ expected duration: ${
-                  timerDuration ? `${timerDuration} hours` : `8 hours`
-                }`,
-                type: "shift-start",
-              },
-              {
-                headers: { Authorization: `Bearer ${token}` },
-              }
-            );
-          }
-
-          await AsyncStorage.setItem(
-            `${user?.role}-shiftStatus`,
-            JSON.stringify({
-              isActive: true,
-              startTime: now.toISOString(),
-            })
-          );
-
-          // Schedule persistent notification
-          await schedulePersistentNotification();
-
-          // Update modal with success message (only if no warning modal was shown)
-          if (!response.data.sparrowWarning) {
-            setModalData({
-              title: "Shift Started",
-              message: `Your shift has started at ${format(
-                now,
-                "hh:mm a"
-              )}. The timer will continue running even if you close the app.`,
-              type: "success",
-              showCancel: false,
-            });
-            setShowModal(true);
-
-            // Show warning messages after shift start confirmation with new combined modal
-            setTimeout(() => {
-              showWarningMessages();
-            }, 1500);
-          }
-        } catch (error: any) {
-          // Revert UI state on error
-          setShiftStart(null);
-          setIsShiftActive(false);
-          setElapsedTime(0);
-          pulseAnim.setValue(1);
-          rotateAnim.setValue(0);
-
-          // Use modal for a more prominent error display
+      // Handle Sparrow warnings
+      if (response.data.sparrowWarning) {
+        let message = response.data.sparrowMessage || "There was an issue with the attendance system.";
+        
+        if (response.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
+          // Revert state for cooldown errors
+          updateShiftState(false, null);
+          await AsyncStorage.removeItem(`${user?.role}-shiftStatus`);
           setModalData({
-            title: "Error Starting Shift",
-            message: error.response?.data?.error || "Failed to start shift. Please try again.",
+            title: "Attendance Error",
+            message: response.data.sparrowErrors?.[0] || "You need to wait before starting another shift.",
+            type: "info",
+            showCancel: false,
+          });
+          setShowModal(true);
+          setIsProcessingShift(false);
+          return;
+        } else {
+          // Show warning but continue with shift
+          setModalData({
+            title: response.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR' ? "Roster Warning" : 
+                   response.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR' ? "Schedule Warning" : "Attendance Warning",
+            message: message,
             type: "info",
             showCancel: false,
           });
           setShowModal(true);
         }
+      }
+
+      // Show success message immediately if no warning was shown
+      if (!response.data.sparrowWarning) {
+        setModalData({
+          title: "Shift Started",
+          message: `Your shift has started at ${format(now, "hh:mm a")}. Setting up notifications in the background...`,
+          type: "success",
+          showCancel: false,
+        });
+        setShowModal(true);
+      }
+
+      // Set cooldown after successful shift start
+      await setShiftCooldown();
+
+      // Move heavy operations to background - don't wait for them
+      InteractionManager.runAfterInteractions(async () => {
+        try {
+          // Set up notifications in background
+          await scheduleFastNotifications();
+
+          // Send admin notification if not management
+          if (user?.role !== "management") {
+            axios.post(
+              `${process.env.EXPO_PUBLIC_API_URL}${getNotificationEndpoint(user?.role || "employee")}`,
+              {
+                title: `🟢 Shift Started, by ${user?.name}`,
+                message: `👤 ${user?.name} has started their shift at ${format(now, "hh:mm a")} \n⏰ expected duration: ${timerDuration ? `${timerDuration} hours` : `8 hours`}`,
+                type: "shift-start",
+              },
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            ).catch(error => console.log("Admin notification failed:", error));
+          }
+
+          // Show warning messages after everything is set up
+          setTimeout(() => {
+            showWarningMessages();
+          }, 1000);
+        } catch (error) {
+          console.error("Background operations failed:", error);
+          showInAppNotification("Shift started but some features may be limited", "warning");
+        }
       });
+
     } catch (error: any) {
-      // Handle any unexpected errors
       console.error("Error starting shift:", error);
       
-      // Use modal for a more prominent error display
+      // Revert any UI changes
+      updateShiftState(false, null);
+      
+      let errorMessage = "Failed to start shift. Please try again.";
+      if (error.code === 'ECONNABORTED') {
+        errorMessage = "Request timed out. Please check your connection and try again.";
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      }
+
       setModalData({
         title: "Error Starting Shift",
-        message: error.message || "An unexpected error occurred while starting your shift",
+        message: errorMessage,
         type: "info",
         showCancel: false,
       });
       setShowModal(true);
-
-      // Reset UI
-      setShiftStart(null);
-      setIsShiftActive(false);
-      setElapsedTime(0);
-      pulseAnim.setValue(1);
-      rotateAnim.setValue(0);
+    } finally {
+      setIsProcessingShift(false);
+      // Reset button animation
+      Animated.timing(pulseAnim, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }).start();
     }
   };
 
-  // Make handleEndShift more responsive too
+  // Optimized handleEndShift
   const handleEndShift = () => {
-    // Update UI immediately
+    // Enhanced validation with cooldown check
+    const validation = isShiftActionAllowed();
+    if (!validation.allowed || isProcessingShift) {
+      if (validation.reason) {
+        showInAppNotification(validation.reason, "warning");
+      }
+      return;
+    }
+
+    // Show immediate animation feedback
     Animated.timing(pulseAnim, {
       toValue: 1.05,
-      duration: 150,
+      duration: 100,
       useNativeDriver: true,
     }).start();
 
@@ -1778,261 +2058,237 @@ export default function EmployeeShiftTracker() {
     setShowModal(true);
   };
 
-  // Restore confirmEndShift function with improved cleanup
+  // Optimized confirmEndShift - fast UI updates, background processing
   const confirmEndShift = async () => {
-    // Only validate location for employee role and for non-timer initiated end shift
-    if (user?.role === 'employee' && !timerEndTime) {
-      const isLocationValid = await validateLocationForShift();
-
-      if (!isLocationValid) {
+    setIsProcessingShift(true);
+    
+    try {
+      const now = new Date();
+      if (!shiftStart) {
+        setIsProcessingShift(false);
         return;
       }
-    }
 
-    const now = new Date();
-    if (!shiftStart) return;
+      // Quick location check for employees (non-blocking)
+      let locationData: any = undefined;
+      if (user?.role === 'employee' && !timerEndTime) {
+        try {
+          // Use cached location first for faster response
+          let appLocation = convertToLocation(currentLocation);
+          
+          // If no cached location or it's stale, get fresh location with short timeout
+          const isLocationStale = !appLocation?.timestamp || 
+            new Date().getTime() - new Date(appLocation.timestamp).getTime() > 120000; // 2 minutes
+          
+          if (!appLocation || isLocationStale) {
+            try {
+              const locationPromise = getCurrentLocation();
+              const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Location timeout')), 3000); // 3 second timeout
+              });
+              
+              const locationResult = await Promise.race([locationPromise, timeoutPromise]);
+              if (locationResult) {
+                appLocation = convertToLocation(locationResult);
+                if (locationResult && typeof locationResult === 'object' && 'coords' in locationResult) {
+                  useLocationStore.getState().setCurrentLocation(locationResult as any);
+                }
+              }
+            } catch (locationError) {
+              console.log("Quick location fetch failed for shift end, using cached location");
+            }
+          }
 
-    // Cancel any active timer if it exists to prevent timer-end errors
-    if (timerEndTime) {
-      try {
-        // First update local state to prevent UI issues
+          // Quick geofence validation
+          if (appLocation) {
+            const isInside = isLocationInAnyGeofence(appLocation);
+            
+            // Only block if outside geofence AND no override permission
+            if (!isInside && !canOverrideGeofence) {
+              setLocationErrorMessage(
+                "You don't have permission to end your shift outside designated work areas. Please move to a work area or contact your administrator."
+              );
+              setShowLocationError(true);
+              setIsProcessingShift(false);
+              return;
+            }
+
+            locationData = {
+              latitude: appLocation.latitude,
+              longitude: appLocation.longitude,
+              accuracy: appLocation.accuracy || 0,
+            };
+          }
+        } catch (error) {
+          console.log("Location validation failed for shift end, proceeding without location data");
+        }
+      }
+
+      // Cancel any active timer immediately (non-blocking)
+      if (timerEndTime) {
         setTimerDuration(null);
         setTimerEndTime(null);
         
-        // Then call the API to cancel the timer (don't wait for response)
+        // Cancel timer in background - don't wait for response
         axios.delete(
           `${process.env.EXPO_PUBLIC_API_URL}/api/shift-timer/shift/timer`,
           { headers: { Authorization: `Bearer ${token}` } }
         ).catch(error => {
-          // Silently handle any errors (like 404) - just log them
-          console.log("Non-critical error cancelling timer during shift end:", error);
+          console.log("Non-critical error cancelling timer:", error);
         });
-      } catch (timerError) {
-        console.error("Error cancelling timer during shift end:", timerError);
-        // Continue with shift end even if timer cancellation fails
       }
-    }
 
-    // Get location from the store instead of fetching fresh
-    let appLocation: AppLocation | null = convertToLocation(currentLocation);
-    
-    // If store location is null or older than 30 seconds, try to get a new one in background
-    const isLocationStale = !appLocation?.timestamp || 
-      (new Date().getTime() - new Date(appLocation.timestamp).getTime() > 30000);
-    
-    if (!appLocation || isLocationStale) {
-      // Don't await this - we'll use what we have and update later if needed
-      getCurrentLocation().then(freshLocation => {
-        if (freshLocation) {
-          // Save the fresh location to the store
-          useLocationStore.getState().setCurrentLocation(freshLocation);
+      // Close modal immediately for better UX
+      setShowModal(false);
+
+      // Calculate duration for immediate feedback
+      const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
+
+      // Make API call with shorter timeout
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
+        {
+          endTime: formatDateForBackend(now),
+          location: locationData,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 8000, // Reduced from 15s to 8s
         }
-      }).catch(error => {
-        console.error("Background location update failed:", error);
-      });
-    }
+      );
 
-    // Immediately update UI state
-    setShowModal(false);
-    setIsShiftActive(false);
-    setShiftStart(null);
-    pulseAnim.setValue(1);
-    rotateAnim.setValue(0);
+      // Immediately update UI state after successful API response
+      updateShiftState(false, null);
 
-    // Clear any location monitoring resources
-    if (locationOffTimer) {
-      clearTimeout(locationOffTimer);
-      setLocationOffTimer(null);
-    }
+      // Clear monitoring resources immediately
+      if (locationOffTimer) {
+        clearTimeout(locationOffTimer);
+        setLocationOffTimer(null);
+      }
+      if (locationCheckInterval) {
+        clearInterval(locationCheckInterval);
+        setLocationCheckInterval(null);
+      }
+      if (locationWatchId) {
+        clearInterval(locationWatchId as any);
+        setLocationWatchId(null);
+      }
 
-    if (locationCheckInterval) {
-      clearInterval(locationCheckInterval);
-      setLocationCheckInterval(null);
-    }
+      // Store basic shift status change immediately
+      await AsyncStorage.removeItem(`${user?.role}-shiftStatus`);
 
-    if (locationWatchId) {
-      clearInterval(locationWatchId as any);
-      setLocationWatchId(null);
-    }
+      // Handle Sparrow warnings and show modal immediately
+      let modalTitle = "Shift Completed";
+      let modalMessage = `Your shift has ended successfully.\n\nTotal Duration: ${duration}\nStart: ${format(shiftStart, "hh:mm a")}\nEnd: ${format(now, "hh:mm a")}`;
 
-    // Calculate duration for immediate feedback
-    const duration = formatElapsedTime(differenceInSeconds(now, shiftStart));
-
-    // Show completion modal immediately
-    setModalData({
-      title: "Shift Completed",
-      message: `Total Duration: ${duration}\nStart: ${format(
-        shiftStart,
-        "hh:mm a"
-      )}\nEnd: ${format(now, "hh:mm a")}`,
-      type: "success",
-      showCancel: false,
-    });
-    setShowModal(true);
-
-    // Create new shift data
-    const newShiftData: ShiftData = {
-      date: format(shiftStart, "yyyy-MM-dd"),
-      startTime: format(shiftStart, "HH:mm:ss"),
-      endTime: format(now, "HH:mm:ss"),
-      duration,
-    };
-
-    // Perform API call and storage updates in background
-    InteractionManager.runAfterInteractions(async () => {
-      try {
-        // Cancel the active shift notification
-        const activeShiftId = await AsyncStorage.getItem(
-          `${user?.role}-activeShiftNotificationId`
-        );
-        if (activeShiftId) {
-          await Notifications.cancelScheduledNotificationAsync(activeShiftId);
-          await AsyncStorage.removeItem(
-            `${user?.role}-activeShiftNotificationId`
-          );
-        }
-
-        // Cancel all shift-related notifications
-        await cancelShiftNotifications();
-
-        // Prepare location data for PostGIS point type
-        const locationData = appLocation ? {
-          latitude: appLocation.latitude,
-          longitude: appLocation.longitude,
-          accuracy: appLocation.accuracy || 0,
-          // Format point data for PostgreSQL
-          point: `(${appLocation.longitude},${appLocation.latitude})` // Note: PostGIS point format is (longitude,latitude)
-        } : undefined;
-
-        // Send notification based on role
-        if (user?.role !== "management") {
-          await axios.post(
-            `${process.env.EXPO_PUBLIC_API_URL}${getNotificationEndpoint(
-              user?.role || "employee"
-            )}`,
-            {
-              title: `🔴 Shift Ended, by ${user?.name}`,
-              message: `👤 ${
-                user?.name
-              } has completed their shift\n⏱️ Duration: ${duration}\n🕒 Start: ${format(
-                shiftStart,
-                "hh:mm a"
-              )}\n🕕 End: ${format(now, "hh:mm a")}`,
-              type: "shift-end",
-            },
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-        }
-
-        // Make API call first to check for warnings
-        const shiftEndResponse = await axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}${apiEndpoint}/shift/end`,
-          {
-            endTime: formatDateForBackend(now),
-            location: locationData, // Include location data for all roles
-          },
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-          
-        // Check for Sparrow warnings in successful responses
-        if (shiftEndResponse.data.sparrowWarning) {
-          let message = shiftEndResponse.data.sparrowMessage || "There was an issue with the attendance system.";
-          
-          // Handle specific error types
-          if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
-            message = shiftEndResponse.data.sparrowErrors?.[0] || "You need to wait before ending your shift.";
-            
-            // Show error message and prevent shift end
-            setModalData({
-              title: "Attendance Error",
-              message: message,
-              type: "info",
-              showCancel: false,
-            });
-            setShowModal(true);
-            
-          } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR') {
-            message = shiftEndResponse.data.sparrowErrors?.[0] || "Your roster has not been created for today. Your shift has been tracked in this app, but not in the attendance system.";
-            
-            // Use modal for a more prominent error display
-            setModalData({
-              title: "Roster Warning",
-              message: message,
-              type: "info",
-              showCancel: false,
-            });
-            setShowModal(true);
-          } else if (shiftEndResponse.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR') {
-            message = shiftEndResponse.data.sparrowErrors?.[0] || "There is an issue with your schedule. Your shift has been tracked in this app, but not in the attendance system.";
-            
-            // Use modal for a more prominent error display
-            setModalData({
-              title: "Schedule Warning",
-              message: message,
-              type: "info",
-              showCancel: false,
-            });
-            setShowModal(true);
-          } else {
-            // Use modal for a more prominent error display
-            setModalData({
-              title: "Attendance Warning",
-              message: message,
-              type: "info",
-              showCancel: false,
-            });
-            setShowModal(true);
-          }
+      if (response.data.sparrowWarning) {
+        const warningMessage = response.data.sparrowMessage || "There was an issue with the attendance system.";
+        
+        if (response.data.sparrowErrorType === 'SPARROW_COOLDOWN_ERROR') {
+          modalTitle = "Attendance Error";
+          modalMessage = response.data.sparrowErrors?.[0] || "You need to wait before ending your shift.";
         } else {
-          // Show success message for successful attendance registration
-          setModalData({
-            title: "Shift Completed",
-            message: `Your shift has ended and attendance has been successfully registered.\n\nTotal Duration: ${duration}\nStart: ${format(
-              shiftStart,
-              "hh:mm a"
-            )}\nEnd: ${format(now, "hh:mm a")}`,
-            type: "success",
-            showCancel: false,
-          });
-          setShowModal(true);
+          modalTitle = response.data.sparrowErrorType === 'SPARROW_ROSTER_ERROR' ? "Roster Warning" : 
+                     response.data.sparrowErrorType === 'SPARROW_SCHEDULE_ERROR' ? "Schedule Warning" : "Attendance Warning";
+          modalMessage = warningMessage;
         }
-          
-        // Storage updates
-        await Promise.all([
-          AsyncStorage.removeItem(`${user?.role}-shiftStatus`),
-          AsyncStorage.setItem(
-            `${user?.role}-shiftHistory`,
-            JSON.stringify([newShiftData, ...shiftHistory])
-          )
-        ]);
-
-        // Refresh data in background
-        await Promise.all([loadShiftHistoryFromBackend(), fetchRecentShifts()]);
-
-        // Reset location validation state
-        setLocationValidated(false);
-      } catch (error: any) {
-        console.error("Error ending shift:", error);
-
-        // Use modal for a more prominent error display
-        setModalData({
-          title: "Error Ending Shift",
-          message: error.response?.data?.error || "Failed to end shift. Please try again.",
-          type: "info",
-          showCancel: false,
-        });
-        setShowModal(true);
-
-        // Revert UI state
-        setIsShiftActive(true);
-        setShiftStart(shiftStart);
-        startAnimations();
+      } else {
+        modalMessage += "\n\nProcessing attendance in the background...";
       }
-    });
+
+      // Show completion modal immediately
+      setModalData({
+        title: modalTitle,
+        message: modalMessage,
+        type: "success",
+        showCancel: false,
+      });
+      setShowModal(true);
+
+      // Set cooldown after successful shift end
+      await setShiftCooldown();
+
+      // Move heavy operations to background
+      InteractionManager.runAfterInteractions(async () => {
+        try {
+          // Create shift data for history
+          const newShiftData: ShiftData = {
+            date: format(shiftStart, "yyyy-MM-dd"),
+            startTime: format(shiftStart, "HH:mm:ss"),
+            endTime: format(now, "HH:mm:ss"),
+            duration,
+          };
+
+          // Cancel notifications and update storage in background
+          const backgroundPromises = [
+            cancelShiftNotifications(),
+            AsyncStorage.setItem(
+              `${user?.role}-shiftHistory`,
+              JSON.stringify([newShiftData, ...shiftHistory])
+            ),
+            loadShiftHistoryFromBackend(),
+            fetchRecentShifts(),
+          ];
+
+          // Send admin notification if not management
+          if (user?.role !== "management") {
+            backgroundPromises.push(
+              axios.post(
+                `${process.env.EXPO_PUBLIC_API_URL}${getNotificationEndpoint(user?.role || "employee")}`,
+                {
+                  title: `🔴 Shift Ended, by ${user?.name}`,
+                  message: `👤 ${user?.name} has completed their shift\n⏱️ Duration: ${duration}\n🕒 Start: ${format(shiftStart, "hh:mm a")}\n🕕 End: ${format(now, "hh:mm a")}`,
+                  type: "shift-end",
+                },
+                {
+                  headers: { Authorization: `Bearer ${token}` },
+                }
+              ).then(() => {}).catch(error => console.log("Admin notification failed:", error))
+            );
+          }
+
+          // Execute all background operations
+          await Promise.allSettled(backgroundPromises);
+
+          // Update modal message to show completion
+          if (!response.data.sparrowWarning) {
+            setModalData(prev => ({
+              ...prev,
+              message: prev.message.replace("Processing attendance in the background...", "Attendance has been successfully registered.")
+            }));
+          }
+        } catch (error) {
+          console.error("Background operations failed for shift end:", error);
+          showInAppNotification("Shift ended but some background operations failed", "warning");
+        }
+      });
+
+      // Reset location validation state
+      setLocationValidated(false);
+
+    } catch (error: any) {
+      console.error("Error ending shift:", error);
+
+      // Revert UI state on error
+      updateShiftState(true, shiftStart);
+
+      let errorMessage = "Failed to end shift. Please try again.";
+      if (error.code === 'ECONNABORTED') {
+        errorMessage = "Request timed out. Please check your connection and try again.";
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      }
+
+      setModalData({
+        title: "Error Ending Shift",
+        message: errorMessage,
+        type: "info",
+        showCancel: false,
+      });
+      setShowModal(true);
+    } finally {
+      setIsProcessingShift(false);
+    }
   };
 
   const rotate = rotateAnim.interpolate({
@@ -2118,24 +2374,35 @@ export default function EmployeeShiftTracker() {
       );
 
       if (response.data.success) {
-        // The endTime from server is already in IST, no need for timezone conversion
+        // The endTime from server is in IST format
         const endTimeString = response.data.timer.endTime;
         console.log("Received end time from server (IST):", endTimeString);
         
-        // Create a date object from the IST time string
-        const endTime = new Date(endTimeString);
-        console.log("Parsed end time as local date (IST):", endTime.toString());
+        // Parse the time string and ensure it's treated as IST
+        let endTime: Date;
+        
+        if (endTimeString.includes('+') || endTimeString.includes('Z')) {
+          // Time string has timezone info, use it directly
+          endTime = new Date(endTimeString);
+        } else {
+          // Time string doesn't have timezone info, treat as IST
+          // Add +05:30 offset to make it clear it's IST
+          endTime = new Date(endTimeString + '+05:30');
+        }
+        
+        console.log("Parsed end time as IST:", endTime.toString());
+        console.log("Local time representation:", endTime.toLocaleString());
         
         setTimerDuration(hours);
         setTimerEndTime(endTime);
 
-        // Show confirmation modal with IST time
+        // Show confirmation modal
         setModalData({
           title: "Timer Set",
           message: `Your shift will automatically end at ${format(
             endTime,
             "hh:mm a"
-          )} IST. This will happen even if the app is closed.`,
+          )}. This will happen even if the app is closed.`,
           type: "success",
           showCancel: false,
         });
@@ -2206,13 +2473,26 @@ export default function EmployeeShiftTracker() {
           // Log the response to help debug timezone issues
           console.log("Retrieved timer from server:", response.data.timer);
           
-          // The endTime from server is already in IST
+          // The endTime from server is in IST format
           const endTimeString = response.data.timer.endTime;
           console.log("Server returned end time (IST):", endTimeString);
           
-          // Create a date object from the IST time string
-          const endTime = new Date(endTimeString);
-          console.log("Parsed end time as local date (IST):", endTime.toString());
+          // Parse the time string and ensure it's treated as IST
+          // If the time string already has timezone info, use it directly
+          // If not, we need to manually handle it as IST
+          let endTime: Date;
+          
+          if (endTimeString.includes('+') || endTimeString.includes('Z')) {
+            // Time string has timezone info, use it directly
+            endTime = new Date(endTimeString);
+          } else {
+            // Time string doesn't have timezone info, treat as IST
+            // Add +05:30 offset to make it clear it's IST
+            endTime = new Date(endTimeString + '+05:30');
+          }
+          
+          console.log("Parsed end time as IST:", endTime.toString());
+          console.log("Local time representation:", endTime.toLocaleString());
           
           setTimerDuration(response.data.timer.durationHours);
           setTimerEndTime(endTime);
@@ -2220,7 +2500,7 @@ export default function EmployeeShiftTracker() {
           // Only show notification if the timer is still in the future
           if (endTime > new Date()) {
             showInAppNotification(
-              `Auto-end timer active: Shift will end at ${format(endTime, "hh:mm a")} IST`,
+              `Auto-end timer active: Shift will end at ${format(endTime, "hh:mm a")}`,
               "info"
             );
           }
@@ -2501,6 +2781,9 @@ export default function EmployeeShiftTracker() {
         // Clear AsyncStorage
         AsyncStorage.removeItem(`${user?.role}-shiftStatus`);
         
+        // Cancel any scheduled warning/limit notifications
+        cancelShiftNotifications();
+        
         // Reset timer state
         setTimerDuration(null);
         setTimerEndTime(null);
@@ -2553,31 +2836,39 @@ export default function EmployeeShiftTracker() {
     }
   };
 
-  // Add a new useEffect to periodically update location in the background 
-  // when the app is active and in the foreground
-  useEffect(() => {
-    // Create a periodic refresh for location data when app is in foreground
-    const locationRefreshInterval = setInterval(async () => {
-      try {
-        // Only refresh when app is in foreground
-        if (AppState.currentState === 'active') {
-          console.log("Background location refresh");
-          const location = await getCurrentLocation();
+  // // Add a new useEffect to periodically update location in the background 
+  // // when the app is active and in the foreground
+  // useEffect(() => {
+  //   // Create a periodic refresh for location data when app is in foreground
+  //   const locationRefreshInterval = setInterval(async () => {
+  //     try {
+  //       // Only refresh when app is in foreground
+  //       if (AppState.currentState === 'active') {
+  //         console.log("Background location refresh");
+  //         const location = await getCurrentLocation();
           
-          if (location) {
-            // Update the store with fresh location
-            useLocationStore.getState().setCurrentLocation(location);
-          }
-        }
-      } catch (error) {
-        console.error("Background location refresh failed:", error);
-      }
-    }, 60000); // Refresh every 60 seconds when app is in foreground
+  //         if (location) {
+  //           // Update the store with fresh location
+  //           useLocationStore.getState().setCurrentLocation(location);
+            
+  //           // Update address in background
+  //           const appLocation = convertToLocation(location);
+  //           if (appLocation?.latitude && appLocation?.longitude) {
+  //             getLocationAddress(appLocation.latitude, appLocation.longitude)
+  //               .then(address => setCurrentAddress(address))
+  //               .catch(error => console.log("Error getting address:", error));
+  //           }
+  //         }
+  //       }
+  //     } catch (error) {
+  //       console.error("Background location refresh failed:", error);
+  //     }
+  //   }, 60000); // Refresh every 60 seconds when app is in foreground
     
-    return () => {
-      clearInterval(locationRefreshInterval);
-    };
-  }, [user?.role]);
+  //   return () => {
+  //     clearInterval(locationRefreshInterval);
+  //   };
+  // }, [user?.role]);
 
   return (
     <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
@@ -2770,6 +3061,15 @@ export default function EmployeeShiftTracker() {
         </View>
 
         <View className="items-center mb-6">
+          {/* Cooldown indicator */}
+          {(shiftCooldownUntil !== null) && cooldownTimeLeft > 0 && (
+            <View className={`mb-4 px-4 py-2 rounded-lg ${isDark ? "bg-orange-900" : "bg-orange-100"}`}>
+              <Text className={`text-center text-sm ${isDark ? "text-orange-300" : "text-orange-800"}`}>
+                Action cooldown: {Math.floor(cooldownTimeLeft / 60)}m {cooldownTimeLeft % 60}s remaining
+              </Text>
+            </View>
+          )}
+
           <Animated.View
             style={{
               transform: [{ scale: pulseAnim }],
@@ -2777,24 +3077,68 @@ export default function EmployeeShiftTracker() {
           >
             <TouchableOpacity
               onPress={isShiftActive ? handleEndShift : handleStartShift}
+              disabled={isProcessingShift || ((shiftCooldownUntil !== null) && cooldownTimeLeft > 0)}
               className={`w-40 h-40 rounded-full items-center justify-center ${
-                isShiftActive ? "bg-red-500" : "bg-green-500"
+                isProcessingShift || ((shiftCooldownUntil !== null) && cooldownTimeLeft > 0)
+                  ? "bg-gray-400" 
+                  : isShiftActive 
+                    ? "bg-red-500" 
+                    : "bg-green-500"
               }`}
+              style={{
+                opacity: (isProcessingShift || ((shiftCooldownUntil !== null) && cooldownTimeLeft > 0)) ? 0.7 : 1.0,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 8,
+              }}
             >
-              <Animated.View style={{ transform: [{ rotate }] }}>
-                <Ionicons
-                  name={isShiftActive ? "power" : "power-outline"}
-                  size={60}
-                  color="white"
-                />
-              </Animated.View>
-              <Text className="text-white text-xl font-bold mt-2">
-                {isShiftActive ? "End Shift" : "Start Shift"}
-              </Text>
+              {isProcessingShift ? (
+                <View className="items-center justify-center">
+                  <Animated.View style={{ transform: [{ rotate }] }}>
+                    <Ionicons
+                      name="hourglass-outline"
+                      size={60}
+                      color="white"
+                    />
+                  </Animated.View>
+                  <Text className="text-white text-lg font-bold mt-2">
+                    Processing...
+                  </Text>
+                </View>
+              ) : ((shiftCooldownUntil !== null) && cooldownTimeLeft > 0) ? (
+                <View className="items-center justify-center">
+                  <Ionicons
+                    name="timer-outline"
+                    size={60}
+                    color="white"
+                  />
+                  <Text className="text-white text-lg font-bold mt-2">
+                    Cooldown
+                  </Text>
+                  <Text className="text-white text-xs">
+                    {Math.floor(cooldownTimeLeft / 60)}:{(cooldownTimeLeft % 60).toString().padStart(2, '0')}
+                  </Text>
+                </View>
+              ) : (
+                <View className="items-center justify-center">
+                  <Animated.View style={{ transform: [{ rotate }] }}>
+                    <Ionicons
+                      name={isShiftActive ? "power" : "power-outline"}
+                      size={60}
+                      color="white"
+                    />
+                  </Animated.View>
+                  <Text className="text-white text-xl font-bold mt-2">
+                    {isShiftActive ? "End Shift" : "Start Shift"}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           </Animated.View>
 
-          {isShiftActive && !timerEndTime && (
+          {isShiftActive && !timerEndTime && !isProcessingShift && !((shiftCooldownUntil !== null) && cooldownTimeLeft > 0) && (
             <View className="mt-6">
               <TouchableOpacity
                 onPress={() => setShowTimerPicker(true)}
@@ -2817,7 +3161,7 @@ export default function EmployeeShiftTracker() {
             </View>
           )}
 
-          {timerEndTime && (
+          {timerEndTime && !isProcessingShift && !((shiftCooldownUntil !== null) && cooldownTimeLeft > 0) && (
             <View className="mt-4 items-center">
               <Text
                 className={`text-sm ${
