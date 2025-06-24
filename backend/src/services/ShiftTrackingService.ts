@@ -406,63 +406,78 @@ export class ShiftTrackingService {
             // Process each shift that needs to end
             for (const timer of timerResult.rows) {
                 try {
-                    console.log(`Processing timer for shift ${timer.shift_id}, user ${timer.user_id}, end time ${timer.end_time}`);
-                    const userRole = timer.role_type;
-                    const shiftTable = timer.shift_table_name || await this.getShiftTableNameFromRole(userRole);
-                    const { idColumn, userColumn, startColumn, endColumn, statusColumn, durationColumn } = 
-                        await this.getRoleShiftTable(userRole);
+                  console.log(
+                    `Processing timer for shift ${timer.shift_id}, user ${timer.user_id}, end time ${timer.end_time}`
+                  );
+                  const userRole = timer.role_type;
+                  const shiftTable =
+                    timer.shift_table_name ||
+                    (await this.getShiftTableNameFromRole(userRole));
+                  const {
+                    idColumn,
+                    userColumn,
+                    startColumn,
+                    endColumn,
+                    statusColumn,
+                    durationColumn,
+                  } = await this.getRoleShiftTable(userRole);
 
-                    // Check if the shift is still active
-                    const shiftResult = await client.query(
-                        `SELECT ${startColumn} FROM ${shiftTable} 
+                  // Check if the shift is still active
+                  const shiftResult = await client.query(
+                    `SELECT ${startColumn} FROM ${shiftTable} 
                         WHERE ${idColumn} = $1 AND ${endColumn} IS NULL`,
-                        [timer.shift_id]
-                    );
+                    [timer.shift_id]
+                  );
 
-                    if (shiftResult.rows.length === 0) {
-                        // Shift already ended, just mark the timer as completed
-                        await client.query(
-                            `UPDATE shift_timer_settings 
+                  if (shiftResult.rows.length === 0) {
+                    // Shift already ended, just mark the timer as completed
+                    await client.query(
+                      `UPDATE shift_timer_settings 
                             SET completed = TRUE 
                             WHERE id = $1`,
-                            [timer.id]
-                        );
-                        continue;
-                    }
-                    
-                    const startTime = new Date(shiftResult.rows[0][startColumn]);
-
-                    // Get user info for notifications
-                    const userResult = await client.query(
-                        `SELECT name, role FROM users WHERE id = $1`,
-                        [timer.user_id]
+                      [timer.id]
                     );
-                    
-                    if (userResult.rows.length === 0) {
-                        console.error(`User not found for ID: ${timer.user_id}`);
-                        continue;
-                    }
+                    continue;
+                  }
 
-                    const user = userResult.rows[0];
+                  const startTime = new Date(shiftResult.rows[0][startColumn]);
 
-                    // Create end time in IST timezone - convert the timer.end_time to proper IST timestamp
-                    const endTimeIST = new Date(timer.end_time);
-                    
-                    // Calculate elapsed time in seconds using the actual IST times
-                    const elapsedSeconds = differenceInSeconds(endTimeIST, startTime);
+                  // Get user info for notifications
+                  const userResult = await client.query(
+                    `SELECT name, role FROM users WHERE id = $1`,
+                    [timer.user_id]
+                  );
 
-                    // Format duration for update
-                    let durationValue;
-                    if (userRole === 'employee') {
-                        // Employee shifts use the PostgreSQL interval type
-                        durationValue = `interval '${elapsedSeconds} seconds'`;
-                        
-                        // For employee shifts, calculate metrics
-                        const metrics = await this.calculateShiftMetrics(timer.shift_id);
+                  if (userResult.rows.length === 0) {
+                    console.error(`User not found for ID: ${timer.user_id}`);
+                    continue;
+                  }
 
-                        // End employee shift with metrics - use AT TIME ZONE to ensure IST storage
-                        await client.query(
-                            `UPDATE ${shiftTable} 
+                  const user = userResult.rows[0];
+
+                  // Create end time in IST timezone - convert the timer.end_time to proper IST timestamp
+                  // const endTimeIST = new Date(timer.end_time);
+
+                  // Calculate elapsed time in seconds using the actual IST times
+                  const elapsedSeconds = differenceInSeconds(
+                    timer.end_time,
+                    startTime
+                  );
+
+                  // Format duration for update
+                  let durationValue;
+                  if (userRole === "employee") {
+                    // Employee shifts use the PostgreSQL interval type
+                    durationValue = `interval '${elapsedSeconds} seconds'`;
+
+                    // For employee shifts, calculate metrics
+                    const metrics = await this.calculateShiftMetrics(
+                      timer.shift_id
+                    );
+
+                    // End employee shift with metrics - use AT TIME ZONE to ensure IST storage
+                    await client.query(
+                      `UPDATE ${shiftTable} 
                             SET ${endColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp,
                                 total_distance_km = $2,
                                 travel_time_minutes = $3,
@@ -471,126 +486,171 @@ export class ShiftTrackingService {
                                 ${statusColumn} = 'completed',
                                 ${durationColumn} = ${durationValue}
                             WHERE ${idColumn} = $4`,
-                            [timer.end_time, metrics.distance, metrics.travelTime, timer.shift_id]
-                        );
+                      [
+                        timer.end_time,
+                        metrics.distance,
+                        metrics.travelTime,
+                        timer.shift_id,
+                      ]
+                    );
 
-                        // Update analytics for employee
-                        await client.query(
-                            `UPDATE tracking_analytics 
+                    // Update analytics for employee
+                    await client.query(
+                      `UPDATE tracking_analytics 
                             SET total_distance_km = total_distance_km + $1,
                                 total_travel_time_minutes = total_travel_time_minutes + $2
                             WHERE user_id = $3 
                             AND date = CURRENT_DATE`,
-                            [metrics.distance, metrics.travelTime, timer.user_id]
-                        );
-                    } else {
-                        // For group-admin and management, just end the shift without metrics
-                        // First add ended_automatically column if it doesn't exist
-                        try {
-                            if (userRole === 'group-admin' && shiftTable === 'group_admin_shifts') {
-                                await client.query(
-                                    `ALTER TABLE group_admin_shifts 
-                                    ADD COLUMN IF NOT EXISTS ended_automatically BOOLEAN DEFAULT FALSE`
-                                );
-                            } else if (userRole === 'management' && shiftTable === 'management_shifts') {
-                                await client.query(
-                                    `ALTER TABLE management_shifts 
-                                    ADD COLUMN IF NOT EXISTS ended_automatically BOOLEAN DEFAULT FALSE`
-                                );
-                            }
-                        } catch (alterError: any) {
-                            // Column might already exist, continue
-                            console.log(`Column check error (can be ignored): ${alterError.message}`);
-                        }
-                        
-                        // End the shift - use AT TIME ZONE to ensure IST storage
+                      [metrics.distance, metrics.travelTime, timer.user_id]
+                    );
+                  } else {
+                    // For group-admin and management, just end the shift without metrics
+                    // First add ended_automatically column if it doesn't exist
+                    try {
+                      if (
+                        userRole === "group-admin" &&
+                        shiftTable === "group_admin_shifts"
+                      ) {
                         await client.query(
-                            `UPDATE ${shiftTable} 
+                          `ALTER TABLE group_admin_shifts 
+                                    ADD COLUMN IF NOT EXISTS ended_automatically BOOLEAN DEFAULT FALSE`
+                        );
+                      } else if (
+                        userRole === "management" &&
+                        shiftTable === "management_shifts"
+                      ) {
+                        await client.query(
+                          `ALTER TABLE management_shifts 
+                                    ADD COLUMN IF NOT EXISTS ended_automatically BOOLEAN DEFAULT FALSE`
+                        );
+                      }
+                    } catch (alterError: any) {
+                      // Column might already exist, continue
+                      console.log(
+                        `Column check error (can be ignored): ${alterError.message}`
+                      );
+                    }
+
+                    // End the shift - use AT TIME ZONE to ensure IST storage
+                    await client.query(
+                      `UPDATE ${shiftTable} 
                             SET ${endColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp,
                                 ended_automatically = TRUE,
                                 updated_at = CURRENT_TIMESTAMP,
                                 ${statusColumn} = 'completed',
                                 ${durationColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp - ${startColumn}
                             WHERE ${idColumn} = $2`,
-                            [timer.end_time, timer.shift_id]
-                        );
-                    }
+                      [timer.end_time, timer.shift_id]
+                    );
+                  }
 
-                    // Mark timer as completed
-                    await client.query(
-                        `UPDATE shift_timer_settings 
+                  // Mark timer as completed
+                  await client.query(
+                    `UPDATE shift_timer_settings 
                         SET completed = TRUE 
                         WHERE id = $1`,
-                        [timer.id]
-                    );
+                    [timer.id]
+                  );
 
-                    // Commit the database changes before sending notifications
-                    await client.query('COMMIT');
-                    await client.query('BEGIN');
-                    
-                    // Send notifications outside the transaction
-                    try {
-                        // Format duration as HH:MM:SS
-                        const hours = Math.floor(elapsedSeconds / 3600);
-                        const minutes = Math.floor((elapsedSeconds % 3600) / 60);
-                        const seconds = Math.floor(elapsedSeconds % 60);
-                        const formattedDuration = `${hours.toString().padStart(2, "0")}:${minutes
-                            .toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+                  // Commit the database changes before sending notifications
+                  await client.query("COMMIT");
+                  await client.query("BEGIN");
 
-                        // Send notification to user
-                        await notificationService.sendPushNotification({
-                            id: 0,
-                            user_id: timer.user_id.toString(),
-                            title: "Shift Automatically Ended",
-                            message: `Your ${timer.timer_duration_hours}-hour shift has been automatically completed as scheduled.`,
+                  // Send notifications outside the transaction
+                  try {
+                    // Format duration as HH:MM:SS
+                    const hours = Math.floor(elapsedSeconds / 3600);
+                    const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+                    const seconds = Math.floor(elapsedSeconds % 60);
+                    const formattedDuration = `${hours
+                      .toString()
+                      .padStart(2, "0")}:${minutes
+                      .toString()
+                      .padStart(2, "0")}:${seconds
+                      .toString()
+                      .padStart(2, "0")}`;
+
+                    // Send notification to user
+                    await notificationService
+                      .sendPushNotification({
+                        id: 0,
+                        user_id: timer.user_id.toString(),
+                        title: "Shift Automatically Ended",
+                        message: `Your ${timer.timer_duration_hours}-hour shift has been automatically completed as scheduled.`,
+                        type: "shift-end-auto",
+                        priority: "default",
+                        data: {
+                          shiftId: timer.shift_id,
+                          startTime: startTime.toISOString(),
+                          endTime: timer.end_time,
+                          duration: timer.timer_duration_hours,
+                        },
+                      })
+                      .catch((error) => {
+                        console.error(
+                          "Error sending user notification:",
+                          error
+                        );
+                        // Don't throw, just log the error
+                      });
+
+                    // Send notification to appropriate admin/manager
+                    const notificationEndpoint =
+                      user.role === "employee"
+                        ? "employee-notifications/notify-admin"
+                        : user.role === "group-admin"
+                        ? "group-admin-notifications/notify-admin"
+                        : null;
+
+                    if (notificationEndpoint) {
+                      await notificationService
+                        .sendRoleNotification(
+                          timer.user_id,
+                          user.role === "employee"
+                            ? "group-admin"
+                            : "management",
+                          {
+                            title: `🔴 Shift Auto-Ended for ${user.name}`,
+                            message: `👤 ${
+                              user.name
+                            } has completed their scheduled ${
+                              timer.timer_duration_hours
+                            }-hour shift\n⏱️ Duration: ${formattedDuration}\n🕒 Start: ${format(
+                              startTime,
+                              "hh:mm a"
+                            )}\n🕕 End: ${format(
+                              new Date(timer.end_time),
+                              "hh:mm a"
+                            )}`,
                             type: "shift-end-auto",
                             priority: "default",
                             data: {
-                                shiftId: timer.shift_id,
-                                startTime: startTime.toISOString(),
-                                endTime: timer.end_time,
-                                duration: timer.timer_duration_hours
-                            }
-                        }).catch(error => {
-                            console.error('Error sending user notification:', error);
-                            // Don't throw, just log the error
+                              shiftId: timer.shift_id,
+                              userId: timer.user_id,
+                              userName: user.name,
+                              startTime: startTime.toISOString(),
+                              endTime: timer.end_time,
+                              duration: timer.timer_duration_hours,
+                            },
+                          }
+                        )
+                        .catch((error) => {
+                          console.error(
+                            "Error sending admin notification:",
+                            error
+                          );
+                          // Don't throw, just log the error
                         });
-
-                        // Send notification to appropriate admin/manager
-                        const notificationEndpoint = user.role === 'employee' ? 'employee-notifications/notify-admin' : 
-                                                    user.role === 'group-admin' ? 'group-admin-notifications/notify-admin' : null;
-                        
-                        if (notificationEndpoint) {
-                            await notificationService.sendRoleNotification(
-                                timer.user_id,
-                                user.role === 'employee' ? 'group-admin' : 'management',
-                                {
-                                    title: `🔴 Shift Auto-Ended for ${user.name}`,
-                                    message: `👤 ${user.name} has completed their scheduled ${timer.timer_duration_hours}-hour shift\n⏱️ Duration: ${formattedDuration}\n🕒 Start: ${format(startTime, "hh:mm a")}\n🕕 End: ${format(new Date(timer.end_time), "hh:mm a")}`,
-                                    type: "shift-end-auto",
-                                    priority: "default",
-                                    data: {
-                                        shiftId: timer.shift_id,
-                                        userId: timer.user_id,
-                                        userName: user.name,
-                                        startTime: startTime.toISOString(),
-                                        endTime: timer.end_time,
-                                        duration: timer.timer_duration_hours
-                                    }
-                                }
-                            ).catch(error => {
-                                console.error('Error sending admin notification:', error);
-                                // Don't throw, just log the error
-                            });
-                        }
-
-                    } catch (notificationError) {
-                        console.error('Error sending notifications:', notificationError);
-                        // Don't throw the error, just log it
                     }
+                  } catch (notificationError) {
+                    console.error(
+                      "Error sending notifications:",
+                      notificationError
+                    );
+                    // Don't throw the error, just log it
+                  }
 
-                    endedShifts++;
-
+                  endedShifts++;
                 } catch (shiftError) {
                     console.error(`Error processing shift for timer ID ${timer.id}:`, shiftError);
                     // Start a new transaction for the next shift
