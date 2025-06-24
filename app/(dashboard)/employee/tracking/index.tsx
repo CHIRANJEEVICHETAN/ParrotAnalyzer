@@ -70,6 +70,7 @@ import AdaptiveTrackingSettings from '../../../components/controls/AdaptiveTrack
 import TrackingStatusNotification from '../../../components/controls/TrackingStatusNotification';
 import LocationAccuracySettings from '../../../components/controls/LocationAccuracySettings';
 import { filterLocation } from '../../../utils/locationAccuracyFilter';
+import PermissionsManager from '../../../utils/permissionsManager';
 
 // Constants for map region
 // const { width, height } = Dimensions.get("window");
@@ -234,7 +235,11 @@ interface ConfirmationModalProps {
   confirmColor?: string;
 }
 
-const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
+interface ExtendedConfirmationModalProps extends ConfirmationModalProps {
+  showCancel?: boolean;
+}
+
+const ConfirmationModal: React.FC<ExtendedConfirmationModalProps> = ({
   visible,
   title,
   message,
@@ -243,6 +248,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   confirmText = "Confirm",
   cancelText = "Cancel",
   confirmColor = "#ef4444",
+  showCancel = true,
 }) => {
   return (
     <Modal
@@ -255,20 +261,26 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         <View style={modalStyles.modalView}>
           <Text style={modalStyles.modalTitle}>{title}</Text>
           <Text style={modalStyles.modalText}>{message}</Text>
-          <View style={modalStyles.modalButtonContainer}>
-            <Pressable
-              style={[modalStyles.modalButton, modalStyles.modalButtonCancel]}
-              onPress={onCancel}
-            >
-              <Text style={modalStyles.modalButtonTextCancel}>
-                {cancelText}
-              </Text>
-            </Pressable>
+          <View style={[
+            modalStyles.modalButtonContainer,
+            !showCancel && { justifyContent: 'center' }
+          ]}>
+            {showCancel && (
+              <Pressable
+                style={[modalStyles.modalButton, modalStyles.modalButtonCancel]}
+                onPress={onCancel}
+              >
+                <Text style={modalStyles.modalButtonTextCancel}>
+                  {cancelText}
+                </Text>
+              </Pressable>
+            )}
             <Pressable
               style={[
                 modalStyles.modalButton,
                 modalStyles.modalButtonConfirm,
                 { backgroundColor: confirmColor },
+                !showCancel && { flex: 0.6 }
               ]}
               onPress={onConfirm}
             >
@@ -412,6 +424,16 @@ export default function EmployeeTrackingScreen() {
   const [showStopModal, setShowStopModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [permissionModalProps, setPermissionModalProps] = useState({
+    title: '',
+    message: '',
+    confirmText: 'OK',
+    cancelText: 'Cancel',
+    confirmColor: '#3b82f6',
+    onConfirm: () => {},
+    showCancel: false,
+  });
 
   // References
   const mapRef = useRef<any>(null);
@@ -1859,6 +1881,146 @@ export default function EmployeeTrackingScreen() {
     }
   };
 
+  // Helper function to show permission modal
+  const showPermissionAlert = (
+    title: string,
+    message: string,
+    options: {
+      confirmText?: string;
+      cancelText?: string;
+      confirmColor?: string;
+      onConfirm?: () => void;
+      onCancel?: () => void;
+      showCancel?: boolean;
+    } = {}
+  ) => {
+    setPermissionModalProps({
+      title,
+      message,
+      confirmText: options.confirmText || 'OK',
+      cancelText: options.cancelText || 'Cancel',
+      confirmColor: options.confirmColor || '#3b82f6',
+      onConfirm: options.onConfirm || (() => setShowPermissionModal(false)),
+      showCancel: options.showCancel || false,
+    });
+    setShowPermissionModal(true);
+  };
+
+  // Refresh all permissions (location foreground, background, and notifications)
+  const refreshPermissions = async () => {
+    try {
+      console.log('Refreshing all permissions...');
+      
+      // Check location services first
+      const locationServicesEnabled = await checkLocationServicesStatus();
+      setIsLocationEnabled(locationServicesEnabled);
+
+      if (!locationServicesEnabled) {
+        showPermissionAlert(
+          "Location Services Required",
+          "Please enable location services in your device settings to continue.",
+          {
+            confirmText: "Open Settings",
+            cancelText: "Cancel",
+            confirmColor: "#f59e0b",
+            onConfirm: () => {
+              setShowPermissionModal(false);
+              PermissionsManager.openAppSettings();
+            },
+            onCancel: () => setShowPermissionModal(false),
+            showCancel: true,
+          }
+        );
+        return;
+      }
+
+      // Request foreground location permission
+      const foregroundStatus = await PermissionsManager.requestLocationPermissions();
+      
+      if (foregroundStatus !== 'granted') {
+        showPermissionAlert(
+          "Location Permission Required",
+          "Foreground location permission is required for tracking. Please allow location access in the next prompt or in settings.",
+          {
+            confirmText: "Open Settings",
+            cancelText: "Cancel",
+            confirmColor: "#ef4444",
+            onConfirm: () => {
+              setShowPermissionModal(false);
+              PermissionsManager.openAppSettings();
+            },
+            onCancel: () => setShowPermissionModal(false),
+            showCancel: true,
+          }
+        );
+        return;
+      }
+
+      // Request background location permission (only if foreground is granted)
+      const backgroundPermission = await Location.requestBackgroundPermissionsAsync();
+      setPermissionStatus(backgroundPermission.status);
+
+      // Request notification permissions
+      const notificationStatus = await PermissionsManager.requestNotificationPermissions();
+      
+      // Show success or partial success message
+      if (foregroundStatus === 'granted' && backgroundPermission.granted && notificationStatus === 'granted') {
+        showPermissionAlert(
+          "Permissions Updated",
+          "All permissions have been granted successfully!",
+          {
+            confirmText: "OK",
+            confirmColor: "#10b981",
+            onConfirm: () => setShowPermissionModal(false),
+          }
+        );
+      } else if (foregroundStatus === 'granted') {
+        const deniedPermissions = [];
+        if (!backgroundPermission.granted) deniedPermissions.push('Background Location');
+        if (notificationStatus !== 'granted') deniedPermissions.push('Notifications');
+        
+        showPermissionAlert(
+          "Permissions Partially Updated",
+          `Foreground location permission granted. ${deniedPermissions.length > 0 ? `Still missing: ${deniedPermissions.join(', ')}` : ''}`,
+          {
+            confirmText: deniedPermissions.length > 0 ? "Open Settings" : "OK",
+            cancelText: "OK",
+            confirmColor: deniedPermissions.length > 0 ? "#f59e0b" : "#10b981",
+            onConfirm: () => {
+              setShowPermissionModal(false);
+              if (deniedPermissions.length > 0) {
+                PermissionsManager.openAppSettings();
+              }
+            },
+            onCancel: () => setShowPermissionModal(false),
+            showCancel: deniedPermissions.length > 0,
+          }
+        );
+      }
+      
+      // Re-check all permissions to update the UI
+      await checkPermissions();
+      
+    } catch (error) {
+      console.error('Error refreshing permissions:', error);
+      showPermissionAlert(
+        "Permission Error",
+        "There was an error requesting permissions. Please try again or check your settings manually.",
+        {
+          confirmText: "Open Settings",
+          cancelText: "OK",
+          confirmColor: "#ef4444",
+          onConfirm: () => {
+            setShowPermissionModal(false);
+            PermissionsManager.openAppSettings();
+          },
+          onCancel: () => setShowPermissionModal(false),
+          showCancel: true,
+        }
+      );
+    }
+  };
+
   // Update background tracking status
   const updateBackgroundTrackingStatus = async () => {
     try {
@@ -2489,6 +2651,23 @@ export default function EmployeeTrackingScreen() {
               <Text style={[styles.geofenceText, { color: textColor }]}>
                 {permissionStatus === "granted" ? "Granted" : "Limited"}
               </Text>
+              {permissionStatus !== "granted" && (
+                <TouchableOpacity
+                  onPress={refreshPermissions}
+                  style={{
+                    marginLeft: 8,
+                    padding: 4,
+                    borderRadius: 12,
+                    backgroundColor: colorScheme === 'dark' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.1)',
+                  }}
+                >
+                  <Ionicons 
+                    name="refresh-outline" 
+                    size={16} 
+                    color={colorScheme === 'dark' ? '#60A5FA' : '#3B82F6'} 
+                  />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
           <View style={styles.statusRow}>
@@ -2631,25 +2810,27 @@ export default function EmployeeTrackingScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Test button to diagnose tracking issues */}
-            <TouchableOpacity
-              style={[
-                styles.actionButton,
-                {
-                  backgroundColor: "#9333ea",
-                  opacity: isButtonDisabled || isSendingUpdate ? 0.7 : 1,
-                },
-              ]}
-              onPress={sendTestUpdate}
-              disabled={isButtonDisabled || isSendingUpdate}
-            >
-              {isSendingUpdate ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <Ionicons name="bug" size={20} color="#ffffff" />
-              )}
-              <Text style={styles.actionButtonText}>Send Test Update</Text>
-            </TouchableOpacity>
+            {/* Test button to diagnose tracking issues - DEV ONLY */}
+            {__DEV__ && (
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  {
+                    backgroundColor: "#9333ea",
+                    opacity: isButtonDisabled || isSendingUpdate ? 0.7 : 1,
+                  },
+                ]}
+                onPress={sendTestUpdate}
+                disabled={isButtonDisabled || isSendingUpdate}
+              >
+                {isSendingUpdate ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Ionicons name="bug" size={20} color="#ffffff" />
+                )}
+                <Text style={styles.actionButtonText}>Send Test Update</Text>
+              </TouchableOpacity>
+            )}
 
             {/* Background Tracking Toggle Component */}
             <BackgroundTrackingToggle onToggle={handleBackgroundToggle} />
@@ -2705,6 +2886,19 @@ export default function EmployeeTrackingScreen() {
         message="Are you sure you want to stop location tracking?"
         onConfirm={confirmStopTracking}
         onCancel={() => setShowStopModal(false)}
+      />
+
+      {/* Permission Modal */}
+      <ConfirmationModal
+        visible={showPermissionModal}
+        title={permissionModalProps.title}
+        message={permissionModalProps.message}
+        onConfirm={permissionModalProps.onConfirm}
+        onCancel={() => setShowPermissionModal(false)}
+        confirmText={permissionModalProps.confirmText}
+        cancelText={permissionModalProps.cancelText}
+        confirmColor={permissionModalProps.confirmColor}
+        showCancel={permissionModalProps.showCancel}
       />
 
       {/* Add modal for accuracy settings */}

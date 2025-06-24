@@ -30,30 +30,33 @@ export default function SplashScreen() {
   const textFadeAnim = new Animated.Value(0);
   const offlineBadgeFadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Check for updates when app comes to foreground
+  // Check for updates when app comes to foreground (production only)
   useEffect(() => {
-    let current = AppState.currentState;
-    const sub = AppState.addEventListener('change', async next => {
-      if (current.match(/inactive|background/) && next === 'active') {
-        try {
-          // Check network connectivity before attempting update check
-          const networkState = await Network.getNetworkStateAsync();
-          if (networkState.isConnected && networkState.isInternetReachable) {
-            const { isAvailable } = await Updates.checkForUpdateAsync();
-            if (isAvailable) {
-              await Updates.fetchUpdateAsync();
-              await Updates.reloadAsync();
+    // Only run in production environment
+    if (!__DEV__) {
+      let current = AppState.currentState;
+      const sub = AppState.addEventListener('change', async next => {
+        if (current.match(/inactive|background/) && next === 'active') {
+          try {
+            // Check network connectivity before attempting update check
+            const networkState = await Network.getNetworkStateAsync();
+            if (networkState.isConnected && networkState.isInternetReachable) {
+              const { isAvailable } = await Updates.checkForUpdateAsync();
+              if (isAvailable) {
+                await Updates.fetchUpdateAsync();
+                await Updates.reloadAsync();
+              }
+            } else {
+              console.log("Offline mode: Skipping update check");
             }
-          } else {
-            console.log("Offline mode: Skipping update check");
+          } catch (error) {
+            console.error("Error checking for updates:", error);
           }
-        } catch (error) {
-          console.error("Error checking for updates:", error);
         }
-      }
-      current = next;
-    });
-    return () => sub.remove();
+        current = next;
+      });
+      return () => sub.remove();
+    }
   }, []);
 
   // Animation and navigation logic

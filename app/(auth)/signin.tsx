@@ -816,25 +816,33 @@ export default function SignIn() {
                                 <TouchableOpacity
                                     onPress={resetStorageAndLogout}
                                     style={{
+                                        flexDirection: 'row',
                                         alignItems: 'center',
-                                        marginTop: 20,
-                                        padding: 12,
-                                        backgroundColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(99, 102, 241, 0.1)',
-                                        borderRadius: 8,
+                                        justifyContent: 'center',
+                                        alignSelf: 'center',
+                                        marginTop: 16,
+                                        paddingVertical: 8,
+                                        paddingHorizontal: 12,
+                                        backgroundColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(99, 102, 241, 0.08)',
+                                        borderRadius: 20,
                                         borderWidth: 1,
-                                        borderColor: theme === 'dark' ? '#3B82F6' : '#6366F1',
+                                        borderColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(99, 102, 241, 0.3)',
+                                        maxWidth: '80%',
                                     }}
                                 >
+                                    <Ionicons 
+                                        name="refresh-outline" 
+                                        size={16} 
+                                        color={theme === 'dark' ? '#60A5FA' : '#818CF8'} 
+                                        style={{ marginRight: 6 }}
+                                    />
                                     <Text style={{
                                         color: theme === 'dark' ? '#60A5FA' : '#818CF8',
-                                        fontSize: 14,
+                                        fontSize: 12,
                                         fontWeight: '500',
                                         textAlign: 'center',
                                     }}>
-                                        Having trouble signing in?{'\n'}
-                                        <Text style={{fontWeight: '600'}}>
-                                            Try resetting your app data
-                                        </Text>
+                                        Reset App Data
                                     </Text>
                                 </TouchableOpacity>
                             </Animated.View>

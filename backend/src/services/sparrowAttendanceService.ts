@@ -39,11 +39,62 @@ const SPARROW_ERROR_TYPES: Record<string, SparrowErrorType> = {
 };
 
 /**
+ * Retry function with exponential backoff
+ */
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Makes HTTP request to Sparrow API with retry logic
+ */
+const makeSparrowRequest = async (payload: SparrowAttendancePayload, attempt: number = 1): Promise<any> => {
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
+
+    try {
+        console.log(`[Sparrow API] Attempt ${attempt}/${maxRetries} - Posting to: ${process.env.SPARROW_ENDPOINT}/HumanResource/PunchInOut`);
+        
+        const response = await axios.post(
+            `${process.env.SPARROW_ENDPOINT}/HumanResource/PunchInOut`,
+            payload,
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                timeout: attempt === 1 ? 15000 : 20000, // Increase timeout for retries
+                validateStatus: (status) => status < 500, // Don't throw on 4xx errors, only 5xx
+            }
+        );
+
+        return response;
+    } catch (error) {
+        const axiosError = error as AxiosError;
+        
+        // Check if this is a retryable error
+        const isRetryable = axiosError.code === 'ECONNABORTED' || 
+                           axiosError.code === 'ENOTFOUND' ||
+                           axiosError.code === 'ECONNRESET' ||
+                           (axiosError.response?.status && axiosError.response.status >= 500);
+
+        if (isRetryable && attempt < maxRetries) {
+            const delayMs = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
+            console.log(`[Sparrow API] Attempt ${attempt} failed, retrying in ${delayMs}ms...`);
+            await delay(delayMs);
+            return makeSparrowRequest(payload, attempt + 1);
+        }
+
+        // If we've exhausted retries or it's not retryable, throw the error
+        throw error;
+    }
+};
+
+/**
  * Sends attendance data to Sparrow API
  * @param employeeCodes Array of employee codes to mark attendance
  * @returns Promise with the API response
  */
 export const sendAttendanceToSparrow = async (employeeCodes: string[]): Promise<SparrowResponse> => {
+    const startTime = Date.now();
+    
     try {
         if (!employeeCodes?.length) {
             throw new Error('No employee codes provided');
@@ -53,22 +104,13 @@ export const sendAttendanceToSparrow = async (employeeCodes: string[]): Promise<
             EmpCodes: employeeCodes,
         };
 
-        console.log(
-            "Posting to:",
-            `${process.env.SPARROW_ENDPOINT}/HumanResource/PunchInOut`
-        );
-        console.log("Sending to Sparrow:", JSON.stringify(payload, null, 2));
+        console.log("[Sparrow API] Sending payload:", JSON.stringify(payload, null, 2));
 
-        const response = await axios.post(
-            `${process.env.SPARROW_ENDPOINT}/HumanResource/PunchInOut`,
-            payload,
-            {
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                timeout: 10000, // 10 second timeout
-            }
-        );
+        const response = await makeSparrowRequest(payload);
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        console.log(`[Sparrow API] Request completed in ${duration}ms with status: ${response.status}`);
 
         // Check for errors even in successful (200) responses
         // Some Sparrow errors come with status 200 but have errors in the response body
@@ -178,6 +220,9 @@ export const sendAttendanceToSparrow = async (employeeCodes: string[]): Promise<
             }
         }
 
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
         const errorDetails = {
             status: axiosError.response?.status,
             statusText: axiosError.response?.statusText,
@@ -185,10 +230,12 @@ export const sendAttendanceToSparrow = async (employeeCodes: string[]): Promise<
             requestData: employeeCodes,
             endpoint: process.env.SPARROW_ENDPOINT,
             timestamp: new Date().toISOString(),
+            duration: `${duration}ms`,
+            axiosCode: axiosError.code,
             sparrowErrors
         };
 
-        console.error(`${errorType}:`, errorDetails);
+        console.error(`[Sparrow API] ${errorType} after ${duration}ms:`, errorDetails);
 
         // Check if error is recoverable
         const isRecoverable = errorLogger.isRecoverableError(error);

@@ -48,7 +48,12 @@ const LAST_ONLINE_LOGIN_KEY = "last_online_login";
 const OFFLINE_MODE_KEY = "offline_mode_enabled";
 
 // How many days a user can stay logged in offline before requiring online verification
-const MAX_OFFLINE_DAYS = 30;
+// CRITICAL: Must match backend refresh token expiry (7 days)
+const MAX_OFFLINE_DAYS = 7;
+
+// Token refresh mutex to prevent concurrent refresh attempts
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
 
 const handleLoginError = (error: any) => {
   if (error.response?.data?.code === "COMPANY_DISABLED") {
@@ -199,11 +204,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   
   const appStateRef = useRef(AppState.currentState);
 
+  // Token refresh timer for proactive refresh
+  const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const fetchAdminLocation =
     useAdminLocationStore.getState().fetchAdminLocation;
 
   const updateUser = (userData: Partial<User>) => {
     setUser((prev) => (prev ? { ...prev, ...userData } : null));
+  };
+
+  // Schedule proactive token refresh before expiry
+  const scheduleTokenRefresh = (accessToken: string) => {
+    try {
+      // Clear any existing timer
+      if (tokenRefreshTimerRef.current) {
+        clearTimeout(tokenRefreshTimerRef.current);
+        tokenRefreshTimerRef.current = null;
+      }
+
+      const decoded = decodeToken(accessToken);
+      if (!decoded || !decoded.exp) return;
+
+      const now = Math.floor(Date.now() / 1000);
+      const expiryTime = decoded.exp;
+      const timeUntilExpiry = (expiryTime - now) * 1000; // Convert to milliseconds
+      
+      // Refresh 5 minutes before expiry (or halfway through if token expires sooner)
+      const refreshTime = Math.max(timeUntilExpiry - (5 * 60 * 1000), timeUntilExpiry / 2);
+      
+      if (refreshTime > 0) {
+        console.log(`Scheduling token refresh in ${Math.round(refreshTime / 1000 / 60)} minutes`);
+        tokenRefreshTimerRef.current = setTimeout(async () => {
+          console.log('Proactive token refresh triggered');
+          const currentRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY) || 
+                                     await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+          if (currentRefreshToken) {
+            await refreshTokenSilently(currentRefreshToken);
+          }
+        }, refreshTime);
+      }
+    } catch (error) {
+      console.error('Error scheduling token refresh:', error);
+    }
+  };
+
+  // Enhanced token validation with expiry buffer
+  const isTokenNearExpiry = (token: string, bufferMinutes: number = 5): boolean => {
+    try {
+      const decoded = decodeToken(token);
+      if (!decoded || !decoded.exp) return true;
+      
+      const now = Math.floor(Date.now() / 1000);
+      const expiryTime = decoded.exp;
+      const bufferTime = bufferMinutes * 60; // Convert to seconds
+      
+      return (expiryTime - now) <= bufferTime;
+    } catch (error) {
+      console.error('Error checking token expiry:', error);
+      return true;
+    }
   };
 
   // Check network connectivity
@@ -310,6 +370,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
           setUser(userData);
           setToken(accessToken);
+          
+          // Schedule proactive token refresh if token is valid and not near expiry
+          if (isTokenValid && !isTokenNearExpiry(accessToken, 5)) {
+            scheduleTokenRefresh(accessToken);
+          }
 
           // If we're online, verify with server
           if (hasNetwork) {
@@ -382,7 +447,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       checkNetworkConnectivity();
     }, 30000); // Check every 30 seconds
     
-    return () => clearInterval(networkCheckInterval);
+    return () => {
+      clearInterval(networkCheckInterval);
+      // Clear any scheduled token refresh on cleanup
+      if (tokenRefreshTimerRef.current) {
+        clearTimeout(tokenRefreshTimerRef.current);
+        tokenRefreshTimerRef.current = null;
+      }
+    };
   }, []);
   
   // Helper function to route user to correct dashboard
@@ -550,112 +622,221 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshTokenSilently = async (
     refreshToken: string
   ): Promise<string | null> => {
+    // Prevent concurrent refresh attempts using mutex
+    if (isRefreshing) {
+      console.log('Token refresh already in progress, waiting for completion...');
+      return refreshPromise;
+    }
+
+    isRefreshing = true;
+    
+    refreshPromise = (async () => {
+      try {
+        console.log('Starting token refresh process...');
+        
+        // Check network connectivity first
+        const { isConnected, isReachable } = await checkNetworkConnectivity();
+        if (!isConnected || !isReachable) {
+          console.log('Network unavailable, cannot refresh token online');
+          
+          // In offline mode, check if we can continue with cached tokens
+          const isOfflineValid = await isOfflineLoginValid();
+          if (!isOfflineValid) {
+            console.log('Offline mode expired after 7 days - logging out');
+            await clearAuthData();
+            router.replace("/(auth)/signin");
+            return null;
+          }
+
+          // Get stored access token for offline use
+          let storedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+          if (!storedToken) {
+            storedToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+          }
+          
+          if (storedToken && validateTokenLocally(storedToken) && !isTokenNearExpiry(storedToken, 0)) {
+            console.log('Using cached access token in offline mode');
+            setIsOffline(true);
+            setPendingSync(true);
+            return storedToken;
+          }
+          
+          // If access token is expired but refresh token might be valid locally, allow offline mode
+          if (refreshToken && validateTokenLocally(refreshToken) && !isTokenNearExpiry(refreshToken, 0)) {
+            console.log('Access token expired but using refresh token for offline mode');
+            setIsOffline(true);
+            setPendingSync(true);
+            return refreshToken;
+          }
+          
+          console.log('No valid tokens available for offline mode');
+          await clearAuthData();
+          router.replace("/(auth)/signin");
+          return null;
+        }
+
+        // We're online, proceed with normal refresh
+        setIsOffline(false);
+        
+        // Get the actual refresh token from storage
+        let storedRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+        if (!storedRefreshToken) {
+          storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+        }
+
+        if (!storedRefreshToken) {
+          console.log('No refresh token found in storage');
+          await clearAuthData();
+          router.replace("/(auth)/signin");
+          return null;
+        }
+
+        // Validate refresh token before using it
+        if (!validateTokenLocally(storedRefreshToken)) {
+          console.log('Refresh token is invalid or expired');
+          await clearAuthData();
+          router.replace("/(auth)/signin");
+          return null;
+        }
+
+        // Remove authorization header for refresh request
+        const originalAuthHeader = axios.defaults.headers.common["Authorization"];
+        delete axios.defaults.headers.common["Authorization"];
+
+        try {
+          console.log('Making refresh token request to server...');
+          const response = await axios.post(`${API_URL}/auth/refresh`, {
+            refreshToken: storedRefreshToken,
+          }, {
+            timeout: 10000, // 10 second timeout for refresh requests
+          });
+
+          const { accessToken, refreshToken: newRefreshToken, user: userData } = response.data;
+
+          if (!accessToken || !newRefreshToken || !userData) {
+            throw new Error('Invalid refresh response from server');
+          }
+
+          console.log('Token refresh successful, updating storage...');
+
+          // Update storage in both systems with error handling
+          try {
+            await Promise.all([
+              // AsyncStorage
+              AsyncStorage.setItem(AUTH_TOKEN_KEY, accessToken),
+              AsyncStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken),
+              AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(userData)),
+              AsyncStorage.setItem(LAST_ONLINE_LOGIN_KEY, Date.now().toString()),
+              AsyncStorage.removeItem(OFFLINE_MODE_KEY),
+              // SecureStore
+              SecureStore.setItemAsync(AUTH_TOKEN_KEY, accessToken),
+              SecureStore.setItemAsync(REFRESH_TOKEN_KEY, newRefreshToken),
+              SecureStore.setItemAsync(USER_DATA_KEY, JSON.stringify(userData)),
+            ]);
+          } catch (storageError) {
+            console.error('Error updating token storage:', storageError);
+            // Continue with the refresh even if storage partially fails
+          }
+
+          // Update state
+          setToken(accessToken);
+          setUser(userData);
+          setPendingSync(false);
+
+          // Update axios default header with new access token
+          axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
+
+          // Schedule next proactive refresh
+          scheduleTokenRefresh(accessToken);
+
+          console.log('Token refresh completed successfully');
+          return accessToken;
+
+        } catch (refreshError: any) {
+          // Restore original auth header if refresh failed
+          if (originalAuthHeader) {
+            axios.defaults.headers.common["Authorization"] = originalAuthHeader;
+          }
+          
+          console.error('Refresh request failed:', refreshError);
+          
+          // Check if it's a 401/403 error (refresh token expired)
+          if (refreshError.response?.status === 401 || refreshError.response?.status === 403) {
+            console.log('Refresh token expired, clearing auth and redirecting to login');
+            await clearAuthData();
+            router.replace("/(auth)/signin");
+            return null;
+          }
+          
+          // For other errors, check if we can continue in offline mode
+          const isOfflineValid = await isOfflineLoginValid();
+          if (isOfflineValid) {
+            console.log('Online refresh failed but offline mode is still valid');
+            setIsOffline(true);
+            setPendingSync(true);
+            
+            // Get the stored access token for offline use
+            let storedAccessToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+            if (!storedAccessToken) {
+              storedAccessToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+            }
+            
+            return storedAccessToken || token;
+          } else {
+            console.log('Online refresh failed and offline mode expired');
+            await clearAuthData();
+            router.replace("/(auth)/signin");
+            return null;
+          }
+        }
+      } catch (error) {
+        console.error("Critical error in token refresh:", error);
+        
+        // Check if we can continue in offline mode
+        const isOfflineValid = await isOfflineLoginValid();
+        if (isOfflineValid) {
+          console.log('Critical refresh error but offline mode is still valid');
+          setIsOffline(true);
+          setPendingSync(true);
+          
+          // Get the stored access token for offline use
+          let storedAccessToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+          if (!storedAccessToken) {
+            storedAccessToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+          }
+          
+          return storedAccessToken || token;
+        } else {
+          // Clear storage and state if offline mode is not valid
+          console.log('Critical refresh error and offline mode expired');
+          await clearAuthData();
+          router.replace("/(auth)/signin");
+          return null;
+        }
+      }
+    })();
+
     try {
-      // Check network connectivity first
-      const { isConnected, isReachable } = await checkNetworkConnectivity();
-      if (!isConnected || !isReachable) {
-        console.log('Network unavailable, cannot refresh token online');
-        
-        // In offline mode, just validate the token locally
-        let storedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
-        
-        // If not found in AsyncStorage, try SecureStore
-        if (!storedToken) {
-          storedToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
-        }
-        
-        if (storedToken && validateTokenLocally(storedToken)) {
-          // If token is still valid locally, use it
-          console.log('Using locally validated token in offline mode');
-          setIsOffline(true);
-          setPendingSync(true);
-          return storedToken;
-        }
-        
-        // Check if refresh token is valid locally
-        if (refreshToken && validateTokenLocally(refreshToken)) {
-          console.log('Access token expired but refresh token valid - offline mode only');
-          setIsOffline(true);
-          setPendingSync(true);
-          return refreshToken; // Use refresh token as temporary access token in offline mode
-        }
-        
-        console.log('No valid token available offline');
-        return null;
-      }
-
-      // We're online, proceed with normal refresh
-      setIsOffline(false);
-      
-      // Remove any existing authorization header for refresh requests
-      delete axios.defaults.headers.common["Authorization"];
-
-      // Get the actual refresh token from storage since the parameter might be the access token
-      let storedRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
-
-      // If not found in AsyncStorage, try SecureStore
-      if (!storedRefreshToken) {
-        console.log(
-          "Refresh token not found in AsyncStorage, trying SecureStore"
-        );
-        storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-      }
-
-      if (!storedRefreshToken) {
-        throw new Error("No refresh token available");
-      }
-
-      const response = await axios.post(`${API_URL}/auth/refresh`, {
-        refreshToken: storedRefreshToken, // Use the stored refresh token instead
-      });
-
-      const { accessToken, user: userData } = response.data;
-
-      // Update storage in both AsyncStorage and SecureStore
-      await Promise.all([
-        // AsyncStorage
-        AsyncStorage.setItem(AUTH_TOKEN_KEY, accessToken),
-        AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(userData)),
-        AsyncStorage.setItem(LAST_ONLINE_LOGIN_KEY, Date.now().toString()),
-        AsyncStorage.removeItem(OFFLINE_MODE_KEY),
-        // SecureStore
-        SecureStore.setItemAsync(AUTH_TOKEN_KEY, accessToken),
-        SecureStore.setItemAsync(USER_DATA_KEY, JSON.stringify(userData)),
-      ]);
-
-      // Update state
-      setToken(accessToken);
-      setUser(userData);
-      setPendingSync(false);
-
-      // Update axios default header with new access token
-      axios.defaults.headers.common["Authorization"] = `Bearer ${accessToken}`;
-
-      return accessToken;
-    } catch (error) {
-      console.error("Silent refresh failed:", error);
-      
-      // Check if we can continue in offline mode
-      const isOfflineValid = await isOfflineLoginValid();
-      
-      if (isOfflineValid) {
-        console.log('Online refresh failed but offline mode is active');
-        setIsOffline(true);
-        setPendingSync(true);
-        
-        // Keep existing token for offline use
-        return token;
-      } else {
-        // Clear storage and state if offline mode is not valid
-        await clearTokens();
-        setToken(null);
-        setUser(null);
-        return null;
-      }
+      const result = await refreshPromise;
+      return result;
+    } finally {
+      // Reset mutex state
+      isRefreshing = false;
+      refreshPromise = null;
     }
   };
 
   const clearAuthData = async (): Promise<void> => {
+    // Clear any scheduled token refresh
+    if (tokenRefreshTimerRef.current) {
+      clearTimeout(tokenRefreshTimerRef.current);
+      tokenRefreshTimerRef.current = null;
+    }
+    
+    // Reset refresh mutex
+    isRefreshing = false;
+    refreshPromise = null;
+    
     await clearTokens();
     delete axios.defaults.headers.common["Authorization"];
     setToken(null);
@@ -725,6 +906,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(userData);
       setIsOffline(false);
       setPendingSync(false);
+
+      // Schedule proactive token refresh
+      scheduleTokenRefresh(accessToken);
 
       // Register device for push notifications with error handling
       if (userData.role !== "super-admin") {

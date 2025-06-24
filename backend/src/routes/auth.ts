@@ -306,8 +306,20 @@ router.post('/refresh', async (req: Request, res: Response) => {
         { expiresIn: '24h' }
       );
 
+      // Generate new refresh token (rotate for security)
+      const newRefreshToken = jwt.sign(
+        { 
+          id: user.id,
+          token_version: user.token_version,
+          type: 'refresh'
+        },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
       res.json({
         accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
         user: {
           id: user.id,
           name: user.name,
