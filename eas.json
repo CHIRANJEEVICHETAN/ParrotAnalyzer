@@ -9,20 +9,20 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_APP_VERSION": "1.2.0"
+        "EXPO_PUBLIC_APP_VERSION": "1.2.1"
       }
     },
     "preview": {
       "node": "22.14.0",
       "env": {
-        "EXPO_PUBLIC_APP_VERSION": "1.2.0"
+        "EXPO_PUBLIC_APP_VERSION": "1.2.1"
       },
       "distribution": "internal"
     },
     "production": {
       "node": "22.14.0",
       "env": {
-        "EXPO_PUBLIC_APP_VERSION": "1.2.0"
+        "EXPO_PUBLIC_APP_VERSION": "1.2.1"
       },
       "channel": "production",
       "autoIncrement": true
@@ -30,7 +30,7 @@
     "staging": {
       "node": "22.14.0",
       "env": {
-        "EXPO_PUBLIC_APP_VERSION": "1.2.0",
+        "EXPO_PUBLIC_APP_VERSION": "1.2.1",
         "EXPO_PUBLIC_API_URL": "http://192.168.0.106:3000"
       },
       "channel": "staging",
