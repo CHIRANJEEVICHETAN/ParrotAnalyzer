@@ -455,27 +455,18 @@ export class ShiftTrackingService {
 
                   const user = userResult.rows[0];
 
-                  // Create end time in IST timezone - convert the timer.end_time to proper IST timestamp
-                  // const endTimeIST = new Date(timer.end_time);
+                  // Calculate elapsed time in seconds for notification formatting only
+                  const elapsedSeconds = Math.max(0, Math.floor(
+                    (new Date(timer.end_time).getTime() - startTime.getTime()) / 1000
+                  ));
 
-                  // Calculate elapsed time in seconds using the actual IST times
-                  const elapsedSeconds = differenceInSeconds(
-                    timer.end_time,
-                    startTime
-                  );
-
-                  // Format duration for update
-                  let durationValue;
                   if (userRole === "employee") {
-                    // Employee shifts use the PostgreSQL interval type
-                    durationValue = `interval '${elapsedSeconds} seconds'`;
-
                     // For employee shifts, calculate metrics
                     const metrics = await this.calculateShiftMetrics(
                       timer.shift_id
                     );
 
-                    // End employee shift with metrics - use AT TIME ZONE to ensure IST storage
+                    // End employee shift with metrics - let PostgreSQL calculate duration properly
                     await client.query(
                       `UPDATE ${shiftTable} 
                             SET ${endColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp,
@@ -484,7 +475,7 @@ export class ShiftTrackingService {
                                 ended_automatically = TRUE,
                                 updated_at = CURRENT_TIMESTAMP,
                                 ${statusColumn} = 'completed',
-                                ${durationColumn} = ${durationValue}
+                                ${durationColumn} = ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::timestamp - ${startColumn}
                             WHERE ${idColumn} = $4`,
                       [
                         timer.end_time,
