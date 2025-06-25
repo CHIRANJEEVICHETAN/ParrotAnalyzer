@@ -3138,7 +3138,7 @@ export default function EmployeeShiftTracker() {
             </TouchableOpacity>
           </Animated.View>
 
-          {isShiftActive && !timerEndTime && !isProcessingShift && !((shiftCooldownUntil !== null) && cooldownTimeLeft > 0) && (
+          {isShiftActive && !timerEndTime && !isProcessingShift && (
             <View className="mt-6">
               <TouchableOpacity
                 onPress={() => setShowTimerPicker(true)}
@@ -3161,7 +3161,7 @@ export default function EmployeeShiftTracker() {
             </View>
           )}
 
-          {timerEndTime && !isProcessingShift && !((shiftCooldownUntil !== null) && cooldownTimeLeft > 0) && (
+          {timerEndTime && !isProcessingShift && (
             <View className="mt-4 items-center">
               <Text
                 className={`text-sm ${
