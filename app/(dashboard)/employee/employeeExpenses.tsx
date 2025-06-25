@@ -273,12 +273,24 @@ export default function EmployeeExpenses() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Modify the token verification useEffect
+  // Modified token verification useEffect with less aggressive auth checking
   useEffect(() => {
     const checkAuthAndFetchDetails = async () => {
       try {
-        const currentToken = await refreshToken();
-        if (!currentToken) {
+        // First check if we already have a valid user and token from context
+        if (!user || !token) {
+          console.log("No user or token in context, attempting token refresh...");
+          const currentToken = await refreshToken();
+          if (!currentToken) {
+            console.error("Failed to refresh token");
+            router.replace("/(auth)/signin");
+            return;
+          }
+        }
+
+        // Use the token from context if available, otherwise use the refreshed token
+        const activeToken = token || await refreshToken();
+        if (!activeToken) {
           router.replace("/(auth)/signin");
           return;
         }
@@ -286,7 +298,7 @@ export default function EmployeeExpenses() {
         // Set token in axios headers
         axios.defaults.headers.common[
           "Authorization"
-        ] = `Bearer ${currentToken}`;
+        ] = `Bearer ${activeToken}`;
 
         const employeeResponse = await axios.get<EmployeeDetails>(
           `${API_URL}/api/employee/details`
@@ -314,9 +326,10 @@ export default function EmployeeExpenses() {
           department: employeeResponse.data.department || "",
           designation: employeeResponse.data.designation || "",
         }));
-      } catch (error) {
+      } catch (error: any) {
         console.error("Auth/Details check error:", error);
         if (axios.isAxiosError(error) && error.response?.status === 401) {
+          // Only redirect to login if we get a clear 401 from the API
           Alert.alert(
             "Session Expired",
             "Your session has expired. Please login again.",
@@ -331,16 +344,19 @@ export default function EmployeeExpenses() {
             ]
           );
         } else {
+          // For other errors, just show an error message without redirecting
+          console.warn("Failed to fetch employee details, but staying on page:", error?.message || "Unknown error");
           Alert.alert(
-            "Error",
-            "Failed to fetch employee details. Please try again later."
+            "Warning",
+            "Failed to fetch employee details. Some information may not be available.",
+            [{ text: "OK", style: "default" }]
           );
         }
       }
     };
 
     checkAuthAndFetchDetails();
-  }, []);
+  }, [user, token]);
 
   // Add this function before handleSubmit
   const resetForm = () => {
