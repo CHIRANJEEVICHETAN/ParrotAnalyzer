@@ -90,181 +90,208 @@ router.get('/details', verifyToken, async (req: CustomRequest, res: Response) =>
 });
 
 // Add these new endpoints
-router.post('/shift/start', verifyToken, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const { startTime, location } = req.body;
-    const localStartTime = startTime ? convertToLocalTime(startTime) : 'CURRENT_TIMESTAMP';
-
-    // Initialize variables for Sparrow response tracking
-    let hasSparrowWarning = false;
-    let sparrowErrorDetails = {};
-    
-    // Check if Sparrow API should be used
-    const useSparrowAPI = await shouldUseSparrowAPI(req.user.id);
-    
-    // Only call Sparrow API if conditions are met
-    if (useSparrowAPI) {
-      // Get employee code and validate with Sparrow
-      const employeeCode = await getEmployeeCode(req.user.id);
-      if (employeeCode) {
-        // Call Sparrow API before creating our database record
-        const sparrowResponse = await sendAttendanceToSparrow([employeeCode]);
-        
-        // If there's a cooldown error, return it immediately without creating shift
-        if (!sparrowResponse.success && sparrowResponse.errorType === 'SPARROW_COOLDOWN_ERROR') {
-          return res.status(429).json({
-            error: 'Rate limit exceeded',
-            sparrowWarning: true,
-            sparrowMessage: sparrowResponse.message,
-            sparrowErrors: sparrowResponse.sparrowErrors,
-            sparrowErrorType: sparrowResponse.errorType
-          });
-        }
-
-        // For other Sparrow errors, we'll continue but include the warning in the response
-        hasSparrowWarning = !sparrowResponse.success;
-        sparrowErrorDetails = {
-          sparrowWarning: hasSparrowWarning,
-          sparrowMessage: sparrowResponse.message,
-          sparrowErrors: sparrowResponse.sparrowErrors,
-          sparrowErrorType: sparrowResponse.errorType
-        };
+router.post(
+  "/shift/start",
+  verifyToken,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "Authentication required" });
       }
-    }
 
-    // Format the location as PostgreSQL point data type if provided
-    let locationQuery = '';
-    let locationParam: number[] = []; // Explicitly type the array as number[]
-    
-    if (location && location.latitude !== undefined && location.longitude !== undefined) {
-      locationQuery = ', location_start = point($3, $4)';
-      locationParam = [location.longitude, location.latitude]; // PostGIS expects (longitude, latitude)
-    }
+      const { startTime, location } = req.body;
+      const localStartTime = startTime
+        ? convertToLocalTime(startTime)
+        : "CURRENT_TIMESTAMP";
 
-    // Start new shift with provided startTime and location
-    const result = await client.query(
-      `INSERT INTO employee_shifts (user_id, start_time, status${locationQuery ? ', location_start' : ''})
-       VALUES ($1, $2::timestamp, 'active'${locationQuery ? ', point($3, $4)' : ''})
+      // // Initialize variables for Sparrow response tracking
+      // let hasSparrowWarning = false;
+      // let sparrowErrorDetails = {};
+
+      // // Check if Sparrow API should be used
+      // const useSparrowAPI = await shouldUseSparrowAPI(req.user.id);
+
+      // // Only call Sparrow API if conditions are met
+      // if (useSparrowAPI) {
+      //   // Get employee code and validate with Sparrow
+      //   const employeeCode = await getEmployeeCode(req.user.id);
+      //   if (employeeCode) {
+      //     // Call Sparrow API before creating our database record
+      //     const sparrowResponse = await sendAttendanceToSparrow([employeeCode]);
+
+      //     // If there's a cooldown error, return it immediately without creating shift
+      //     if (!sparrowResponse.success && sparrowResponse.errorType === 'SPARROW_COOLDOWN_ERROR') {
+      //       return res.status(429).json({
+      //         error: 'Rate limit exceeded',
+      //         sparrowWarning: true,
+      //         sparrowMessage: sparrowResponse.message,
+      //         sparrowErrors: sparrowResponse.sparrowErrors,
+      //         sparrowErrorType: sparrowResponse.errorType
+      //       });
+      //     }
+
+      //     // For other Sparrow errors, we'll continue but include the warning in the response
+      //     hasSparrowWarning = !sparrowResponse.success;
+      //     sparrowErrorDetails = {
+      //       sparrowWarning: hasSparrowWarning,
+      //       sparrowMessage: sparrowResponse.message,
+      //       sparrowErrors: sparrowResponse.sparrowErrors,
+      //       sparrowErrorType: sparrowResponse.errorType
+      //     };
+      //   }
+      // }
+
+      // Format the location as PostgreSQL point data type if provided
+      let locationQuery = "";
+      let locationParam: number[] = []; // Explicitly type the array as number[]
+
+      if (
+        location &&
+        location.latitude !== undefined &&
+        location.longitude !== undefined
+      ) {
+        locationQuery = ", location_start = point($3, $4)";
+        locationParam = [location.longitude, location.latitude]; // PostGIS expects (longitude, latitude)
+      }
+
+      // Start new shift with provided startTime and location
+      const result = await client.query(
+        `INSERT INTO employee_shifts (user_id, start_time, status${
+          locationQuery ? ", location_start" : ""
+        })
+       VALUES ($1, $2::timestamp, 'active'${
+         locationQuery ? ", point($3, $4)" : ""
+       })
        RETURNING id, start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time${
-         locationQuery ? ', location_start' : ''
+         locationQuery ? ", location_start" : ""
        }`,
-      [req.user.id, localStartTime, ...locationParam]
-    );
+        [req.user.id, localStartTime, ...locationParam]
+      );
 
-    // If we have a Sparrow warning (not a cooldown error), include it in the response
-    if (hasSparrowWarning) {
-      return res.status(200).json({
-        ...result.rows[0],
-        ...sparrowErrorDetails
-      });
+      // If we have a Sparrow warning (not a cooldown error), include it in the response
+      // if (hasSparrowWarning) {
+      //   return res.status(200).json({
+      //     ...result.rows[0],
+      //     ...sparrowErrorDetails,
+      //   });
+      // }
+
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error("Error starting shift:", error);
+      res.status(500).json({ error: "Failed to start shift" });
+    } finally {
+      client.release();
     }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Error starting shift:', error);
-    res.status(500).json({ error: 'Failed to start shift' });
-  } finally {
-    client.release();
   }
-});
+);
 
-router.post('/shift/end', verifyToken, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
+router.post(
+  "/shift/end",
+  verifyToken,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
 
-    const { endTime, location } = req.body;
-    const localEndTime = endTime ? convertToLocalTime(endTime) : 'CURRENT_TIMESTAMP';
+      const { endTime, location } = req.body;
+      const localEndTime = endTime
+        ? convertToLocalTime(endTime)
+        : "CURRENT_TIMESTAMP";
 
-    await client.query('BEGIN');
+      await client.query("BEGIN");
 
-    // Get active shift
-    const activeShift = await client.query(
-      `SELECT id, start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time,
+      // Get active shift
+      const activeShift = await client.query(
+        `SELECT id, start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata' as start_time,
               total_kilometers, total_expenses
        FROM employee_shifts 
        WHERE user_id = $1 AND status = 'active'`,
-      [req.user.id]
-    );
+        [req.user.id]
+      );
 
-    if (activeShift.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'No active shift found' });
-    }
-
-    // Initialize variables for Sparrow response tracking
-    let hasSparrowWarning = false;
-    let sparrowErrorDetails = {};
-
-    // Check if Sparrow API should be used
-    const useSparrowAPI = await shouldUseSparrowAPI(req.user.id);
-    
-    // Only call Sparrow API if conditions are met
-    if (useSparrowAPI) {
-      // Check with Sparrow API first
-      const employeeCode = await getEmployeeCode(req.user.id);
-      if (employeeCode) {
-        // Call Sparrow API before updating our database record
-        const sparrowResponse = await sendAttendanceToSparrow([employeeCode]);
-        
-        // If there's a cooldown error, return it immediately without ending shift
-        if (!sparrowResponse.success && sparrowResponse.errorType === 'SPARROW_COOLDOWN_ERROR') {
-          await client.query('ROLLBACK');
-          return res.status(429).json({
-            error: 'Rate limit exceeded',
-            sparrowWarning: true,
-            sparrowMessage: sparrowResponse.message,
-            sparrowErrors: sparrowResponse.sparrowErrors,
-            sparrowErrorType: sparrowResponse.errorType
-          });
-        }
-
-        // For other Sparrow errors, we'll continue but include the warning in the response
-        hasSparrowWarning = !sparrowResponse.success;
-        sparrowErrorDetails = {
-          sparrowWarning: hasSparrowWarning,
-          sparrowMessage: sparrowResponse.message,
-          sparrowErrors: sparrowResponse.sparrowErrors,
-          sparrowErrorType: sparrowResponse.errorType
-        };
+      if (activeShift.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "No active shift found" });
       }
-    }
 
-    // Use the current expense value from the active shift instead of recalculating
-    // This preserves expenses submitted during the shift
-    const currentExpenses = parseFloat(activeShift.rows[0].total_expenses || '0');
-    const currentKilometers = parseFloat(activeShift.rows[0].total_kilometers || '0');
-    
-    console.log('Ending shift with expenses and kilometers:', {
-      shiftId: activeShift.rows[0].id,
-      currentExpenses,
-      currentKilometers
-    });
+      // // Initialize variables for Sparrow response tracking
+      // let hasSparrowWarning = false;
+      // let sparrowErrorDetails = {};
 
-    // Format location data for update query if provided
-    let locationQuery = '';
-    const queryParams = [
-      localEndTime, 
-      currentExpenses, 
-      currentKilometers, 
-      activeShift.rows[0].id
-    ];
-    
-    if (location && location.latitude !== undefined && location.longitude !== undefined) {
-      locationQuery = ', location_end = point($5, $6)';
-      queryParams.push(location.longitude, location.latitude); // PostGIS expects (longitude, latitude)
-    }
+      // // Check if Sparrow API should be used
+      // const useSparrowAPI = await shouldUseSparrowAPI(req.user.id);
 
-    // End shift with provided endTime, preserving the current expenses, and adding location
-    const result = await client.query(
-      `UPDATE employee_shifts 
+      // // Only call Sparrow API if conditions are met
+      // if (useSparrowAPI) {
+      //   // Check with Sparrow API first
+      //   const employeeCode = await getEmployeeCode(req.user.id);
+      //   if (employeeCode) {
+      //     // Call Sparrow API before updating our database record
+      //     const sparrowResponse = await sendAttendanceToSparrow([employeeCode]);
+
+      //     // If there's a cooldown error, return it immediately without ending shift
+      //     if (!sparrowResponse.success && sparrowResponse.errorType === 'SPARROW_COOLDOWN_ERROR') {
+      //       await client.query('ROLLBACK');
+      //       return res.status(429).json({
+      //         error: 'Rate limit exceeded',
+      //         sparrowWarning: true,
+      //         sparrowMessage: sparrowResponse.message,
+      //         sparrowErrors: sparrowResponse.sparrowErrors,
+      //         sparrowErrorType: sparrowResponse.errorType
+      //       });
+      //     }
+
+      //     // For other Sparrow errors, we'll continue but include the warning in the response
+      //     hasSparrowWarning = !sparrowResponse.success;
+      //     sparrowErrorDetails = {
+      //       sparrowWarning: hasSparrowWarning,
+      //       sparrowMessage: sparrowResponse.message,
+      //       sparrowErrors: sparrowResponse.sparrowErrors,
+      //       sparrowErrorType: sparrowResponse.errorType
+      //     };
+      //   }
+      // }
+
+      // Use the current expense value from the active shift instead of recalculating
+      // This preserves expenses submitted during the shift
+      const currentExpenses = parseFloat(
+        activeShift.rows[0].total_expenses || "0"
+      );
+      const currentKilometers = parseFloat(
+        activeShift.rows[0].total_kilometers || "0"
+      );
+
+      console.log("Ending shift with expenses and kilometers:", {
+        shiftId: activeShift.rows[0].id,
+        currentExpenses,
+        currentKilometers,
+      });
+
+      // Format location data for update query if provided
+      let locationQuery = "";
+      const queryParams = [
+        localEndTime,
+        currentExpenses,
+        currentKilometers,
+        activeShift.rows[0].id,
+      ];
+
+      if (
+        location &&
+        location.latitude !== undefined &&
+        location.longitude !== undefined
+      ) {
+        locationQuery = ", location_end = point($5, $6)";
+        queryParams.push(location.longitude, location.latitude); // PostGIS expects (longitude, latitude)
+      }
+
+      // End shift with provided endTime, preserving the current expenses, and adding location
+      const result = await client.query(
+        `UPDATE employee_shifts 
        SET end_time = $1::timestamp,
            duration = $1::timestamp - start_time,
            status = 'completed',
@@ -279,29 +306,32 @@ router.post('/shift/end', verifyToken, async (req: CustomRequest, res: Response)
          duration,
          status,
          total_expenses,
-         total_kilometers${locationQuery ? ', location_start, location_end' : ''}`,
-      queryParams
-    );
+         total_kilometers${
+           locationQuery ? ", location_start, location_end" : ""
+         }`,
+        queryParams
+      );
 
-    await client.query('COMMIT');
-    
-    // If we have a Sparrow warning (not a cooldown error), include it in the response
-    if (hasSparrowWarning) {
-      return res.status(200).json({
-        ...result.rows[0],
-        ...sparrowErrorDetails
-      });
+      await client.query("COMMIT");
+
+      // If we have a Sparrow warning (not a cooldown error), include it in the response
+      // if (hasSparrowWarning) {
+      //   return res.status(200).json({
+      //     ...result.rows[0],
+      //     ...sparrowErrorDetails,
+      //   });
+      // }
+
+      res.json(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Error ending shift:", error);
+      res.status(500).json({ error: "Failed to end shift" });
+    } finally {
+      client.release();
     }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error ending shift:', error);
-    res.status(500).json({ error: 'Failed to end shift' });
-  } finally {
-    client.release();
   }
-});
+);
 
 router.get('/attendance/:month', verifyToken, async (req: CustomRequest, res: Response) => {
   const client = await pool.connect();
