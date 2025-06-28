@@ -129,17 +129,35 @@ const refreshToken = async (): Promise<string | null> => {
     });
     
     if (response.status === 200) {
-      const { accessToken, user: userData } = response.data;
+      const { accessToken, refreshToken: newRefreshToken, user: userData } = response.data;
       
-      // Store the new token in both storage systems
-      await Promise.all([
+      // Store the new tokens in both storage systems
+      const storagePromises = [
         AsyncStorage.setItem(AUTH_TOKEN_KEY, accessToken),
-        AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(userData)),
-        SecureStore.setItemAsync(AUTH_TOKEN_KEY, accessToken),
-        SecureStore.setItemAsync(USER_DATA_KEY, JSON.stringify(userData))
-      ]);
+        AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(userData))
+      ];
       
-      console.log('Token refreshed successfully');
+      // Store new refresh token if provided
+      if (newRefreshToken) {
+        storagePromises.push(AsyncStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken));
+      }
+      
+      try {
+        storagePromises.push(
+          SecureStore.setItemAsync(AUTH_TOKEN_KEY, accessToken),
+          SecureStore.setItemAsync(USER_DATA_KEY, JSON.stringify(userData))
+        );
+        
+        if (newRefreshToken) {
+          storagePromises.push(SecureStore.setItemAsync(REFRESH_TOKEN_KEY, newRefreshToken));
+        }
+      } catch (secureError) {
+        console.error('SecureStore not available in geofenceStore:', secureError);
+      }
+      
+      await Promise.all(storagePromises);
+      
+      console.log('Token refreshed successfully in geofenceStore');
       return accessToken;
     }
     

@@ -11,6 +11,7 @@ import { Alert, AppState, Platform } from "react-native";
 import { TrackingStatus } from '../types/liveTracking';
 import { createEnhancedLocation } from './locationUtils';
 import EventEmitter from './EventEmitter';
+import Constants from 'expo-constants';
 
 // Task name for background location updates
 export const BACKGROUND_LOCATION_TASK = "background-location-tracking";
@@ -1133,29 +1134,44 @@ async function getAuthToken(): Promise<string | null> {
     if (refreshToken) {
       const apiUrl =
         process.env.EXPO_PUBLIC_API_URL ||
+        Constants.expoConfig?.extra?.apiUrl ||
         (await AsyncStorage.getItem("apiUrl")) ||
         "http://localhost:3000";
 
-      // Try to refresh the token
-      const response = await axios.post(`${apiUrl}/api/auth/refresh-token`, {
+      // Try to refresh the token using the correct endpoint
+      const response = await axios.post(`${apiUrl}/auth/refresh`, {
         refreshToken,
       });
 
       if (response.data && response.data.accessToken) {
-        // Save the new token
+        // Save the new tokens (both access and refresh tokens)
         await AsyncStorage.setItem("auth_token", response.data.accessToken);
+        
+        // Also save the new refresh token if provided
+        if (response.data.refreshToken) {
+          await AsyncStorage.setItem("refresh_token", response.data.refreshToken);
+        }
+        
         try {
           if (SecureStore) {
             await SecureStore.setItemAsync(
               "auth_token",
               response.data.accessToken
             );
+            
+            // Also save the new refresh token to SecureStore
+            if (response.data.refreshToken) {
+              await SecureStore.setItemAsync(
+                "refresh_token",
+                response.data.refreshToken
+              );
+            }
           }
         } catch (secureError) {
           console.log("SecureStore not available for saving:", secureError);
         }
 
-        console.log("Using refreshed token");
+        console.log("Using refreshed token from background task");
         return response.data.accessToken;
       }
     }

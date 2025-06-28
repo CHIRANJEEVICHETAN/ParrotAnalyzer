@@ -82,18 +82,29 @@ export const verifyToken = async (req: CustomRequest, res: Response, next: NextF
             u.token_version, c.status as company_status
            FROM users u
            LEFT JOIN companies c ON u.company_id = c.id
-           WHERE u.id = $1`,
-          [decoded.id]
+           WHERE u.id = $1 AND u.token_version = $2`,
+          [decoded.id, decoded.token_version]
         );
 
         if (!result.rows.length) {
           return res.status(401).json({ 
             error: 'Authentication failed',
-            details: 'User not found'
+            details: 'User not found or token version mismatch'
           });
         }
 
         const user = result.rows[0];
+        
+        // Check company status for non-super-admin users
+        if (user.role !== 'super-admin' && 
+            user.company_id && 
+            user.company_status === 'disabled') {
+          return res.status(403).json({ 
+            error: 'Company access disabled',
+            details: 'Please contact administrator'
+          });
+        }
+        
         // Ensure the user object matches the User interface
         req.user = {
           id: parseInt(user.id),

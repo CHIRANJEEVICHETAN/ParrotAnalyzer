@@ -290,23 +290,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Handle app state changes to check for network changes
+  // Handle app state changes to check for network changes and token status
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', nextAppState => {
+    const subscription = AppState.addEventListener('change', async nextAppState => {
       // When app comes to foreground
       if (
         appStateRef.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
         console.log('App has come to the foreground!');
-        checkNetworkConnectivity().then(({ isConnected, isReachable }) => {
+        
+        // Check if current access token is near expiry
+        if (user && token && isTokenNearExpiry(token, 10)) { // Check with 10 minute buffer
+          console.log('Access token is near expiry, attempting proactive refresh...');
+          const storedRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY) || 
+                                    await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+          if (storedRefreshToken) {
+            await refreshTokenSilently(storedRefreshToken);
+          }
+        }
+        
+        // Check network connectivity and handle pending sync
+        checkNetworkConnectivity().then(async ({ isConnected, isReachable }) => {
           // If we're coming back online and have pending sync
           if (isConnected && isReachable && pendingSync && user) {
             console.log('Network restored, syncing auth state...');
-            refreshTokenSilently(token || '');
+            // Get the actual refresh token from storage
+            const storedRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY) || 
+                                      await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+            if (storedRefreshToken) {
+              await refreshTokenSilently(storedRefreshToken);
+            }
             setPendingSync(false);
           }
         });
+      }
+      
+      // When app goes to background, don't clear the token refresh timer
+      // Keep it running so proactive refresh can still occur
+      if (nextAppState === 'background') {
+        console.log('App went to background, keeping token refresh timer active');
       }
       
       appStateRef.current = nextAppState;
@@ -1068,6 +1091,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Fixed refreshToken function to use actual refresh token from storage
+  const refreshToken = async (): Promise<string | null> => {
+    try {
+      // Get the actual refresh token from storage
+      let storedRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+      if (!storedRefreshToken) {
+        storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      }
+      
+      if (!storedRefreshToken) {
+        console.error('No refresh token available for manual refresh');
+        return null;
+      }
+      
+      return await refreshTokenSilently(storedRefreshToken);
+    } catch (error) {
+      console.error('Error in manual token refresh:', error);
+      return null;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -1075,7 +1119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         login,
         logout,
-        refreshToken: () => refreshTokenSilently(token || ""),
+        refreshToken,
         isLoading,
         isOffline,
         updateUser,
