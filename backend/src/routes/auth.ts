@@ -92,7 +92,7 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
       [user.id]
     );
 
-    // Generate access token (24h expiry)
+    // Generate access token (7 days expiry)
     const accessToken = jwt.sign(
       { 
         id: user.id,
@@ -102,10 +102,10 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
         type: 'access'
       },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '7d' }
     );
 
-    // Generate refresh token (7 days expiry)
+    // Generate refresh token (30 days expiry)
     const refreshToken = jwt.sign(
       { 
         id: user.id,
@@ -113,7 +113,7 @@ router.post('/login', async (req: LoginRequest, res: Response) => {
         type: 'refresh'
       },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
 
     res.json({
@@ -293,7 +293,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
         });
       }
 
-      // Generate new access token
+      // Generate new access token (7 days expiry)
       const newAccessToken = jwt.sign(
         { 
           id: user.id,
@@ -303,10 +303,10 @@ router.post('/refresh', async (req: Request, res: Response) => {
           type: 'access'
         },
         JWT_SECRET,
-        { expiresIn: '24h' }
+        { expiresIn: '7d' }
       );
 
-      // Generate new refresh token (rotate for security)
+      // Generate new refresh token (30 days expiry)
       const newRefreshToken = jwt.sign(
         { 
           id: user.id,
@@ -314,7 +314,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
           type: 'refresh'
         },
         JWT_SECRET,
-        { expiresIn: '7d' }
+        { expiresIn: '30d' }
       );
 
       res.json({
