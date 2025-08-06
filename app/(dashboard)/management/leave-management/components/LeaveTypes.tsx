@@ -161,9 +161,9 @@ export default function LeaveTypes() {
                   setLoading(false);
                 }
               }}
-              className="bg-green-500 px-4 py-2 rounded-lg flex-row items-center mr-2"
+              className="bg-green-500 px-3 py-2 rounded-lg flex-row items-center mr-2"
             >
-              <Ionicons name="refresh" size={24} color="white" />
+              <Ionicons name="refresh" size={16} color="white" />
               <Text className="text-white font-medium ml-2">Initialize Defaults</Text>
             </TouchableOpacity>
           )}

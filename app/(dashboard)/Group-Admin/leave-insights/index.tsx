@@ -4,17 +4,19 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import LeaveRequests from './components/LeaveRequests';
 import LeaveBalance from './components/LeaveBalance';
+import LeaveApprovalList from '../../employee/leave-insights/components/LeaveApprovalList';
 import { useRouter } from 'expo-router';
 
-type Tab = 'requests' | 'balance';
+type Tab = 'requests' | 'balance' | 'approvals';
 
 export default function GroupAdminLeaveInsights() {
   const { theme } = ThemeContext.useTheme();
   const isDark = theme === 'dark';
-  const [activeTab, setActiveTab] = useState<Tab>('requests');
+  const [activeTab, setActiveTab] = useState<Tab>('approvals');
   const router = useRouter();
 
   const tabs = [
+    { id: 'approvals', label: 'Approvals', icon: 'checkmark-circle' },
     { id: 'requests', label: 'Leave Requests', icon: 'document-text' },
     { id: 'balance', label: 'Leave Balance', icon: 'calendar' },
   ] as const;
@@ -23,23 +25,23 @@ export default function GroupAdminLeaveInsights() {
     <View className="flex-1 p-6">
       {/* Header */}
       <View className="flex-row items-center mb-6 gap-4">
-      <TouchableOpacity
-            onPress={() => router.back()}
-            className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
-            style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
-          >
-            <Ionicons 
-              name="arrow-back" 
-              size={24} 
-              color={isDark ? '#FFFFFF' : '#111827'} 
-            />
-          </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className={`p-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}
+          style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}
+        >
+          <Ionicons 
+            name="arrow-back" 
+            size={24} 
+            color={isDark ? '#FFFFFF' : '#111827'} 
+          />
+        </TouchableOpacity>
         <View>
           <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Leave Insights
           </Text>
           <Text className={isDark ? 'text-gray-400' : 'text-gray-600'}>
-            Insights on leave requests and balances
+            Manage and approve team leave requests
           </Text>
         </View>
       </View>
@@ -90,7 +92,9 @@ export default function GroupAdminLeaveInsights() {
 
       {/* Content */}
       <View className="flex-1">
-        {activeTab === 'requests' ? (
+        {activeTab === 'approvals' ? (
+          <LeaveApprovalList />
+        ) : activeTab === 'requests' ? (
           <LeaveRequests />
         ) : (
           <LeaveBalance />

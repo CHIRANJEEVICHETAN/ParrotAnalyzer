@@ -7,6 +7,7 @@ import {
   ScrollView,
   TextInput,
   Switch,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../../context/ThemeContext';
@@ -34,6 +35,18 @@ interface LeavePolicy {
   is_active: boolean;
 }
 
+interface FormData {
+  leave_type_id: string;
+  default_days: string;
+  carry_forward_days: string;
+  min_service_days: string;
+  requires_approval: boolean;
+  notice_period_days: string;
+  max_consecutive_days: string;
+  gender_specific: string;
+  is_active: boolean;
+}
+
 export default function LeavePolicies() {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
@@ -46,8 +59,8 @@ export default function LeavePolicies() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<LeavePolicy | null>(null);
 
-  // Form state
-  const [formData, setFormData] = useState({
+  // Form state with proper typing
+  const [formData, setFormData] = useState<FormData>({
     leave_type_id: '',
     default_days: '',
     carry_forward_days: '',
@@ -89,6 +102,30 @@ export default function LeavePolicies() {
 
   const handleSubmit = async () => {
     try {
+      if (!formData.leave_type_id) {
+        Alert.alert('Error', 'Please select a leave type');
+        return;
+      }
+
+      // Validate numeric fields
+      const numericFields = [
+        'default_days',
+        'carry_forward_days',
+        'min_service_days',
+        'notice_period_days',
+        'max_consecutive_days'
+      ] as const;
+
+      const invalidFields = numericFields.filter(field => {
+        const value = parseInt(formData[field]);
+        return isNaN(value) || value < 0;
+      });
+
+      if (invalidFields.length > 0) {
+        Alert.alert('Error', 'Please enter valid numbers for all day fields');
+        return;
+      }
+
       setLoading(true);
       const endpoint = editingPolicy
         ? `/api/leave-management/leave-policies/${editingPolicy.id}`
@@ -96,30 +133,59 @@ export default function LeavePolicies() {
       
       const method = editingPolicy ? 'put' : 'post';
       
+      const payload = {
+        ...formData,
+        default_days: parseInt(formData.default_days),
+        carry_forward_days: parseInt(formData.carry_forward_days),
+        min_service_days: parseInt(formData.min_service_days),
+        notice_period_days: parseInt(formData.notice_period_days),
+        max_consecutive_days: parseInt(formData.max_consecutive_days),
+        gender_specific: formData.gender_specific || null,
+        leave_type_id: parseInt(formData.leave_type_id),
+      };
+
+      console.log('Submitting policy with payload:', payload);
+
       const response = await axios[method](
         `${process.env.EXPO_PUBLIC_API_URL}${endpoint}`,
+        payload,
         {
-          ...formData,
-          default_days: parseInt(formData.default_days),
-          carry_forward_days: parseInt(formData.carry_forward_days),
-          min_service_days: parseInt(formData.min_service_days),
-          notice_period_days: parseInt(formData.notice_period_days),
-          max_consecutive_days: parseInt(formData.max_consecutive_days),
-          gender_specific: formData.gender_specific || null,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
         }
       );
 
       if (response.data) {
+        console.log('Policy updated successfully:', response.data);
+        // Immediately update the local state to reflect changes
+        if (editingPolicy) {
+          setPolicies(prevPolicies => 
+            prevPolicies.map(policy => 
+              policy.id === editingPolicy.id 
+                ? { ...policy, ...payload, id: policy.id }
+                : policy
+            )
+          );
+        } else {
+          setPolicies(prevPolicies => [...prevPolicies, response.data]);
+        }
+        
+        // Fetch fresh data to ensure consistency
         await fetchData();
         setShowAddModal(false);
         resetForm();
+        Alert.alert('Success', `Policy ${editingPolicy ? 'updated' : 'created'} successfully`);
       }
     } catch (error) {
       console.error('Error saving policy:', error);
-      setError('Failed to save policy');
+      if (axios.isAxiosError(error)) {
+        const errorMessage = error.response?.data?.error || 'Failed to save policy';
+        Alert.alert('Error', errorMessage);
+      } else {
+        Alert.alert('Error', 'Failed to save policy');
+      }
     } finally {
       setLoading(false);
     }
@@ -154,6 +220,40 @@ export default function LeavePolicies() {
       is_active: policy.is_active,
     });
     setShowAddModal(true);
+  };
+
+  const handleToggleActive = async (policy: LeavePolicy) => {
+    try {
+      setLoading(true);
+      const response = await axios.put(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/leave-policies/${policy.id}`,
+        {
+          ...policy,
+          is_active: !policy.is_active
+        },
+        {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data) {
+        // Update local state immediately
+        setPolicies(prevPolicies =>
+          prevPolicies.map(p =>
+            p.id === policy.id ? { ...p, is_active: !p.is_active } : p
+          )
+        );
+        Alert.alert('Success', `Policy ${!policy.is_active ? 'activated' : 'deactivated'} successfully`);
+      }
+    } catch (error) {
+      console.error('Error toggling policy status:', error);
+      Alert.alert('Error', 'Failed to update policy status');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading && !showAddModal) {
@@ -199,19 +299,22 @@ export default function LeavePolicies() {
               }`}>
                 {policy.leave_type_name}
               </Text>
-              <View className={`px-2 py-1 rounded ${
-                policy.is_active
-                  ? 'bg-green-100'
-                  : 'bg-red-100'
-              }`}>
-                <Text className={`text-sm ${
+              <TouchableOpacity
+                onPress={() => handleToggleActive(policy)}
+                className={`px-3 py-1.5 rounded-full ${
                   policy.is_active
-                    ? 'text-green-800'
-                    : 'text-red-800'
+                    ? isDark ? 'bg-green-900' : 'bg-green-100'
+                    : isDark ? 'bg-red-900' : 'bg-red-100'
+                }`}
+              >
+                <Text className={`text-sm font-medium ${
+                  policy.is_active
+                    ? isDark ? 'text-green-200' : 'text-green-800'
+                    : isDark ? 'text-red-200' : 'text-red-800'
                 }`}>
                   {policy.is_active ? 'Active' : 'Inactive'}
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
             <View className="mt-4 space-y-2">

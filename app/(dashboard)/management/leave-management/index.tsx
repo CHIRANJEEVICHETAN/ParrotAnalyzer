@@ -8,6 +8,7 @@ import LeaveApprovals from './components/LeaveApprovals';
 import LeavePolicies from './components/LeavePolicies';
 import LeaveTypes from './components/LeaveTypes';
 import LeaveBalances from './components/LeaveBalances';
+import LeaveBalanceManager from './components/LeaveBalanceManager';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { managementNavItems } from "../utils/navigationItems";
@@ -17,8 +18,7 @@ type TabType =
   | "types"
   | "policies"
   | "balances"
-  | "balances-tracker"
-  | "analytics"
+  | "balance-manager"
   | "approvals";
 
 interface TabItem {
@@ -33,6 +33,7 @@ export default function LeaveManagement() {
   const { theme } = ThemeContext.useTheme();
   const router = useRouter();
   const isDark = theme === "dark";
+  const isLight = theme === "light";
   const [activeTab, setActiveTab] = useState<TabType>("types");
 
   const tabs: TabItem[] = [
@@ -57,13 +58,13 @@ export default function LeaveManagement() {
       activeIcon: "wallet",
       color: "#F59E0B",
     },
-    // {
-    //   id: 'analytics',
-    //   label: 'Analytics',
-    //   icon: 'bar-chart-outline',
-    //   activeIcon: 'bar-chart',
-    //   color: '#8B5CF6'
-    // },
+    {
+      id: "balance-manager",
+      label: "Balance Manager",
+      icon: "people-outline",
+      activeIcon: "people",
+      color: "#8B5CF6",
+    },
     {
       id: "approvals",
       label: "Approvals",
@@ -81,8 +82,8 @@ export default function LeaveManagement() {
         return <LeavePolicies />;
       case "balances":
         return <LeaveBalances />;
-      // case 'analytics':
-      // return <LeaveAnalytics />;
+      case "balance-manager":
+        return <LeaveBalanceManager />;
       case "approvals":
         return <LeaveApprovals />;
       default:

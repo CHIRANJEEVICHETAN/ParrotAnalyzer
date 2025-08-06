@@ -100,6 +100,12 @@ export default function GroupAdminSettings() {
                     label: 'Expense Approval Rules',
                     action: () => router.push('/(dashboard)/Group-Admin/settings/ExpenseApprovalRules'),
                     showArrow: true
+                },
+                {
+                    icon: 'git-branch-outline',
+                    label: 'Leave Workflow Config',
+                    action: () => router.push('/(dashboard)/Group-Admin/settings/LeaveWorkflowConfig'),
+                    showArrow: true
                 }
             ]
         },

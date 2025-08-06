@@ -25,6 +25,14 @@ interface LocationUpdate extends Location {
   userId: number; // Required field, not optional
 }
 
+interface LeaveNotification {
+  requestId: number;
+  employeeName?: string;
+  leaveType?: string;
+  level?: string;
+  comments?: string;
+}
+
 class LocationSocketService {
   private io: Server;
   private redis: RedisManager;
@@ -757,22 +765,39 @@ class LocationSocketService {
     }
   }
 
+  private async handleLeaveNotification(userId: number, event: string, data: LeaveNotification) {
+    try {
+      // Get user's socket
+      const sockets = await this.io.in(`user:${userId}`).fetchSockets();
+      
+      // Emit to all user's sockets
+      for (const socket of sockets) {
+        socket.emit(event, data);
+      }
+    } catch (error) {
+      console.error(`Error sending leave notification to user ${userId}:`, error);
+    }
+  }
+
+  public async emitToUser(userId: number, event: string, data: LeaveNotification) {
+    await this.handleLeaveNotification(userId, event, data);
+  }
+
   private handleRoomJoining(socket: any): void {
-    const { company_id, group_admin_id, role } = socket.data.user;
+    // Join user-specific room
+    socket.join(`user:${socket.data.user.id}`);
 
-    // Join company room
-    if (company_id) {
-      socket.join(`company:${company_id}`);
+    // Join role-specific room
+    socket.join(`role:${socket.data.user.role.toLowerCase()}`);
+
+    // If group admin, join company room
+    if (socket.data.user.role === 'group_admin') {
+      socket.join(`company:${socket.data.user.company_id}`);
     }
 
-    // Join group room if user is an employee or group admin
-    if (group_admin_id) {
-      socket.join(`group:${group_admin_id}`);
-    }
-
-    // Join admin room if user is an admin
-    if (role === "admin") {
-      socket.join("admin");
+    // If management, join company room
+    if (socket.data.user.role === 'management') {
+      socket.join(`company:${socket.data.user.company_id}`);
     }
   }
 

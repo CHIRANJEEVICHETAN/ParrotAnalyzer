@@ -6,7 +6,7 @@ import { CustomRequest } from '../types';
 const router = express.Router();
 
 interface DefaultLeavePolicy {
-  leave_type: string;
+  leave_type_id: number;
   default_days: number;
   carry_forward_days: number;
   min_service_days: number;
@@ -14,6 +14,12 @@ interface DefaultLeavePolicy {
   notice_period_days: number;
   max_consecutive_days: number;
   gender_specific: string | null;
+}
+
+interface RoleDefaultBalance {
+  role: 'management' | 'group_admin' | 'employee';
+  default_days: number;
+  carry_forward_days: number;
 }
 
 // Initialize default leave types and policies
@@ -183,36 +189,30 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
           companyId,
         ];
       } else {
-        // Creating global defaults
-        query = `
-          INSERT INTO leave_types 
-          (name, description, requires_documentation, max_days, is_paid, is_active, company_id)
-          VALUES ($1, $2, $3, $4, $5, $6, NULL)
-          ON CONFLICT (name) WHERE company_id IS NULL DO UPDATE 
-          SET description = EXCLUDED.description,
-              requires_documentation = EXCLUDED.requires_documentation,
-              max_days = EXCLUDED.max_days,
-              is_paid = EXCLUDED.is_paid,
-              is_active = EXCLUDED.is_active
-          RETURNING id`;
-        params = [
-          type.name,
-          type.description,
-          type.requires_documentation,
-          type.max_days,
-          type.is_paid,
-          type.is_active,
-        ];
+        // Skip global defaults as per new schema
+        console.log(`Skipping global leave type creation for ${type.name} as per new schema`);
+        continue;
       }
 
-      const result = await client.query(query, params);
-      leaveTypeIds[type.name] = result.rows[0].id;
+      try {
+        const result = await client.query(query, params);
+        leaveTypeIds[type.name] = result.rows[0].id;
+      } catch (error) {
+        console.error(`Error creating leave type ${type.name}:`, error);
+        throw new Error(`Failed to create leave type: ${type.name}`);
+      }
+    }
+
+    // Validate that all required leave type IDs were created
+    const missingTypes = defaultLeaveTypes.filter(type => !leaveTypeIds[type.name]);
+    if (missingTypes.length > 0) {
+      throw new Error(`Failed to create leave types: ${missingTypes.map(t => t.name).join(', ')}`);
     }
 
     // Default leave policies
     const defaultPolicies: DefaultLeavePolicy[] = [
       {
-        leave_type: "Privilege/Earned Leave (PL/EL)",
+        leave_type_id: leaveTypeIds["Privilege/Earned Leave (PL/EL)"],
         default_days: 18,
         carry_forward_days: 30,
         min_service_days: 180,
@@ -222,7 +222,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Casual Leave (CL)",
+        leave_type_id: leaveTypeIds["Casual Leave (CL)"],
         default_days: 12,
         carry_forward_days: 0,
         min_service_days: 90,
@@ -232,7 +232,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Sick Leave (SL)",
+        leave_type_id: leaveTypeIds["Sick Leave (SL)"],
         default_days: 12,
         carry_forward_days: 0,
         min_service_days: 90,
@@ -242,7 +242,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Maternity Leave (ML)",
+        leave_type_id: leaveTypeIds["Maternity Leave (ML)"],
         default_days: 90,
         carry_forward_days: 0,
         min_service_days: 180,
@@ -252,7 +252,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: "female",
       },
       {
-        leave_type: "Child Care Leave",
+        leave_type_id: leaveTypeIds["Child Care Leave"],
         default_days: 15,
         carry_forward_days: 0,
         min_service_days: 180,
@@ -262,7 +262,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Child Adoption Leave",
+        leave_type_id: leaveTypeIds["Child Adoption Leave"],
         default_days: 90,
         carry_forward_days: 0,
         min_service_days: 180,
@@ -272,7 +272,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Compensatory Off",
+        leave_type_id: leaveTypeIds["Compensatory Off"],
         default_days: 0,
         carry_forward_days: 0,
         min_service_days: 90,
@@ -282,7 +282,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Marriage Leave",
+        leave_type_id: leaveTypeIds["Marriage Leave"],
         default_days: 5,
         carry_forward_days: 0,
         min_service_days: 180,
@@ -292,7 +292,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Paternity Leave",
+        leave_type_id: leaveTypeIds["Paternity Leave"],
         default_days: 10,
         carry_forward_days: 0,
         min_service_days: 180,
@@ -302,7 +302,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: "male",
       },
       {
-        leave_type: "Bereavement Leave",
+        leave_type_id: leaveTypeIds["Bereavement Leave"],
         default_days: 5,
         carry_forward_days: 0,
         min_service_days: 90,
@@ -312,7 +312,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Leave Without Pay (LWP)",
+        leave_type_id: leaveTypeIds["Leave Without Pay (LWP)"],
         default_days: 0,
         carry_forward_days: 0,
         min_service_days: 90,
@@ -322,7 +322,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Sabbatical Leave",
+        leave_type_id: leaveTypeIds["Sabbatical Leave"],
         default_days: 180,
         carry_forward_days: 0,
         min_service_days: 2555, // 7 years
@@ -332,7 +332,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Half Pay Leave (HPL)",
+        leave_type_id: leaveTypeIds["Half Pay Leave (HPL)"],
         default_days: 20,
         carry_forward_days: 0,
         min_service_days: 180,
@@ -342,7 +342,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Commuted Leave",
+        leave_type_id: leaveTypeIds["Commuted Leave"],
         default_days: 10,
         carry_forward_days: 0,
         min_service_days: 180,
@@ -352,7 +352,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Leave Not Due (LND)",
+        leave_type_id: leaveTypeIds["Leave Not Due (LND)"],
         default_days: 10,
         carry_forward_days: 0,
         min_service_days: 365,
@@ -362,7 +362,7 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
         gender_specific: null,
       },
       {
-        leave_type: "Special Casual Leave (SCL)",
+        leave_type_id: leaveTypeIds["Special Casual Leave (SCL)"],
         default_days: 10,
         carry_forward_days: 0,
         min_service_days: 90,
@@ -373,44 +373,56 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
       },
     ];
 
-    // Insert leave policies
+    // Insert leave policies with improved error handling
     for (const policy of defaultPolicies) {
-      if (!policy.leave_type || !leaveTypeIds[policy.leave_type]) {
-        console.error(`Invalid leave type: ${policy.leave_type}`);
+      const leaveTypeName = Object.keys(leaveTypeIds).find(
+        key => leaveTypeIds[key] === policy.leave_type_id
+      );
+
+      if (!leaveTypeName || !leaveTypeIds[leaveTypeName]) {
+        console.error(`Invalid leave type ID: ${policy.leave_type_id} for policy creation`);
         continue;
       }
-      await client.query(
-        `INSERT INTO leave_policies 
-         (leave_type_id, default_days, carry_forward_days, min_service_days,
-          requires_approval, notice_period_days, max_consecutive_days,
-          gender_specific, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
-         ON CONFLICT (leave_type_id) DO UPDATE 
-         SET default_days = EXCLUDED.default_days,
-             carry_forward_days = EXCLUDED.carry_forward_days,
-             min_service_days = EXCLUDED.min_service_days,
-             requires_approval = EXCLUDED.requires_approval,
-             notice_period_days = EXCLUDED.notice_period_days,
-             max_consecutive_days = EXCLUDED.max_consecutive_days,
-             gender_specific = EXCLUDED.gender_specific,
-             is_active = true`,
-        [
-          leaveTypeIds[policy.leave_type],
-          policy.default_days,
-          policy.carry_forward_days,
-          policy.min_service_days,
-          policy.requires_approval,
-          policy.notice_period_days,
-          policy.max_consecutive_days,
-          policy.gender_specific,
-        ]
-      );
+
+      try {
+        await client.query(
+          `INSERT INTO leave_policies 
+           (leave_type_id, default_days, carry_forward_days, min_service_days,
+            requires_approval, notice_period_days, max_consecutive_days,
+            gender_specific, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+           ON CONFLICT (leave_type_id) DO UPDATE 
+           SET default_days = EXCLUDED.default_days,
+               carry_forward_days = EXCLUDED.carry_forward_days,
+               min_service_days = EXCLUDED.min_service_days,
+               requires_approval = EXCLUDED.requires_approval,
+               notice_period_days = EXCLUDED.notice_period_days,
+               max_consecutive_days = EXCLUDED.max_consecutive_days,
+               gender_specific = EXCLUDED.gender_specific,
+               is_active = true
+           RETURNING id`,
+          [
+            policy.leave_type_id,
+            policy.default_days,
+            policy.carry_forward_days,
+            policy.min_service_days,
+            policy.requires_approval,
+            policy.notice_period_days,
+            policy.max_consecutive_days,
+            policy.gender_specific,
+          ]
+        );
+      } catch (error) {
+        console.error(`Error creating policy for leave type ${leaveTypeName}:`, error);
+        throw new Error(`Failed to create policy for leave type: ${leaveTypeName}`);
+      }
     }
 
     await client.query("COMMIT");
+    console.log(`Successfully initialized ${Object.keys(leaveTypeIds).length} leave types and policies${companyId ? ` for company ${companyId}` : ''}`);
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error initializing default leave types:", error);
+    console.error("Error initializing default leave types and policies:", error);
     throw error;
   } finally {
     client.release();
@@ -418,8 +430,9 @@ const initializeDefaultLeaveTypes = async (companyId?: number) => {
 };
 
 // Initialize defaults on server start - for global defaults
-initializeDefaultLeaveTypes().catch(console.error);
-console.log("Default leave types and policies initialized successfully");
+// Removed as we no longer support global leave types
+// initializeDefaultLeaveTypes().catch(console.error);
+console.log("Leave types initialization disabled - use company-specific initialization only");
 
 // Check and initialize defaults route for company-specific defaults
 router.post(
@@ -458,83 +471,15 @@ router.post(
   }
 );
 
-// Get all leave types
-router.get(
-  "/leave-types",
-  authMiddleware,
-  managementMiddleware,
-  async (req: CustomRequest, res: Response) => {
-    try {
-      if (!req.user?.id) {
-        return res.status(401).json({ error: "User not authenticated" });
-      }
 
-      // Get the company_id of the requesting user
-      const userResult = await pool.query(
-        `SELECT company_id FROM users WHERE id = $1`,
-        [req.user.id]
-      );
 
-      const companyId = userResult.rows[0]?.company_id;
-
-      if (!companyId) {
-        return res
-          .status(400)
-          .json({ error: "User not associated with any company" });
-      }
-
-      // First, get company-specific leave types
-      const companySpecificResult = await pool.query(
-        `SELECT * FROM leave_types 
-         WHERE company_id = $1
-         ORDER BY name ASC`,
-        [companyId]
-      );
-      
-      // Get the names of company-specific leave types
-      const companySpecificNames = companySpecificResult.rows.map(row => row.name);
-      
-      let globalQuery;
-      let globalParams;
-      
-      // Handle the case when there are no company-specific types
-      if (companySpecificNames.length === 0) {
-        globalQuery = `
-          SELECT * FROM leave_types 
-          WHERE company_id IS NULL
-          ORDER BY name ASC`;
-        globalParams = [];
-      } else {
-        // Build a query with the correct number of parameters
-        const placeholders = companySpecificNames.map((_, i) => `$${i + 1}`).join(',');
-        globalQuery = `
-          SELECT * FROM leave_types 
-          WHERE company_id IS NULL
-          AND name NOT IN (${placeholders})
-          ORDER BY name ASC`;
-        globalParams = companySpecificNames;
-      }
-      
-      // Now get global leave types that don't have company-specific versions
-      const globalResult = await pool.query(globalQuery, globalParams);
-      
-      // Combine the results, with company-specific types first
-      const combinedResults = [...companySpecificResult.rows, ...globalResult.rows];
-      
-      res.json(combinedResults);
-    } catch (error) {
-      console.error("Error fetching leave types:", error);
-      res.status(500).json({ error: "Failed to fetch leave types" });
-    }
-  }
-);
-
-// Create new leave type
+// Create new leave type with role-based defaults
 router.post(
   "/leave-types",
   authMiddleware,
   managementMiddleware,
   async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
     try {
       const {
         name,
@@ -543,70 +488,115 @@ router.post(
         max_days,
         is_paid,
         is_active,
+        role_defaults, // Array of RoleDefaultBalance
       } = req.body;
 
       if (!req.user?.id) {
         return res.status(401).json({ error: "User not authenticated" });
       }
 
-      // Get the company_id of the requesting user
-      const userResult = await pool.query(
+      // Get company_id
+      const userResult = await client.query(
         `SELECT company_id FROM users WHERE id = $1`,
         [req.user.id]
       );
 
       const companyId = userResult.rows[0]?.company_id;
-
       if (!companyId) {
-        return res
-          .status(400)
-          .json({ error: "User not associated with any company" });
+        return res.status(400).json({ error: "User not associated with any company" });
       }
 
-      // Note: max_days represents the maximum possible days allowed for this leave type
-      // The actual allocation is determined by leave_policies.default_days
-      const result = await pool.query(
-        `INSERT INTO leave_types 
-       (name, description, requires_documentation, max_days, is_paid, is_active, company_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *`,
-        [
-          name,
-          description,
-          requires_documentation,
-          max_days,
-          is_paid,
-          is_active,
-          companyId,
-        ]
+      // Check for duplicate name in company
+      const duplicateCheck = await client.query(
+        `SELECT id FROM leave_types WHERE name = $1 AND company_id = $2`,
+        [name, companyId]
       );
 
-      res.status(201).json(result.rows[0]);
+      if (duplicateCheck.rows.length > 0) {
+        return res.status(400).json({ 
+          error: "Duplicate leave type",
+          details: "A leave type with this name already exists in your company"
+        });
+      }
+
+      await client.query('BEGIN');
+
+      // Create leave type
+      const leaveTypeResult = await client.query(
+        `INSERT INTO leave_types 
+        (name, description, requires_documentation, max_days, is_paid, is_active, company_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING *`,
+        [name, description, requires_documentation, max_days, is_paid, is_active, companyId]
+      );
+
+      const leaveTypeId = leaveTypeResult.rows[0].id;
+
+      // Create role-based default balances
+      if (role_defaults && Array.isArray(role_defaults)) {
+        for (const roleDef of role_defaults) {
+          // Validate role default days don't exceed max_days
+          const defaultDays = Math.min(roleDef.default_days, max_days);
+          
+          await client.query(
+            `INSERT INTO company_default_leave_balances
+            (company_id, leave_type_id, role, default_days, carry_forward_days)
+            VALUES ($1, $2, $3, $4, $5)`,
+            [companyId, leaveTypeId, roleDef.role, defaultDays, roleDef.carry_forward_days]
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+
+      // Fetch the complete leave type with role defaults
+      const finalResult = await client.query(
+        `SELECT 
+          lt.*,
+          json_agg(
+            json_build_object(
+              'role', cdb.role,
+              'default_days', cdb.default_days,
+              'carry_forward_days', cdb.carry_forward_days
+            )
+          ) as role_defaults
+        FROM leave_types lt
+        LEFT JOIN company_default_leave_balances cdb ON lt.id = cdb.leave_type_id
+        WHERE lt.id = $1
+        GROUP BY lt.id`,
+        [leaveTypeId]
+      );
+
+      res.status(201).json(finalResult.rows[0]);
     } catch (error) {
+      await client.query('ROLLBACK');
       console.error("Error creating leave type:", error);
       res.status(500).json({ error: "Failed to create leave type" });
+    } finally {
+      client.release();
     }
   }
 );
 
-// Update leave type
+// Update leave type and role-based defaults
 router.put(
   "/leave-types/:id",
   authMiddleware,
   managementMiddleware,
   async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
     try {
       const { id } = req.params;
       const {
         name,
         description,
         requires_documentation,
-        max_days, // This is the maximum possible days for this leave type
+        max_days,
         is_paid,
         is_active,
+        role_defaults,
       } = req.body;
 
-      // Validate input
       if (!name) {
         return res.status(400).json({ error: "Leave type name is required" });
       }
@@ -615,228 +605,118 @@ router.put(
         return res.status(401).json({ error: "User not authenticated" });
       }
 
-      // Get the company_id of the requesting user
-      const userResult = await pool.query(
+      // Get company_id
+      const userResult = await client.query(
         `SELECT company_id FROM users WHERE id = $1`,
         [req.user.id]
       );
 
       const companyId = userResult.rows[0]?.company_id;
-
       if (!companyId) {
-        return res
-          .status(400)
-          .json({ error: "User not associated with any company" });
+        return res.status(400).json({ error: "User not associated with any company" });
       }
 
-      // First check if this is a global leave type
-      const globalCheck = await pool.query(
-        `SELECT * FROM leave_types WHERE id = $1 AND company_id IS NULL`,
-        [id]
+      // Check if leave type belongs to this company
+      const leaveTypeCheck = await client.query(
+        `SELECT * FROM leave_types WHERE id = $1 AND company_id = $2`,
+        [id, companyId]
       );
 
-      // If this is a global leave type, create a company-specific copy
-      if (globalCheck.rows.length > 0) {
-        const globalType = globalCheck.rows[0];
-        
-        // Check if a leave type with this name already exists for this company
-        const existingType = await pool.query(
-          `SELECT * FROM leave_types WHERE name = $1 AND company_id = $2`,
-          [globalType.name, companyId]
-        );
+      if (leaveTypeCheck.rows.length === 0) {
+        return res.status(403).json({
+          error: "Access denied",
+          details: "Leave type not found or belongs to another company"
+        });
+      }
 
-        if (existingType.rows.length > 0) {
-          // If a company-specific leave type already exists, update it
-          const result = await pool.query(
-            `UPDATE leave_types SET 
-               description = $1,
-               requires_documentation = $2,
-               max_days = $3, -- Maximum possible days for this leave type (serves as upper limit for leave_policies.default_days)
-               is_paid = $4,
-               is_active = $5,
-               updated_at = CURRENT_TIMESTAMP
-             WHERE id = $6
-             RETURNING *`,
-            [
-              description,
-              requires_documentation,
-              max_days,
-              is_paid,
-              is_active,
-              existingType.rows[0].id,
-            ]
-          );
+      // Check for duplicate name (excluding current leave type)
+      const duplicateCheck = await client.query(
+        `SELECT id FROM leave_types 
+        WHERE name = $1 AND company_id = $2 AND id != $3`,
+        [name, companyId, id]
+      );
 
-          // Check if a leave policy exists for this leave type
-          const policyCheck = await pool.query(
-            `SELECT * FROM leave_policies WHERE leave_type_id = $1`,
-            [existingType.rows[0].id]
-          );
+      if (duplicateCheck.rows.length > 0) {
+        return res.status(400).json({ 
+          error: "Duplicate leave type",
+          details: "Another leave type with this name already exists in your company"
+        });
+      }
 
-          if (policyCheck.rows.length === 0) {
-            // Create a new leave policy for this company-specific leave type
-            const globalPolicy = await pool.query(
-              `SELECT * FROM leave_policies WHERE leave_type_id = $1`,
-              [id]
-            );
+      await client.query('BEGIN');
 
-            if (globalPolicy.rows.length > 0) {
-              // Copy policy settings from the global policy
-              // Ensure default_days doesn't exceed max_days
-              const default_days = Math.min(
-                globalPolicy.rows[0].default_days,
-                max_days
-              );
+      // Update leave type
+      const result = await client.query(
+        `UPDATE leave_types
+        SET name = $1, 
+            description = $2,
+            requires_documentation = $3,
+            max_days = $4,
+            is_paid = $5,
+            is_active = $6,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $7 AND company_id = $8
+        RETURNING *`,
+        [name, description, requires_documentation, max_days, is_paid, is_active, id, companyId]
+      );
 
-              await pool.query(
-                `INSERT INTO leave_policies
-                 (leave_type_id, default_days, carry_forward_days, min_service_days,
-                  requires_approval, notice_period_days, max_consecutive_days,
-                  gender_specific, is_active)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                [
-                  existingType.rows[0].id,
-                  default_days,
-                  globalPolicy.rows[0].carry_forward_days,
-                  globalPolicy.rows[0].min_service_days,
-                  globalPolicy.rows[0].requires_approval,
-                  globalPolicy.rows[0].notice_period_days,
-                  globalPolicy.rows[0].max_consecutive_days,
-                  globalPolicy.rows[0].gender_specific,
-                  is_active, // Use the requested is_active value
-                ]
-              );
-            }
-          } else {
-            // Update the existing policy to ensure default_days doesn't exceed max_days
-            // And update is_active status
-            const default_days = Math.min(
-              policyCheck.rows[0].default_days,
-              max_days
-            );
-
-            await pool.query(
-              `UPDATE leave_policies
-               SET default_days = $1, is_active = $2
-               WHERE leave_type_id = $3`,
-              [default_days, is_active, existingType.rows[0].id]
-            );
-          }
-
-          return res.json({
-            ...result.rows[0],
-            message: "Updated company-specific leave type settings",
-          });
-        }
-
-        // Create a company-specific copy of the global leave type
-        const result = await pool.query(
-          `INSERT INTO leave_types 
-           (name, description, requires_documentation, max_days, is_paid, is_active, company_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING *`,
-          [
-            globalType.name, // Use the original name from the global type
-            description || globalType.description,
-            requires_documentation !== undefined ? requires_documentation : globalType.requires_documentation,
-            max_days || globalType.max_days,
-            is_paid !== undefined ? is_paid : globalType.is_paid,
-            is_active, // Use the requested is_active value
-            companyId,
-          ]
-        );
-
-        // Check if a leave policy exists for the global leave type
-        const globalPolicy = await pool.query(
-          `SELECT * FROM leave_policies WHERE leave_type_id = $1`,
+      // Update role-based default balances
+      if (role_defaults && Array.isArray(role_defaults)) {
+        // Delete existing defaults
+        await client.query(
+          `DELETE FROM company_default_leave_balances
+          WHERE leave_type_id = $1`,
           [id]
         );
 
-        if (globalPolicy.rows.length > 0) {
-          // Copy policy settings from the global policy
-          // Ensure default_days doesn't exceed max_days
-          const default_days = Math.min(
-            globalPolicy.rows[0].default_days,
-            max_days || globalType.max_days
-          );
-
-          await pool.query(
-            `INSERT INTO leave_policies
-             (leave_type_id, default_days, carry_forward_days, min_service_days,
-              requires_approval, notice_period_days, max_consecutive_days,
-              gender_specific, is_active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [
-              result.rows[0].id,
-              default_days,
-              globalPolicy.rows[0].carry_forward_days,
-              globalPolicy.rows[0].min_service_days,
-              globalPolicy.rows[0].requires_approval,
-              globalPolicy.rows[0].notice_period_days,
-              globalPolicy.rows[0].max_consecutive_days,
-              globalPolicy.rows[0].gender_specific,
-              is_active, // Use the requested is_active value
-            ]
+        // Insert new defaults
+        for (const roleDef of role_defaults) {
+          const defaultDays = Math.min(roleDef.default_days, max_days);
+          
+          await client.query(
+            `INSERT INTO company_default_leave_balances
+            (company_id, leave_type_id, role, default_days, carry_forward_days)
+            VALUES ($1, $2, $3, $4, $5)`,
+            [companyId, id, roleDef.role, defaultDays, roleDef.carry_forward_days]
           );
         }
-
-        return res.json({
-          ...result.rows[0],
-          message: "Created company-specific leave type settings",
-        });
       }
 
-      // Check if this leave type belongs to this company
-      const checkType = await pool.query(
-        `SELECT * FROM leave_types WHERE id = $1`,
+      // Update existing leave balances if max_days was reduced
+      await client.query(
+        `UPDATE leave_balances
+        SET total_days = LEAST(total_days, $1)
+        WHERE leave_type_id = $2`,
+        [max_days, id]
+      );
+
+      await client.query('COMMIT');
+
+      // Fetch updated leave type with role defaults
+      const finalResult = await client.query(
+        `SELECT 
+          lt.*,
+          json_agg(
+            json_build_object(
+              'role', cdb.role,
+              'default_days', cdb.default_days,
+              'carry_forward_days', cdb.carry_forward_days
+            )
+          ) as role_defaults
+        FROM leave_types lt
+        LEFT JOIN company_default_leave_balances cdb ON lt.id = cdb.leave_type_id
+        WHERE lt.id = $1
+        GROUP BY lt.id`,
         [id]
       );
 
-      if (
-        checkType.rows.length === 0 ||
-        checkType.rows[0].company_id !== companyId
-      ) {
-        return res.status(403).json({
-          error: "You don't have permission to modify this leave type",
-        });
-      }
-
-      // Update the leave type
-      const result = await pool.query(
-        `UPDATE leave_types
-         SET name = $1, 
-             description = $2,
-             requires_documentation = $3,
-             max_days = $4, -- Max possible days for this leave type (serves as upper limit for default_days in policies)
-             is_paid = $5,
-             is_active = $6,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $7
-         RETURNING *`,
-        [
-          name,
-          description,
-          requires_documentation,
-          max_days,
-          is_paid,
-          is_active,
-          id,
-        ]
-      );
-
-      // If max_days was reduced, ensure no policy has default_days higher than max_days
-      // Also update is_active status in the leave policy to match the leave type
-      await pool.query(
-        `UPDATE leave_policies 
-         SET default_days = LEAST(default_days, $1), is_active = $2
-         WHERE leave_type_id = $3`,
-        [max_days, is_active, id]
-      );
-
-      res.json(result.rows[0]);
+      res.json(finalResult.rows[0]);
     } catch (error) {
+      await client.query('ROLLBACK');
       console.error("Error updating leave type:", error);
       res.status(500).json({ error: "Failed to update leave type" });
+    } finally {
+      client.release();
     }
   }
 );
@@ -1420,8 +1300,8 @@ export const calculateLeaveBalances = async (userId: number, year: number) => {
   try {
     await client.query("BEGIN");
 
-    // Get all active leave types and their policies
-    const leaveTypesResult = await client.query(`
+    // First check which leave types don't have balances yet
+    const missingBalancesResult = await client.query(`
       SELECT 
         lt.id, 
         lt.max_days,
@@ -1430,7 +1310,19 @@ export const calculateLeaveBalances = async (userId: number, year: number) => {
       FROM leave_types lt
       LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
       WHERE lt.is_active = true
-    `);
+      AND NOT EXISTS (
+        SELECT 1 FROM leave_balances lb 
+        WHERE lb.leave_type_id = lt.id 
+        AND lb.user_id = $1 
+        AND lb.year = $2
+      )
+    `, [userId, year]);
+
+    if (missingBalancesResult.rows.length === 0) {
+      // All balances exist, no need to do anything
+      await client.query("COMMIT");
+      return;
+    }
 
     // Get previous year's balances for carry forward calculation
     const prevYearBalances = await client.query(
@@ -1447,8 +1339,8 @@ export const calculateLeaveBalances = async (userId: number, year: number) => {
       return acc;
     }, {});
 
-    // Calculate and upsert balances for each leave type
-    for (const leaveType of leaveTypesResult.rows) {
+    // Initialize only missing balances
+    for (const leaveType of missingBalancesResult.rows) {
       // Calculate carry forward days - limited by policy maximum
       const carryForwardDays = Math.min(
         prevBalancesMap[leaveType.id] || 0,
@@ -1465,11 +1357,7 @@ export const calculateLeaveBalances = async (userId: number, year: number) => {
           user_id, leave_type_id, total_days, used_days, pending_days, carry_forward_days, year
         )
         VALUES ($1, $2, $3, 0, 0, $4, $5)
-        ON CONFLICT (user_id, leave_type_id, year)
-        DO UPDATE SET
-          total_days = $3,
-          carry_forward_days = $4,
-          updated_at = CURRENT_TIMESTAMP
+        ON CONFLICT (user_id, leave_type_id, year) DO NOTHING
       `,
         [userId, leaveType.id, totalDays, carryForwardDays, year]
       );
@@ -1552,6 +1440,18 @@ router.get(
         return res.status(401).json({ error: "User not authenticated" });
       }
 
+      // Get user's company_id
+      const userCompanyResult = await pool.query(
+        `SELECT company_id FROM users WHERE id = $1`,
+        [userId]
+      );
+
+      if (!userCompanyResult.rows.length) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const companyId = userCompanyResult.rows[0].company_id;
+
       // Check if the requested user is under this management's hierarchy
       const allowedUsers = await getUsersUnderManagement(Number(managementId));
       const isAllowed = allowedUsers.some((user) => user.id === userId);
@@ -1565,20 +1465,30 @@ router.get(
       // Calculate balances if they don't exist
       await calculateLeaveBalances(userId, year);
 
-      // Get the calculated balances
+      // Get the calculated balances for active leave types only
       const result = await pool.query(
         `
-      SELECT 
-        lb.*,
-        lt.name as leave_type_name,
-        lt.description as leave_type_description,
-        lt.is_paid
-      FROM leave_balances lb
-      JOIN leave_types lt ON lb.leave_type_id = lt.id
-      WHERE lb.user_id = $1 AND lb.year = $2
-      ORDER BY lt.name
-    `,
-        [userId, year]
+        SELECT 
+          lb.*,
+          lt.name as leave_type_name,
+          lt.description as leave_type_description,
+          lt.is_paid,
+          lp.gender_specific
+        FROM leave_balances lb
+        JOIN leave_types lt ON lb.leave_type_id = lt.id
+        LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+        JOIN users u ON lb.user_id = u.id
+        WHERE lb.user_id = $1 
+        AND lb.year = $2
+        AND lt.is_active = true
+        AND lt.company_id = $3
+        AND (
+          lp.gender_specific IS NULL 
+          OR lp.gender_specific = u.gender
+        )
+        ORDER BY lt.name
+      `,
+        [userId, year, companyId]
       );
 
       res.json(result.rows);
@@ -2348,5 +2258,805 @@ router.get('/document/:id', [authMiddleware, managementMiddleware], async (req: 
     client.release();
   }
 });
+
+// Manually adjust leave balance with audit trail
+router.post(
+  "/leave-balance/adjust",
+  authMiddleware,
+  managementMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      const {
+        user_id,
+        leave_type_id,
+        year,
+        adjustment_days,
+        reason
+      } = req.body;
+
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      // Get company_id and validate access
+      const userResult = await client.query(
+        `SELECT u1.company_id, u2.company_id as target_company_id, lt.max_days
+        FROM users u1
+        JOIN users u2 ON u2.id = $1
+        JOIN leave_types lt ON lt.id = $2
+        WHERE u1.id = $3`,
+        [user_id, leave_type_id, req.user.id]
+      );
+
+      if (!userResult.rows.length) {
+        return res.status(404).json({ error: "User or leave type not found" });
+      }
+
+      const { company_id, target_company_id, max_days } = userResult.rows[0];
+
+      if (company_id !== target_company_id) {
+        return res.status(403).json({ error: "Cannot adjust leave balance for users from other companies" });
+      }
+
+      await client.query('BEGIN');
+
+      // Get current balance
+      const balanceResult = await client.query(
+        `SELECT * FROM leave_balances
+        WHERE user_id = $1 AND leave_type_id = $2 AND year = $3`,
+        [user_id, leave_type_id, year]
+      );
+
+      let currentBalance = balanceResult.rows[0];
+      let beforeValue = 0;
+      let afterValue = 0;
+
+      if (!currentBalance) {
+        // Create new balance record if it doesn't exist
+        const newBalanceResult = await client.query(
+          `INSERT INTO leave_balances
+          (user_id, leave_type_id, total_days, used_days, pending_days, year)
+          VALUES ($1, $2, $3, 0, 0, $4)
+          RETURNING *`,
+          [user_id, leave_type_id, Math.max(0, adjustment_days), year]
+        );
+        currentBalance = newBalanceResult.rows[0];
+        beforeValue = 0;
+        afterValue = adjustment_days;
+      } else {
+        // Update existing balance
+        beforeValue = currentBalance.total_days;
+        afterValue = Math.max(0, Math.min(max_days, beforeValue + adjustment_days));
+
+        await client.query(
+          `UPDATE leave_balances
+          SET total_days = $1,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2`,
+          [afterValue, currentBalance.id]
+        );
+      }
+
+      // Log the adjustment
+      await client.query(
+        `INSERT INTO manual_leave_adjustments
+        (user_id, leave_type_id, year, adjusted_by, before_value, after_value, reason)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [user_id, leave_type_id, year, req.user.id, beforeValue, afterValue, reason]
+      );
+
+      await client.query('COMMIT');
+
+      res.json({
+        message: "Leave balance adjusted successfully",
+        before_value: beforeValue,
+        after_value: afterValue,
+        adjustment: afterValue - beforeValue
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error("Error adjusting leave balance:", error);
+      res.status(500).json({ error: "Failed to adjust leave balance" });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Get leave balance adjustment history
+router.get(
+  "/leave-balance/adjustments",
+  authMiddleware,
+  managementMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      const { user_id, leave_type_id, year } = req.query;
+      
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      // Get company_id
+      const userResult = await client.query(
+        `SELECT company_id FROM users WHERE id = $1`,
+        [req.user.id]
+      );
+
+      const companyId = userResult.rows[0]?.company_id;
+      if (!companyId) {
+        return res.status(400).json({ error: "User not associated with any company" });
+      }
+
+      // Build query based on filters
+      let query = `
+        SELECT 
+          mla.*,
+          u1.name as user_name,
+          u2.name as adjusted_by_name,
+          lt.name as leave_type_name
+        FROM manual_leave_adjustments mla
+        JOIN users u1 ON mla.user_id = u1.id
+        JOIN users u2 ON mla.adjusted_by = u2.id
+        JOIN leave_types lt ON mla.leave_type_id = lt.id
+        WHERE u1.company_id = $1
+      `;
+      
+      const params = [companyId];
+      let paramCount = 1;
+
+      if (user_id) {
+        paramCount++;
+        query += ` AND mla.user_id = $${paramCount}`;
+        params.push(user_id);
+      }
+
+      if (leave_type_id) {
+        paramCount++;
+        query += ` AND mla.leave_type_id = $${paramCount}`;
+        params.push(leave_type_id);
+      }
+
+      if (year) {
+        paramCount++;
+        query += ` AND mla.year = $${paramCount}`;
+        params.push(year);
+      }
+
+      query += ` ORDER BY mla.created_at DESC`;
+
+      const result = await client.query(query, params);
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching adjustment history:", error);
+      res.status(500).json({ error: "Failed to fetch adjustment history" });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Get company default leave balances
+router.get(
+  "/default-balances",
+  authMiddleware,
+  managementMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      // Get company ID
+      const userResult = await client.query(
+        `SELECT company_id FROM users WHERE id = $1`,
+        [req.user.id]
+      );
+
+      const companyId = userResult.rows[0]?.company_id;
+      if (!companyId) {
+        return res.status(400).json({ error: "User not associated with any company" });
+      }
+
+      // Get default balances for all roles and leave types
+      const result = await client.query(`
+        SELECT 
+          lt.id as leave_type_id,
+          lt.name as leave_type_name,
+          lt.description,
+          lt.is_paid,
+          lt.requires_documentation,
+          cdb.role,
+          cdb.default_days,
+          cdb.carry_forward_days
+        FROM leave_types lt
+        LEFT JOIN company_default_leave_balances cdb ON lt.id = cdb.leave_type_id
+        WHERE lt.company_id = $1 AND lt.is_active = true
+        ORDER BY lt.name, cdb.role
+      `, [companyId]);
+
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching default leave balances:", error);
+      res.status(500).json({ error: "Failed to fetch default leave balances" });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Update company default leave balances
+router.post(
+  "/default-balances",
+  authMiddleware,
+  managementMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { leave_type_id, role, default_days, carry_forward_days } = req.body;
+
+      if (!leave_type_id || !role || default_days === undefined) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      // Get company ID and validate leave type belongs to company
+      const companyCheck = await client.query(
+        `SELECT company_id FROM leave_types WHERE id = $1`,
+        [leave_type_id]
+      );
+
+      if (!companyCheck.rows.length) {
+        return res.status(404).json({ error: "Leave type not found" });
+      }
+
+      // Update or insert default balance
+      await client.query(`
+        INSERT INTO company_default_leave_balances 
+        (leave_type_id, role, default_days, carry_forward_days)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (leave_type_id, role) 
+        DO UPDATE SET 
+          default_days = EXCLUDED.default_days,
+          carry_forward_days = EXCLUDED.carry_forward_days
+      `, [leave_type_id, role, default_days, carry_forward_days || 0]);
+
+      res.json({ message: "Default leave balance updated successfully" });
+    } catch (error) {
+      console.error("Error updating default leave balance:", error);
+      res.status(500).json({ error: "Failed to update default leave balance" });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Get user leave balances
+router.get(
+  "/user-balances/:userId",
+  authMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { userId } = req.params;
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const currentUserId = Number(req.user.id);
+      const targetUserId = Number(userId);
+
+      // Check authorization and get user details
+      const authCheck = await client.query(`
+        SELECT 
+          u1.company_id as user_company,
+          u1.role as user_role,
+          u2.company_id as target_company,
+          u2.group_admin_id,
+          u2.gender
+        FROM users u1
+        CROSS JOIN users u2
+        WHERE u1.id = $1 AND u2.id = $2
+      `, [currentUserId, targetUserId]);
+
+      if (!authCheck.rows.length) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const {
+        user_company,
+        user_role,
+        target_company,
+        group_admin_id,
+        gender
+      } = authCheck.rows[0];
+
+      console.log('User details:', { targetUserId, gender, target_company });
+
+      // Verify authorization
+      if (
+        user_company !== target_company || // Must be same company
+        (user_role === 'employee' && currentUserId !== targetUserId) || // Employees can only view their own
+        (user_role === 'group_admin' && Number(group_admin_id) !== currentUserId) // Group admins can only view their team
+      ) {
+        return res.status(403).json({ error: "Not authorized to view this user's leave balances" });
+      }
+
+      // Get leave balances with improved gender-specific filtering
+      const result = await client.query(`
+        WITH leave_types_with_policies AS (
+          SELECT 
+            lt.id,
+            lt.name,
+            lt.is_paid,
+            lt.max_days,
+            lt.is_active,
+            COALESCE(lp.gender_specific, NULL) as gender_specific,
+            COALESCE(lp.default_days, lt.max_days) as default_days,
+            COALESCE(lp.carry_forward_days, 0) as carry_forward_days
+          FROM leave_types lt
+          LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+          WHERE lt.company_id = $3
+            AND lt.is_active = true
+        )
+        SELECT 
+          ltp.id as leave_type_id,
+          ltp.name as leave_type_name,
+          ltp.is_paid,
+          COALESCE(lb.total_days, ltp.default_days) as total_days,
+          COALESCE(lb.used_days, 0) as used_days,
+          COALESCE(lb.pending_days, 0) as pending_days,
+          COALESCE(lb.carry_forward_days, ltp.carry_forward_days) as carry_forward_days,
+          $2 as year,
+          ltp.gender_specific
+        FROM leave_types_with_policies ltp
+        LEFT JOIN leave_balances lb ON 
+          ltp.id = lb.leave_type_id 
+          AND lb.user_id = $1 
+          AND lb.year = $2
+        WHERE 
+          (
+            ltp.gender_specific IS NULL 
+            OR ltp.gender_specific = $4
+            OR $4 IS NULL
+          )
+        ORDER BY ltp.name
+      `, [targetUserId, year, target_company, gender]);
+
+      console.log('Leave balance query result:', {
+        userGender: gender,
+        rowCount: result.rows.length,
+        leaveTypes: result.rows.map(row => ({
+          name: row.leave_type_name,
+          genderSpecific: row.gender_specific
+        }))
+      });
+
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching user leave balances:", error);
+      res.status(500).json({ error: "Failed to fetch user leave balances" });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Update user leave balance
+router.post(
+  "/user-balances/:userId",
+  authMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { userId } = req.params;
+      const { leave_type_id, total_days, carry_forward_days, year } = req.body;
+
+      console.log('Updating balance for:', { userId, leave_type_id, total_days, carry_forward_days, year });
+
+      if (!leave_type_id || total_days === undefined || !year) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      // Validate numeric values
+      if (total_days < 0 || (carry_forward_days && carry_forward_days < 0)) {
+        return res.status(400).json({ error: "Days cannot be negative" });
+      }
+
+      await client.query("BEGIN");
+
+      // Check authorization
+      const authCheck = await client.query(`
+        SELECT 
+          u1.company_id as user_company,
+          u1.role as user_role,
+          u2.company_id as target_company,
+          u2.group_admin_id
+        FROM users u1
+        CROSS JOIN users u2
+        WHERE u1.id = $1 AND u2.id = $2
+      `, [req.user.id, userId]);
+
+      if (!authCheck.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const {
+        user_company,
+        user_role,
+        target_company,
+        group_admin_id
+      } = authCheck.rows[0];
+
+      // Verify authorization
+      if (
+        user_company !== target_company || // Must be same company
+        user_role === 'employee' || // Employees cannot modify balances
+        (user_role === 'group_admin' && Number(group_admin_id) !== Number(req.user.id)) // Group admins can only modify their team
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Not authorized to modify this user's leave balances" });
+      }
+
+      // Verify leave type belongs to company
+      const leaveTypeCheck = await client.query(
+        `SELECT id, max_days FROM leave_types WHERE id = $1 AND company_id = $2`,
+        [leave_type_id, user_company]
+      );
+
+      if (!leaveTypeCheck.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Leave type not found" });
+      }
+
+      // Check if total_days exceeds max_days
+      const { max_days } = leaveTypeCheck.rows[0];
+      if (max_days > 0 && total_days > max_days) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ 
+          error: "Total days exceeds maximum allowed",
+          details: `Maximum allowed days for this leave type is ${max_days}`
+        });
+      }
+
+      // Get current balance to check used days
+      const currentBalance = await client.query(
+        `SELECT used_days, pending_days FROM leave_balances 
+         WHERE user_id = $1 AND leave_type_id = $2 AND year = $3`,
+        [userId, leave_type_id, year]
+      );
+
+      const used_days = currentBalance.rows[0]?.used_days || 0;
+      const pending_days = currentBalance.rows[0]?.pending_days || 0;
+
+      // Ensure new total_days isn't less than already used or pending days
+      if (total_days < (used_days + pending_days)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ 
+          error: "Total days cannot be less than used + pending days",
+          details: `User has already used ${used_days} days and has ${pending_days} pending days`
+        });
+      }
+
+      // Update or insert leave balance
+      const result = await client.query(`
+        INSERT INTO leave_balances 
+        (user_id, leave_type_id, total_days, carry_forward_days, year, used_days, pending_days)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (user_id, leave_type_id, year) 
+        DO UPDATE SET 
+          total_days = EXCLUDED.total_days,
+          carry_forward_days = EXCLUDED.carry_forward_days,
+          updated_at = NOW()
+        RETURNING *
+      `, [
+        userId,
+        leave_type_id,
+        total_days,
+        carry_forward_days || 0,
+        year,
+        used_days,
+        pending_days
+      ]);
+
+      // Try to log the update, but don't fail if audit table doesn't exist
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS leave_balance_audit_log (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            leave_type_id INTEGER REFERENCES leave_types(id),
+            year INTEGER,
+            old_total_days INTEGER,
+            new_total_days INTEGER,
+            old_carry_forward_days INTEGER,
+            new_carry_forward_days INTEGER,
+            modified_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+
+        await client.query(`
+          INSERT INTO leave_balance_audit_log
+          (user_id, leave_type_id, year, old_total_days, new_total_days, 
+           old_carry_forward_days, new_carry_forward_days, modified_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          userId,
+          leave_type_id,
+          year,
+          currentBalance.rows[0]?.total_days || 0,
+          total_days,
+          currentBalance.rows[0]?.carry_forward_days || 0,
+          carry_forward_days || 0,
+          req.user.id
+        ]);
+      } catch (auditError) {
+        // Log audit error but don't fail the transaction
+        console.warn('Failed to log balance update to audit log:', auditError);
+      }
+
+      await client.query("COMMIT");
+
+      console.log('Successfully updated balance:', result.rows[0]);
+      res.json(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Error updating user leave balance:", error);
+      res.status(500).json({ 
+        error: "Failed to update user leave balance",
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Initialize default leave balances for all users in a company
+router.post(
+  "/initialize-default-balances",
+  authMiddleware,
+  managementMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      await client.query('BEGIN');
+
+      // Get company ID and role
+      const userResult = await client.query(
+        `SELECT company_id, role FROM users WHERE id = $1`,
+        [req.user.id]
+      );
+
+      const companyId = userResult.rows[0]?.company_id;
+      if (!companyId) {
+        return res.status(400).json({ error: "User not associated with any company" });
+      }
+
+      // Get all users under management's company with their gender
+      const usersResult = await client.query(
+        `SELECT id, role, gender FROM users WHERE company_id = $1`,
+        [companyId]
+      );
+
+      // Get all active leave types and their default values
+      const leaveTypesResult = await client.query(`
+        SELECT 
+          lt.id,
+          lt.name,
+          lt.max_days,
+          lt.is_active,
+          COALESCE(lp.default_days, lt.max_days) as default_days,
+          COALESCE(lp.carry_forward_days, 0) as carry_forward_days,
+          lp.gender_specific
+        FROM leave_types lt
+        LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+        WHERE lt.company_id = $1 
+        AND lt.is_active = true
+      `, [companyId]);
+
+      console.log('Leave types with defaults:', JSON.stringify(leaveTypesResult.rows, null, 2));
+
+      let initializationCount = 0;
+      const year = new Date().getFullYear();
+
+      // For each user
+      for (const user of usersResult.rows) {
+        console.log(`Processing user ${user.id} with role ${user.role} and gender ${user.gender || 'unspecified'}`);
+        
+        // For each leave type
+        for (const leaveType of leaveTypesResult.rows) {
+          // Skip gender-specific leaves if gender doesn't match
+          if (leaveType.gender_specific) {
+            if (!user.gender || leaveType.gender_specific !== user.gender) {
+              console.log(`Skipping ${leaveType.name} for user ${user.id} due to gender mismatch`);
+              continue;
+            }
+          }
+
+          // Check if balance already exists
+          const existingBalance = await client.query(
+            `SELECT id FROM leave_balances 
+             WHERE user_id = $1 AND leave_type_id = $2 AND year = $3`,
+            [user.id, leaveType.id, year]
+          );
+
+          if (existingBalance.rows.length === 0) {
+            // Get role-specific defaults if they exist
+            const roleDefaultResult = await client.query(`
+              SELECT default_days, carry_forward_days 
+              FROM company_default_leave_balances 
+              WHERE company_id = $1 
+              AND leave_type_id = $2 
+              AND role = $3`,
+              [companyId, leaveType.id, user.role]
+            );
+
+            // Use role-specific defaults or fallback to leave type/policy defaults
+            const defaultDays = roleDefaultResult.rows[0]?.default_days || leaveType.default_days || leaveType.max_days || 0;
+            const carryForwardDays = roleDefaultResult.rows[0]?.carry_forward_days || leaveType.carry_forward_days || 0;
+
+            console.log(`Setting up leave balance for user ${user.id}, leave type ${leaveType.name}:`, {
+              defaultDays,
+              carryForwardDays,
+              roleSpecific: roleDefaultResult.rows.length > 0,
+              genderSpecific: leaveType.gender_specific
+            });
+
+            // Insert new balance
+            await client.query(
+              `INSERT INTO leave_balances 
+               (user_id, leave_type_id, total_days, used_days, pending_days, carry_forward_days, year)
+               VALUES ($1, $2, $3, 0, 0, $4, $5)`,
+              [user.id, leaveType.id, defaultDays, carryForwardDays, year]
+            );
+
+            initializationCount++;
+          }
+        }
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: `Successfully initialized ${initializationCount} leave balances`,
+        details: {
+          users_processed: usersResult.rows.length,
+          leave_types_processed: leaveTypesResult.rows.length,
+          balances_initialized: initializationCount
+        }
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error("Error initializing default balances:", error);
+      res.status(500).json({ 
+        success: false,
+        error: "Failed to initialize default balances",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Get user's leave balances for active leave types
+router.get(
+  "/leave-types",
+  authMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const userId = req.user.id;
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+
+      // Get user details including company and gender
+      const userResult = await client.query(
+        `SELECT company_id, gender FROM users WHERE id = $1`,
+        [userId]
+      );
+
+      if (!userResult.rows.length) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const { company_id: companyId, gender } = userResult.rows[0];
+
+      if (!companyId) {
+        return res.status(400).json({ error: "User not associated with any company" });
+      }
+
+      // Get user's actual leave balances for active leave types with gender-specific filtering
+      const result = await client.query(
+        `WITH leave_types_with_policies AS (
+          SELECT 
+            lt.id,
+            lt.name,
+            lt.description,
+            lt.requires_documentation,
+            lt.max_days,
+            lt.is_paid,
+            lt.is_active,
+            COALESCE(lp.gender_specific, NULL) as gender_specific,
+            COALESCE(lp.default_days, lt.max_days) as default_days,
+            COALESCE(lp.carry_forward_days, 0) as carry_forward_days
+          FROM leave_types lt
+          LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+          WHERE lt.company_id = $1
+            AND lt.is_active = true
+        )
+        SELECT 
+          ltp.id as leave_type_id,
+          ltp.name as leave_type_name,
+          ltp.description,
+          ltp.requires_documentation,
+          ltp.max_days,
+          ltp.is_paid,
+          ltp.is_active,
+          COALESCE(lb.total_days, ltp.default_days) as total_days,
+          COALESCE(lb.used_days, 0) as used_days,
+          COALESCE(lb.pending_days, 0) as pending_days,
+          COALESCE(lb.carry_forward_days, ltp.carry_forward_days) as carry_forward_days,
+          $2 as year,
+          ltp.gender_specific
+        FROM leave_types_with_policies ltp
+        LEFT JOIN leave_balances lb ON 
+          ltp.id = lb.leave_type_id 
+          AND lb.user_id = $3 
+          AND lb.year = $2
+        WHERE 
+          (
+            ltp.gender_specific IS NULL 
+            OR ltp.gender_specific = $4
+            OR $4 IS NULL
+          )
+        ORDER BY ltp.name ASC`,
+        [companyId, year, userId, gender]
+      );
+
+      console.log('Leave types query result:', {
+        userId,
+        companyId,
+        userGender: gender,
+        rowCount: result.rows.length,
+        leaveTypes: result.rows.map(row => ({
+          name: row.leave_type_name,
+          genderSpecific: row.gender_specific,
+          totalDays: row.total_days,
+          usedDays: row.used_days
+        }))
+      });
+
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching leave types:", error);
+      res.status(500).json({ error: "Failed to fetch leave types" });
+    } finally {
+      client.release();
+    }
+  }
+);
 
 export default router; 

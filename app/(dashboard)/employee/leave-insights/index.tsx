@@ -5,10 +5,11 @@ import ThemeContext from '../../../context/ThemeContext';
 import LeaveRequests from './components/LeaveRequests';
 import LeavePolicies from './components/LeavePolicies';
 import LeaveBalances from './components/LeaveBalances';
+import LeaveCalendar from './components/LeaveCalendar';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
-type Tab = 'requests' | 'balances' | 'policies';
+type Tab = 'requests' | 'balances' | 'policies' | 'calendar';
 
 interface TabItem {
   id: Tab;
@@ -38,6 +39,13 @@ export default function EmployeeLeaveInsights() {
       icon: 'wallet-outline',
       activeIcon: 'wallet',
       color: '#F59E0B'
+    },
+    {
+      id: 'calendar',
+      label: 'Calendar',
+      icon: 'calendar-outline',
+      activeIcon: 'calendar',
+      color: '#8B5CF6'
     },
     {
       id: 'policies',
@@ -144,6 +152,8 @@ export default function EmployeeLeaveInsights() {
           <LeaveRequests />
         ) : activeTab === 'balances' ? (
           <LeaveBalances />
+        ) : activeTab === 'calendar' ? (
+          <LeaveCalendar />
         ) : (
           <LeavePolicies />
         )}

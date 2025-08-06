@@ -103,7 +103,7 @@ interface NotificationResult {
   };
 }
 
-class NotificationService {
+export class NotificationService {
   private expo: Expo;
   private messaging: admin.messaging.Messaging;
 

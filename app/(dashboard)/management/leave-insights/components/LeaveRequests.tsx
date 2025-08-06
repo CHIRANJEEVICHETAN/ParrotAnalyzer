@@ -26,12 +26,19 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
   
 interface LeaveType {
-  id: number;
-  name: string;
+  leave_type_id: number;
+  leave_type_name: string;
   description: string;
   requires_documentation: boolean;
   max_days: number;
   is_paid: boolean;
+  is_active: boolean;
+  total_days: number;
+  used_days: number;
+  pending_days: number;
+  carry_forward_days: number;
+  year: number;
+  gender_specific: string | null;
 }
 
 interface LeaveRequest {
@@ -76,6 +83,7 @@ export default function LeaveRequests() {
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [leaveTypesLoading, setLeaveTypesLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,12 +117,49 @@ export default function LeaveRequests() {
 
   const fetchLeaveTypes = async () => {
     try {
+      setLeaveTypesLoading(true);
       const response = await axios.get(
         `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/leave-types`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (response.data) {
-        setLeaveTypes(response.data);
+      
+      console.log('Leave types response:', response.data);
+      
+      if (response.data && Array.isArray(response.data)) {
+        // Validate and transform the data to ensure all required fields exist
+        const validatedLeaveTypes = response.data
+          .filter((type: any) => 
+            type && 
+            type.leave_type_id !== undefined && 
+            type.leave_type_name && 
+            type.is_active === true
+          )
+          .map((type: any) => ({
+            leave_type_id: type.leave_type_id,
+            leave_type_name: type.leave_type_name,
+            description: type.description || '',
+            requires_documentation: type.requires_documentation || false,
+            max_days: type.max_days || 0,
+            is_paid: type.is_paid !== undefined ? type.is_paid : true,
+            is_active: type.is_active !== undefined ? type.is_active : true,
+            total_days: type.total_days || 0,
+            used_days: type.used_days || 0,
+            pending_days: type.pending_days || 0,
+            carry_forward_days: type.carry_forward_days || 0,
+            year: type.year || new Date().getFullYear(),
+            gender_specific: type.gender_specific || null
+          }));
+        
+        console.log('Validated leave types:', validatedLeaveTypes);
+        setLeaveTypes(validatedLeaveTypes);
+      } else {
+        console.error('Invalid leave types data format:', response.data);
+        setErrorModal({
+          visible: true,
+          title: 'Data Error',
+          message: 'Invalid leave types data received from server',
+          type: 'error'
+        });
       }
     } catch (error) {
       console.error('Error fetching leave types:', error);
@@ -124,6 +169,8 @@ export default function LeaveRequests() {
         message: 'Failed to fetch leave types. Please try again.',
         type: 'error'
       });
+    } finally {
+      setLeaveTypesLoading(false);
     }
   };
 
@@ -413,7 +460,15 @@ export default function LeaveRequests() {
 
   // Update leave type selection to track documentation requirement
   const handleLeaveTypeChange = (value: string) => {
-    const selectedType = leaveTypes.find(type => type.id.toString() === value);
+    if (!value) {
+      setSelectedLeaveType(null);
+      setFormData(prev => ({ ...prev, leave_type_id: '' }));
+      return;
+    }
+    
+    const selectedType = leaveTypes.find(type => 
+      type.leave_type_id && type.leave_type_id.toString() === value
+    );
     setSelectedLeaveType(selectedType || null);
     setFormData(prev => ({ ...prev, leave_type_id: value }));
   };
@@ -432,6 +487,9 @@ export default function LeaveRequests() {
     return (
       <View className="flex-1 justify-center items-center">
         <ActivityIndicator size="large" color="#3B82F6" />
+        <Text className={`mt-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+          Loading leave requests...
+        </Text>
       </View>
     );
   }
@@ -652,20 +710,29 @@ export default function LeaveRequests() {
                   isDark ? "border-gray-700" : "border-gray-200"
                 }`}
               >
-                <Picker
-                  selectedValue={formData.leave_type_id}
-                  onValueChange={handleLeaveTypeChange}
-                  style={{ color: isDark ? "#FFFFFF" : "#111827" }}
-                >
-                  <Picker.Item label="Select Leave Type" value="" />
-                  {leaveTypes.map((type) => (
-                    <Picker.Item
-                      key={type.id}
-                      label={type.name}
-                      value={type.id.toString()}
-                    />
-                  ))}
-                </Picker>
+                {leaveTypesLoading ? (
+                  <View className="p-3 items-center">
+                    <ActivityIndicator size="small" color="#3B82F6" />
+                    <Text className={`mt-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Loading leave types...
+                    </Text>
+                  </View>
+                ) : (
+                  <Picker
+                    selectedValue={formData.leave_type_id}
+                    onValueChange={handleLeaveTypeChange}
+                    style={{ color: isDark ? "#FFFFFF" : "#111827" }}
+                  >
+                    <Picker.Item label="Select Leave Type" value="" />
+                    {leaveTypes.map((type) => (
+                      <Picker.Item
+                        key={type.leave_type_id || `type-${Math.random()}`}
+                        label={type.leave_type_name || 'Unknown Leave Type'}
+                        value={type.leave_type_id ? type.leave_type_id.toString() : ''}
+                      />
+                    ))}
+                  </Picker>
+                )}
               </View>
             </View>
 
