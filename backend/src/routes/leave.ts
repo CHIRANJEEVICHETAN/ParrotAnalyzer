@@ -585,84 +585,123 @@ router.post(
   }
 );
 
-// Get team calendar data
-router.get('/team-calendar', authMiddleware, async (req: CustomRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    if (!req.user?.id) {
-      return res.status(401).json({ error: 'Authentication required' });
+// Get team calendar data for leave requests
+router.get(
+  "/team-calendar",
+  authMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { start_date, end_date } = req.query;
+      
+      if (!start_date || !end_date) {
+        return res.status(400).json({ 
+          error: "start_date and end_date are required" 
+        });
+      }
+
+      // Get user's company_id
+      const userResult = await client.query(
+        `SELECT company_id FROM users WHERE id = $1`,
+        [req.user.id]
+      );
+
+      if (!userResult.rows.length) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const companyId = userResult.rows[0].company_id;
+
+      // Get all leave requests for the company within the date range
+      const result = await client.query(
+        `SELECT 
+          lr.id,
+          lr.user_id,
+          u.name as employee_name,
+          lt.name as leave_type,
+          lr.start_date,
+          lr.end_date,
+          lr.status,
+          lt.is_paid
+        FROM leave_requests lr
+        JOIN users u ON lr.user_id = u.id
+        JOIN leave_types lt ON lr.leave_type_id = lt.id
+        WHERE u.company_id = $1 
+          AND lr.start_date >= $2 
+          AND lr.end_date <= $3
+          AND lr.status IN ('pending', 'approved')
+        ORDER BY lr.start_date ASC`,
+        [companyId, start_date, end_date]
+      );
+
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching team calendar:", error);
+      res.status(500).json({ error: "Failed to fetch team calendar data" });
+    } finally {
+      client.release();
     }
-
-    const { start_date, end_date } = req.query;
-    if (!start_date || !end_date) {
-      return res.status(400).json({ error: 'Start and end dates are required' });
-    }
-
-    // Get user's company ID and role
-    const userResult = await client.query(
-      `SELECT company_id, role FROM users WHERE id = $1`,
-      [req.user.id]
-    );
-
-    if (!userResult.rows.length) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const companyId = userResult.rows[0].company_id;
-    const userRole = userResult.rows[0].role;
-
-    // Build query based on user role
-    let query = `
-      SELECT 
-        lr.id,
-        lr.user_id,
-        u.name as employee_name,
-        lt.name as leave_type,
-        lr.start_date,
-        lr.end_date,
-        lr.status,
-        lt.is_paid
-      FROM leave_requests lr
-      JOIN users u ON lr.user_id = u.id
-      JOIN leave_types lt ON lr.leave_type_id = lt.id
-      WHERE lt.company_id = $1
-      AND lr.start_date <= $3::date
-      AND lr.end_date >= $2::date
-      AND lr.status IN ('pending', 'approved')
-    `;
-
-    const queryParams = [companyId, start_date, end_date];
-
-    // Add role-specific filters
-    if (userRole === 'employee') {
-      // For employees, show only their team members (same group admin)
-      query += ` AND (
-        lr.user_id = $4
-        OR u.group_admin_id = (SELECT group_admin_id FROM users WHERE id = $4)
-      )`;
-      queryParams.push(req.user.id);
-    } else if (userRole === 'group_admin') {
-      // For group admins, show their team members
-      query += ` AND (
-        lr.user_id = $4
-        OR u.group_admin_id = $4
-      )`;
-      queryParams.push(req.user.id);
-    }
-    // For management, show all company leaves (no additional filter needed)
-
-    query += ` ORDER BY lr.start_date ASC`;
-
-    const result = await client.query(query, queryParams);
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching team calendar:', error);
-    res.status(500).json({ error: 'Failed to fetch team calendar' });
-  } finally {
-    client.release();
   }
-});
+);
+
+// Get company holidays
+router.get(
+  "/holidays",
+  authMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { start_date, end_date } = req.query;
+      
+      if (!start_date || !end_date) {
+        return res.status(400).json({ 
+          error: "start_date and end_date are required" 
+        });
+      }
+
+      // Get user's company_id
+      const userResult = await client.query(
+        `SELECT company_id FROM users WHERE id = $1`,
+        [req.user.id]
+      );
+
+      if (!userResult.rows.length) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const companyId = userResult.rows[0].company_id;
+
+      // Get holidays for the company within the date range
+      const result = await client.query(
+        `SELECT 
+          date,
+          name,
+          is_full_day
+        FROM company_holidays
+        WHERE company_id = $1 
+          AND date >= $2 
+          AND date <= $3
+        ORDER BY date ASC`,
+        [companyId, start_date, end_date]
+      );
+
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching holidays:", error);
+      res.status(500).json({ error: "Failed to fetch holidays data" });
+    } finally {
+      client.release();
+    }
+  }
+);
 
 // Helper function to calculate working days between two dates (excluding weekends)
 function calculateWorkingDays(startDate: Date, endDate: Date): number {

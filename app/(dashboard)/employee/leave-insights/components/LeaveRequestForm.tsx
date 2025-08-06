@@ -87,11 +87,30 @@ export default function LeaveRequestForm({ onSuccess }: { onSuccess: () => void 
       }
 
       const response = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/leave/types`,
+        `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/leave-types`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
-      setLeaveTypes(response.data);
+      if (response.data && Array.isArray(response.data)) {
+        // Transform the data to match the expected interface
+        const transformedLeaveTypes = response.data.map((type: any) => ({
+          id: type.leave_type_id,
+          name: type.leave_type_name,
+          description: type.description || '',
+          requires_documentation: type.requires_documentation || false,
+          max_days: type.max_days || 0,
+          is_paid: type.is_paid !== undefined ? type.is_paid : true,
+          default_days: type.total_days || 0,
+          carry_forward_days: type.carry_forward_days || 0,
+          min_service_days: 0, // Default value
+          notice_period_days: 0, // Default value
+          max_consecutive_days: type.max_days || 30, // Use max_days as default
+          gender_specific: type.gender_specific || null
+        }));
+        setLeaveTypes(transformedLeaveTypes);
+      } else {
+        setLeaveTypes([]);
+      }
     } catch (error: any) {
       console.error('Error fetching leave types:', error);
       setError(error.response?.data?.error || 'Failed to fetch leave types');
@@ -103,14 +122,12 @@ export default function LeaveRequestForm({ onSuccess }: { onSuccess: () => void 
       const token = await AsyncStorage.getItem('auth_token');
       if (!token) return;
 
-      const response = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/holidays`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
-
-      setHolidays(response.data);
+      // Since holidays endpoint doesn't exist, we'll set an empty array
+      // You can implement holidays functionality later if needed
+      setHolidays([]);
     } catch (error) {
       console.error('Error fetching holidays:', error);
+      setHolidays([]);
     }
   };
 
@@ -124,18 +141,37 @@ export default function LeaveRequestForm({ onSuccess }: { onSuccess: () => void 
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
-      const balance = response.data.find((b: any) => b.leave_type_id === leaveTypeId);
-      if (balance) {
-        setLeaveBalance({
-          total_days: balance.total_days,
-          used_days: balance.used_days,
-          pending_days: balance.pending_days,
-          carry_forward_days: balance.carry_forward_days,
-          available_days: balance.available_days,
-        });
+      if (response.data && Array.isArray(response.data)) {
+        const balance = response.data.find((b: any) => b.leave_type_id === leaveTypeId);
+        if (balance) {
+          setLeaveBalance({
+            total_days: balance.total_days || 0,
+            used_days: balance.used_days || 0,
+            pending_days: balance.pending_days || 0,
+            carry_forward_days: balance.carry_forward_days || 0,
+            available_days: (balance.total_days || 0) + (balance.carry_forward_days || 0) - (balance.used_days || 0) - (balance.pending_days || 0),
+          });
+        } else {
+          // If no balance found, set default values
+          setLeaveBalance({
+            total_days: 0,
+            used_days: 0,
+            pending_days: 0,
+            carry_forward_days: 0,
+            available_days: 0,
+          });
+        }
       }
     } catch (error) {
       console.error('Error fetching leave balance:', error);
+      // Set default values on error
+      setLeaveBalance({
+        total_days: 0,
+        used_days: 0,
+        pending_days: 0,
+        carry_forward_days: 0,
+        available_days: 0,
+      });
     }
   };
 

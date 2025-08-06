@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
 }); 

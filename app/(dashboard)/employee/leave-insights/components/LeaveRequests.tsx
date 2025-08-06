@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import LeaveRequestForm from './LeaveRequestForm';
+import RequestLeaveModal from './RequestLeaveModal';
 import Modal from 'react-native-modal';
 
 interface LeaveRequest {
@@ -65,6 +65,7 @@ export default function LeaveRequests() {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showRequestForm, setShowRequestForm] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [dateRange, setDateRange] = useState<{
     start: Date | null;
     end: Date | null;
@@ -75,9 +76,15 @@ export default function LeaveRequests() {
     field: SortField;
     order: SortOrder;
   }>({ field: 'created_at', order: 'desc' });
+  
+  // RequestLeaveModal props
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([]);
+  const [balances, setBalances] = useState<any[]>([]);
 
   useEffect(() => {
     fetchRequests();
+    fetchLeaveTypes();
+    fetchBalances();
   }, []);
 
   const fetchRequests = async () => {
@@ -102,6 +109,56 @@ export default function LeaveRequests() {
       setError(error.response?.data?.error || 'Failed to fetch leave requests');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLeaveTypes = async () => {
+    try {
+      const token = await AsyncStorage.getItem('auth_token');
+      if (!token) return;
+
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/leave-management/leave-types`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+
+      if (response.data && Array.isArray(response.data)) {
+        const transformedLeaveTypes = response.data.map((type: any) => ({
+          id: type.leave_type_id,
+          name: type.leave_type_name,
+          requires_documentation: type.requires_documentation || false,
+          max_days: type.max_days || 0,
+          max_consecutive_days: type.max_days || 30,
+          notice_period_days: 0, // Default value
+        }));
+        setLeaveTypes(transformedLeaveTypes);
+      }
+    } catch (error) {
+      console.error('Error fetching leave types:', error);
+    }
+  };
+
+  const fetchBalances = async () => {
+    try {
+      const token = await AsyncStorage.getItem('auth_token');
+      if (!token) return;
+
+      const response = await axios.get(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/leave/balance?year=${new Date().getFullYear()}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+
+      if (response.data && Array.isArray(response.data)) {
+        const transformedBalances = response.data.map((balance: any) => ({
+          id: balance.leave_type_id,
+          name: balance.leave_type_name,
+          max_days: balance.total_days || 0,
+          days_used: balance.used_days || 0,
+        }));
+        setBalances(transformedBalances);
+      }
+    } catch (error) {
+      console.error('Error fetching balances:', error);
     }
   };
 
@@ -279,38 +336,6 @@ export default function LeaveRequests() {
   return (
     <ScrollView className="flex-1">
       <View className="p-4">
-        {/* Create Request Button */}
-        <TouchableOpacity
-          onPress={() => setShowRequestForm(true)}
-          className={`mb-4 p-4 rounded-lg flex-row items-center justify-center ${
-            isDark ? 'bg-blue-600' : 'bg-blue-500'
-          }`}
-        >
-          <Ionicons 
-            name="add-circle-outline" 
-            size={24} 
-            color="white" 
-            style={{ marginRight: 8 }}
-          />
-          <Text className="text-white font-medium text-lg">
-            Create Leave Request
-          </Text>
-        </TouchableOpacity>
-
-        {/* Leave Request Form Modal */}
-        <Modal
-          isVisible={showRequestForm}
-          onBackdropPress={() => setShowRequestForm(false)}
-          useNativeDriver
-          style={{ margin: 0, justifyContent: 'flex-end' }}
-        >
-          <View className={`rounded-t-3xl ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
-            <LeaveRequestForm
-              onSuccess={handleRequestSubmit}
-            />
-          </View>
-        </Modal>
-
         {/* Search Bar */}
         <View className={`mb-4 flex-row items-center p-2 rounded-lg ${
           isDark ? 'bg-gray-800' : 'bg-white'
@@ -337,38 +362,229 @@ export default function LeaveRequests() {
               />
             </TouchableOpacity>
           ) : null}
-        </View>
-
-        {/* Date Range Filters */}
-        <View className="mb-4 flex-row justify-between">
-          <TouchableOpacity
-            onPress={() => setShowStartPicker(true)}
-            className={`flex-1 mr-2 p-3 rounded-lg ${
-              isDark ? 'bg-gray-800' : 'bg-white'
-            }`}
+          <TouchableOpacity 
+            onPress={() => setShowFilterModal(true)}
+            className="ml-2 p-1"
           >
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              From
-            </Text>
-            <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-              {dateRange.start ? format(dateRange.start, 'dd MMM yyyy') : 'Select date'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setShowEndPicker(true)}
-            className={`flex-1 p-3 rounded-lg ${
-              isDark ? 'bg-gray-800' : 'bg-white'
-            }`}
-          >
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              To
-            </Text>
-            <Text className={isDark ? 'text-white' : 'text-gray-900'}>
-              {dateRange.end ? format(dateRange.end, 'dd MMM yyyy') : 'Select date'}
-            </Text>
+            <Ionicons 
+              name="filter" 
+              size={20} 
+              color={isDark ? '#9CA3AF' : '#6B7280'} 
+            />
           </TouchableOpacity>
         </View>
+
+        {/* Summary Cards and New Request Button - All on same line */}
+        <View className="flex-row items-center justify-between mb-6">
+          {/* Total Requests Card */}
+          <View className={`flex-1 mr-2 p-3 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              Total Requests
+            </Text>
+            <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {requests.length}
+            </Text>
+          </View>
+
+          {/* Pending Requests Card */}
+          <View className={`flex-1 mr-2 p-3 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+            <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              Pending Requests
+            </Text>
+            <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {requests.filter(r => r.status === 'pending').length}
+            </Text>
+          </View>
+
+          {/* New Request Button */}
+          <TouchableOpacity
+            onPress={() => setShowRequestForm(true)}
+            className={`p-3 rounded-lg flex-row items-center justify-center ${
+              isDark ? 'bg-blue-600' : 'bg-blue-500'
+            }`}
+            style={{ minWidth: 100 }}
+          >
+            <Ionicons 
+              name="add-circle-outline" 
+              size={20} 
+              color="white" 
+              style={{ marginRight: 4 }}
+            />
+            <Text className="text-white font-medium text-sm">
+              New Request
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Leave Request Form Modal */}
+        <RequestLeaveModal
+          visible={showRequestForm}
+          onClose={() => setShowRequestForm(false)}
+          onSuccess={handleRequestSubmit}
+          leaveTypes={leaveTypes}
+          balances={balances}
+        />
+
+        {/* Filter Modal */}
+        <Modal
+          isVisible={showFilterModal}
+          onBackdropPress={() => setShowFilterModal(false)}
+          useNativeDriver
+          style={{ margin: 0, justifyContent: 'flex-end' }}
+        >
+          <View className={`rounded-t-3xl ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+            <View className="p-6">
+              {/* Modal Header */}
+              <View className="flex-row justify-between items-center mb-6">
+                <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Filters
+                </Text>
+                <TouchableOpacity onPress={() => setShowFilterModal(false)}>
+                  <Ionicons 
+                    name="close" 
+                    size={24} 
+                    color={isDark ? '#9CA3AF' : '#6B7280'} 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Date Range Filters */}
+              <View className="mb-6">
+                <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Date Range
+                </Text>
+                <View className="flex-row justify-between">
+                  <TouchableOpacity
+                    onPress={() => setShowStartPicker(true)}
+                    className={`flex-1 mr-2 p-3 rounded-lg ${
+                      isDark ? 'bg-gray-800' : 'bg-white'
+                    }`}
+                  >
+                    <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      From
+                    </Text>
+                    <Text className={isDark ? 'text-white' : 'text-gray-900'}>
+                      {dateRange.start ? format(dateRange.start, 'dd MMM yyyy') : 'Select date'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setShowEndPicker(true)}
+                    className={`flex-1 p-3 rounded-lg ${
+                      isDark ? 'bg-gray-800' : 'bg-white'
+                    }`}
+                  >
+                    <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      To
+                    </Text>
+                    <Text className={isDark ? 'text-white' : 'text-gray-900'}>
+                      {dateRange.end ? format(dateRange.end, 'dd MMM yyyy') : 'Select date'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Status Filter */}
+              <View className="mb-6">
+                <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Status
+                </Text>
+                <View className="flex-row flex-wrap">
+                  {['all', 'pending', 'approved', 'rejected', 'cancelled'].map((status) => (
+                    <TouchableOpacity
+                      key={status}
+                      onPress={() => setSelectedStatus(status)}
+                      className={`mr-2 mb-2 px-4 py-2 rounded-full ${
+                        selectedStatus === status
+                          ? 'bg-blue-500'
+                          : isDark ? 'bg-gray-700' : 'bg-gray-200'
+                      }`}
+                    >
+                      <Text
+                        className={
+                          selectedStatus === status
+                            ? 'text-white'
+                            : isDark ? 'text-gray-300' : 'text-gray-700'
+                        }
+                      >
+                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Sort Options */}
+              <View className="mb-6">
+                <Text className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Sort By
+                </Text>
+                <View className="flex-row flex-wrap">
+                  <TouchableOpacity
+                    onPress={() => handleSort('created_at')}
+                    className={`mr-2 mb-2 px-4 py-2 rounded-lg ${
+                      sortConfig.field === 'created_at'
+                        ? 'bg-blue-500'
+                        : isDark ? 'bg-gray-700' : 'bg-gray-200'
+                    }`}
+                  >
+                    <Text className={
+                      sortConfig.field === 'created_at'
+                        ? 'text-white'
+                        : isDark ? 'text-gray-300' : 'text-gray-700'
+                    }>
+                      Date {sortConfig.field === 'created_at' && (sortConfig.order === 'asc' ? '↑' : '↓')}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handleSort('days_requested')}
+                    className={`mr-2 mb-2 px-4 py-2 rounded-lg ${
+                      sortConfig.field === 'days_requested'
+                        ? 'bg-blue-500'
+                        : isDark ? 'bg-gray-700' : 'bg-gray-200'
+                    }`}
+                  >
+                    <Text className={
+                      sortConfig.field === 'days_requested'
+                        ? 'text-white'
+                        : isDark ? 'text-gray-300' : 'text-gray-700'
+                    }>
+                      Days {sortConfig.field === 'days_requested' && (sortConfig.order === 'asc' ? '↑' : '↓')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View className="flex-row justify-between">
+                <TouchableOpacity
+                  onPress={() => {
+                    clearFilters();
+                    setShowFilterModal(false);
+                  }}
+                  className={`flex-1 mr-2 p-3 rounded-lg ${
+                    isDark ? 'bg-gray-700' : 'bg-gray-200'
+                  }`}
+                >
+                  <Text className={`text-center ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Clear All
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setShowFilterModal(false)}
+                  className={`flex-1 p-3 rounded-lg ${
+                    isDark ? 'bg-blue-600' : 'bg-blue-500'
+                  }`}
+                >
+                  <Text className="text-white text-center font-medium">
+                    Apply Filters
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Date Pickers */}
         {(showStartPicker || showEndPicker) && (
@@ -381,105 +597,6 @@ export default function LeaveRequests() {
             }
           />
         )}
-
-        {/* Status Filter */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false} 
-          className="mb-4"
-        >
-          {['all', 'pending', 'approved', 'rejected', 'cancelled'].map((status) => (
-            <TouchableOpacity
-              key={status}
-              onPress={() => setSelectedStatus(status)}
-              className={`mr-2 px-4 py-2 rounded-full ${
-                selectedStatus === status
-                  ? 'bg-blue-500'
-                  : isDark ? 'bg-gray-700' : 'bg-gray-200'
-              }`}
-            >
-              <Text
-                className={
-                  selectedStatus === status
-                    ? 'text-white'
-                    : isDark ? 'text-gray-300' : 'text-gray-700'
-                }
-              >
-                {status.charAt(0).toUpperCase() + status.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Sort Options */}
-        <View className="mb-4 flex-row">
-          <TouchableOpacity
-            onPress={() => handleSort('created_at')}
-            className={`mr-2 px-4 py-2 rounded-lg ${
-              sortConfig.field === 'created_at'
-                ? 'bg-blue-500'
-                : isDark ? 'bg-gray-700' : 'bg-gray-200'
-            }`}
-          >
-            <Text className={
-              sortConfig.field === 'created_at'
-                ? 'text-white'
-                : isDark ? 'text-gray-300' : 'text-gray-700'
-            }>
-              Date {sortConfig.field === 'created_at' && (sortConfig.order === 'asc' ? '↑' : '↓')}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => handleSort('days_requested')}
-            className={`mr-2 px-4 py-2 rounded-lg ${
-              sortConfig.field === 'days_requested'
-                ? 'bg-blue-500'
-                : isDark ? 'bg-gray-700' : 'bg-gray-200'
-            }`}
-          >
-            <Text className={
-              sortConfig.field === 'days_requested'
-                ? 'text-white'
-                : isDark ? 'text-gray-300' : 'text-gray-700'
-            }>
-              Days {sortConfig.field === 'days_requested' && (sortConfig.order === 'asc' ? '↑' : '↓')}
-            </Text>
-          </TouchableOpacity>
-
-          {(searchQuery || dateRange.start || dateRange.end || selectedStatus !== 'all') && (
-            <TouchableOpacity
-              onPress={clearFilters}
-              className={`px-4 py-2 rounded-lg ${
-                isDark ? 'bg-gray-700' : 'bg-gray-200'
-              }`}
-            >
-              <Text className={isDark ? 'text-gray-300' : 'text-gray-700'}>
-                Clear Filters
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Summary Cards */}
-        <View className="flex-row flex-wrap justify-between mb-6">
-          <View className={`w-[48%] p-4 rounded-lg mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              Total Requests
-            </Text>
-            <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              {requests.length}
-            </Text>
-          </View>
-          <View className={`w-[48%] p-4 rounded-lg mb-4 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              Pending Requests
-            </Text>
-            <Text className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              {requests.filter(r => r.status === 'pending').length}
-            </Text>
-          </View>
-        </View>
 
         {/* Request List */}
         {filteredAndSortedRequests.length === 0 ? (
