@@ -23,7 +23,7 @@ interface LeaveBalance {
   year: number;
 }
 
-export default function LeaveBalances() {
+export default function LeaveBalances({ className }: { className?: string }) {
   const { theme } = ThemeContext.useTheme();
   const { token } = AuthContext.useAuth();
   const isDark = theme === 'dark';
@@ -109,7 +109,7 @@ export default function LeaveBalances() {
   }
 
   return (
-    <View className="flex-1">
+    <View className={`flex-1 ${className}`}>
       {/* Header with Year Selection */}
       <View className="flex-row justify-between items-center mb-6">
         <Text className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>

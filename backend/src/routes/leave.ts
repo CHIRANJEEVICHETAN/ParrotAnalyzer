@@ -22,18 +22,6 @@ router.get('/requests', authMiddleware, async (req: CustomRequest, res: Response
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Get company_id for validation
-    const userResult = await client.query(
-      `SELECT company_id FROM users WHERE id = $1`,
-      [req.user.id]
-    );
-
-    if (!userResult.rows.length) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    const companyId = userResult.rows[0].company_id;
-
     const result = await client.query(`
       SELECT 
         lr.id,
@@ -57,22 +45,12 @@ router.get('/requests', authMiddleware, async (req: CustomRequest, res: Response
           FROM leave_documents ld
           WHERE ld.request_id = lr.id
           ), '[]'
-        ) as documents,
-        json_build_object(
-          'total_days', lb.total_days,
-          'used_days', lb.used_days,
-          'pending_days', lb.pending_days,
-          'carry_forward_days', lb.carry_forward_days
-        ) as balance_info
+        ) as documents
       FROM leave_requests lr
       JOIN leave_types lt ON lr.leave_type_id = lt.id
-      LEFT JOIN leave_balances lb ON lr.user_id = lb.user_id 
-        AND lr.leave_type_id = lb.leave_type_id 
-        AND EXTRACT(YEAR FROM lr.start_date) = lb.year
-      WHERE lr.user_id = $1 
-        AND lt.company_id = $2
+      WHERE lr.user_id = $1
       ORDER BY lr.created_at DESC
-    `, [req.user.id, companyId]);
+    `, [req.user.id]);
 
     res.json(result.rows);
   } catch (error) {
@@ -94,11 +72,12 @@ router.get(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const year =
+        parseInt(req.query.year as string) || new Date().getFullYear();
 
-      // Get user's company ID and role
+      // Get the user's company ID
       const userResult = await client.query(
-        `SELECT company_id, role FROM users WHERE id = $1`,
+        `SELECT company_id FROM users WHERE id = $1`,
         [req.user.id]
       );
 
@@ -107,46 +86,102 @@ router.get(
       }
 
       const companyId = userResult.rows[0].company_id;
-      const userRole = userResult.rows[0].role;
 
-      // Get all leave types and balances for this company
-      const result = await client.query(`
-        SELECT 
-          lt.id,
-          lt.name,
-          lt.is_paid,
-          lt.requires_documentation,
-          lt.max_days,
-          cdb.default_days as role_default_days,
-          cdb.carry_forward_days as role_carry_forward_days,
-          COALESCE(lb.total_days, cdb.default_days, 0) as total_days,
-          COALESCE(lb.used_days, 0) as used_days,
-          COALESCE(lb.pending_days, 0) as pending_days,
-          COALESCE(lb.carry_forward_days, 0) as carry_forward_days,
-          (COALESCE(lb.total_days, cdb.default_days, 0) + 
-           COALESCE(lb.carry_forward_days, 0) - 
-           COALESCE(lb.used_days, 0) - 
-           COALESCE(lb.pending_days, 0)) as available_days
-        FROM leave_types lt
-        LEFT JOIN company_default_leave_balances cdb ON lt.id = cdb.leave_type_id 
-          AND cdb.role = $3
-        LEFT JOIN leave_balances lb ON lt.id = lb.leave_type_id 
-          AND lb.user_id = $1 
-          AND lb.year = $2
-        WHERE lt.company_id = $4
-          AND lt.is_active = true
-        ORDER BY lt.name
-      `, [req.user.id, year, userRole, companyId]);
+      // First, fetch all active leave types for this company (both global and company-specific)
+      const leaveTypesResult = await client.query(
+        `
+      SELECT 
+        lt.id,
+        lt.name,
+        lt.is_paid,
+        lt.max_days,
+        COALESCE(lp.default_days, lt.max_days) as default_days
+      FROM leave_types lt
+      LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+      WHERE lt.is_active = true
+      AND (lt.company_id IS NULL OR lt.company_id = $1)
+      ORDER BY lt.name
+    `,
+        [companyId]
+      );
 
-      if (!result.rows.length) {
+      if (!leaveTypesResult.rows.length) {
         return res.status(404).json({
           error: "No active leave types found for your company",
           details: "Please contact management to configure leave types",
         });
       }
 
+      // Begin transaction for potential balance initialization
+      await client.query("BEGIN");
+
+      // Get existing leave balances for the user
+      const existingBalancesResult = await client.query(
+        `
+      SELECT leave_type_id
+      FROM leave_balances
+      WHERE user_id = $1 AND year = $2
+    `,
+        [req.user.id, year]
+      );
+      
+      const existingLeaveTypeIds = existingBalancesResult.rows.map(row => row.leave_type_id);
+
+      // For each leave type, check if a balance record exists, if not, create one
+      for (const leaveType of leaveTypesResult.rows) {
+        if (!existingLeaveTypeIds.includes(leaveType.id)) {
+          // This is a new leave type, create a balance record
+          const defaultDays = leaveType.default_days || 0;
+
+          await client.query(
+            `
+          INSERT INTO leave_balances (
+            user_id,
+            leave_type_id,
+            total_days,
+            used_days,
+            pending_days,
+            year,
+            created_at,
+            updated_at
+          ) VALUES ($1, $2, $3, 0, 0, $4, NOW(), NOW())
+        `,
+            [req.user.id, leaveType.id, defaultDays, year]
+          );
+          
+          console.log(
+            `Initialized leave balance for new leave type ${leaveType.id} for user ${req.user.id}`
+          );
+        }
+      }
+
+      // Now fetch all leave balances, including newly created ones
+      const result = await client.query(
+        `
+      SELECT 
+        lb.id,
+        lt.id as leave_type_id,
+        lt.name,
+        lt.is_paid,
+        lb.total_days,
+        lb.used_days,
+        lb.pending_days,
+        lb.carry_forward_days,
+        (lb.total_days + COALESCE(lb.carry_forward_days, 0) - lb.used_days - lb.pending_days) as available_days
+      FROM leave_balances lb
+      JOIN leave_types lt ON lb.leave_type_id = lt.id
+      WHERE lb.user_id = $1 AND lb.year = $2 
+      AND lt.is_active = true
+      AND (lt.company_id IS NULL OR lt.company_id = $3)
+      ORDER BY lt.name
+    `,
+        [req.user.id, year, companyId]
+      );
+
+      await client.query("COMMIT");
       res.json(result.rows);
     } catch (error) {
+      await client.query("ROLLBACK");
       console.error("Error fetching leave balance:", error);
       res.status(500).json({
         error: "Failed to fetch leave balance",
@@ -169,9 +204,9 @@ router.get(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      // Get user's company ID and role
+      // Get user's company ID
       const userResult = await client.query(
-        `SELECT company_id, role FROM users WHERE id = $1`,
+        `SELECT company_id FROM users WHERE id = $1`,
         [req.user.id]
       );
 
@@ -180,31 +215,31 @@ router.get(
       }
 
       const companyId = userResult.rows[0].company_id;
-      const userRole = userResult.rows[0].role;
 
-      // Fetch leave types and policies with role-specific defaults
-      const result = await client.query(`
-        SELECT 
-          lt.id,
-          lt.name,
-          lt.description,
-          lt.requires_documentation,
-          lt.max_days,
-          lt.is_paid,
-          cdb.default_days,
-          cdb.carry_forward_days,
-          lp.min_service_days,
-          lp.notice_period_days,
-          lp.max_consecutive_days,
-          lp.gender_specific
-        FROM leave_types lt
-        LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
-        LEFT JOIN company_default_leave_balances cdb ON lt.id = cdb.leave_type_id 
-          AND cdb.role = $2
-        WHERE lt.company_id = $1
-          AND lt.is_active = true
-        ORDER BY lt.name
-      `, [companyId, userRole]);
+      // Fetch leave types and policies
+      const result = await client.query(
+        `
+      SELECT 
+        lt.id,
+        lt.name,
+        lt.description,
+        lt.requires_documentation,
+        lt.max_days,
+        lt.is_paid,
+        COALESCE(lp.default_days, lt.max_days) as default_days,
+        COALESCE(lp.carry_forward_days, 0) as carry_forward_days,
+        COALESCE(lp.min_service_days, 0) as min_service_days,
+        COALESCE(lp.notice_period_days, 0) as notice_period_days,
+        COALESCE(lp.max_consecutive_days, lt.max_days) as max_consecutive_days,
+        lp.gender_specific
+      FROM leave_types lt
+      LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
+      WHERE lt.is_active = true
+      AND (lt.company_id IS NULL OR lt.company_id = $1)
+      ORDER BY lt.name
+    `,
+        [companyId]
+      );
 
       res.json(result.rows);
     } catch (error) {
@@ -230,6 +265,7 @@ router.post(
         return res.status(401).json({ error: "Authentication required" });
       }
 
+      const userId = req.user;
       const {
         leave_type_id,
         start_date,
@@ -239,17 +275,12 @@ router.post(
         documents,
       } = req.body;
 
-      // Validate required fields
-      if (!leave_type_id || !start_date || !end_date || !reason || !contact_number) {
-        return res.status(400).json({ error: "All fields are required" });
-      }
-
       await client.query("BEGIN");
 
-      // Get user's company ID, role, and gender
+      // Get user's company ID and gender
       const userResult = await client.query(
-        `SELECT company_id, role, gender FROM users WHERE id = $1`,
-        [req.user.id]
+        `SELECT company_id, gender FROM users WHERE id = $1`,
+        [userId.id]
       );
 
       if (!userResult.rows.length) {
@@ -258,34 +289,32 @@ router.post(
       }
 
       const companyId = userResult.rows[0].company_id;
-      const userRole = userResult.rows[0].role;
       const userGender = userResult.rows[0].gender;
 
-      // Get leave type, policy, and role-based defaults
-      const leaveTypeResult = await client.query(`
+      // Get leave type and policy details
+      const leaveTypeResult = await client.query(
+        `
         SELECT 
           lt.*,
-          lp.min_service_days,
-          lp.notice_period_days,
-          lp.max_consecutive_days,
+          lp.default_days as policy_default_days,
+          lp.notice_period_days as policy_notice_period,
+          lp.max_consecutive_days as policy_max_consecutive,
           lp.gender_specific,
-          cdb.default_days as role_default_days,
-          cdb.carry_forward_days as role_carry_forward_days,
-          COALESCE(lb.total_days, cdb.default_days, 0) as total_days,
+          COALESCE(lb.total_days, 0) as total_days,
           COALESCE(lb.used_days, 0) as used_days,
           COALESCE(lb.pending_days, 0) as pending_days,
           COALESCE(lb.carry_forward_days, 0) as carry_forward_days
         FROM leave_types lt
         LEFT JOIN leave_policies lp ON lt.id = lp.leave_type_id
-        LEFT JOIN company_default_leave_balances cdb ON lt.id = cdb.leave_type_id 
-          AND cdb.role = $3
         LEFT JOIN leave_balances lb ON lt.id = lb.leave_type_id 
           AND lb.user_id = $1 
           AND lb.year = EXTRACT(YEAR FROM CURRENT_DATE)
         WHERE lt.id = $2
-          AND lt.company_id = $4
-          AND lt.is_active = true
-      `, [req.user.id, leave_type_id, userRole, companyId]);
+        AND lt.is_active = true
+        AND (lt.company_id IS NULL OR lt.company_id = $3)
+      `,
+        [userId.id, leave_type_id, companyId]
+      );
 
       if (!leaveTypeResult.rows.length) {
         await client.query("ROLLBACK");
@@ -298,7 +327,10 @@ router.post(
       const leaveType = leaveTypeResult.rows[0];
 
       // Check gender-specific leave eligibility
-      if (leaveType.gender_specific && leaveType.gender_specific !== userGender) {
+      if (
+        leaveType.gender_specific &&
+        leaveType.gender_specific !== userGender
+      ) {
         await client.query("ROLLBACK");
         return res.status(400).json({
           error: "Not eligible for this leave type",
@@ -311,54 +343,23 @@ router.post(
       const endDate = new Date(end_date);
       const days_requested = calculateWorkingDays(startDate, endDate);
 
-      // Validate dates
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      if (startDate < today) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({ error: "Start date cannot be in the past" });
-      }
-
-      if (endDate < startDate) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({ error: "End date must be after start date" });
-      }
-
-      // Check notice period
-      if (leaveType.notice_period_days > 0) {
-        const noticeDays = Math.ceil((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (noticeDays < leaveType.notice_period_days) {
-          await client.query("ROLLBACK");
-          const earliestPossibleDate = new Date(today);
-          earliestPossibleDate.setDate(earliestPossibleDate.getDate() + leaveType.notice_period_days);
-          return res.status(400).json({
-            error: "Notice period requirement not met",
-            details: {
-              required_days: leaveType.notice_period_days,
-              earliest_possible_date: earliestPossibleDate.toISOString().split("T")[0],
-              message: `This leave type requires ${leaveType.notice_period_days} days notice`,
-            },
-          });
-        }
-      }
-
-      // Check maximum consecutive days
-      if (days_requested > leaveType.max_consecutive_days) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          error: "Maximum consecutive days exceeded",
-          details: {
-            max_allowed: leaveType.max_consecutive_days,
-            requested_days: days_requested,
-          },
-        });
-      }
-
       // Calculate available days
       const total_available = leaveType.total_days + leaveType.carry_forward_days;
       const used_and_pending = leaveType.used_days + leaveType.pending_days;
       const available_days = total_available - used_and_pending;
+
+      // Validate maximum consecutive days
+      const max_consecutive = leaveType.policy_max_consecutive || leaveType.max_days;
+      if (days_requested > max_consecutive) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "Maximum consecutive days exceeded",
+          details: {
+            max_allowed: max_consecutive,
+            requested_days: days_requested,
+          },
+        });
+      }
 
       // Validate available days
       if (available_days < days_requested) {
@@ -375,77 +376,35 @@ router.post(
         });
       }
 
-      // Check for overlapping requests
-      const overlapResult = await client.query(`
-        SELECT id FROM leave_requests 
-        WHERE user_id = $1 
-          AND status NOT IN ('rejected', 'cancelled')
-          AND (
-            (start_date <= $2 AND end_date >= $2)
-            OR (start_date <= $3 AND end_date >= $3)
-            OR (start_date >= $2 AND end_date <= $3)
-          )
-      `, [req.user.id, start_date, end_date]);
+      // Check notice period
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const noticeDays = Math.ceil(
+        (startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+      );
 
-      if (overlapResult.rows.length > 0) {
+      if (noticeDays < (leaveType.policy_notice_period || 0)) {
         await client.query("ROLLBACK");
+        const earliestPossibleDate = new Date(today);
+        earliestPossibleDate.setDate(
+          earliestPossibleDate.getDate() + (leaveType.policy_notice_period || 0)
+        );
+
         return res.status(400).json({
-          error: "Overlapping leave request",
-          details: "You already have a leave request for these dates",
+          error: "Notice period requirement not met",
+          details: {
+            required_days: leaveType.policy_notice_period,
+            earliest_possible_date: earliestPossibleDate
+              .toISOString()
+              .split("T")[0],
+            message: `This leave type requires ${leaveType.policy_notice_period} days notice`,
+          },
         });
       }
 
-      // Get appropriate workflow for this request
-      const workflowResult = await client.query(`
-        SELECT aw.*, al.id as first_level_id
-        FROM approval_workflows aw
-        JOIN workflow_levels wl ON aw.id = wl.workflow_id
-        JOIN approval_levels al ON wl.level_id = al.id
-        WHERE aw.leave_type_id = $1
-        AND aw.company_id = $2
-        AND aw.min_days <= $3
-        AND (aw.max_days IS NULL OR aw.max_days >= $3)
-        AND al.level_order = 1
-        AND aw.is_active = true
-        AND al.is_active = true
-      `, [leave_type_id, companyId, days_requested]);
-
-      if (!workflowResult.rows.length) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'No approval workflow found for this request',
-          details: 'Please contact your administrator'
-        });
-      }
-
-      const workflow = workflowResult.rows[0];
-
-      // Create or update leave balance
-      await client.query(`
-        INSERT INTO leave_balances (
-          user_id, leave_type_id, total_days, used_days, pending_days,
-          carry_forward_days, year, created_at, updated_at
-        ) 
-        VALUES (
-          $1, $2, $3, $4, $5, $6, 
-          EXTRACT(YEAR FROM CURRENT_DATE), NOW(), NOW()
-        )
-        ON CONFLICT (user_id, leave_type_id, year) 
-        DO UPDATE SET 
-          pending_days = leave_balances.pending_days + $7,
-          updated_at = NOW()
-      `, [
-        req.user.id,
-        leave_type_id,
-        leaveType.role_default_days,
-        leaveType.used_days,
-        leaveType.pending_days,
-        leaveType.role_carry_forward_days,
-        days_requested
-      ]);
-
-      // Insert leave request with workflow
-      const requestResult = await client.query(`
+      // Insert leave request
+      const requestResult = await client.query(
+        `
         INSERT INTO leave_requests (
           user_id,
           leave_type_id,
@@ -455,29 +414,56 @@ router.post(
           reason,
           contact_number,
           status,
-          requires_documentation,
-          workflow_id,
-          current_level_id,
-          approval_status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10, 'pending')
+          requires_documentation
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
         RETURNING id
-      `, [
-        req.user.id,
-        leave_type_id,
-        start_date,
-        end_date,
-        days_requested,
-        reason,
-        contact_number,
-        leaveType.requires_documentation,
-        workflow.id,
-        workflow.first_level_id
-      ]);
+      `,
+        [
+          userId.id,
+          leave_type_id,
+          start_date,
+          end_date,
+          days_requested,
+          reason,
+          contact_number,
+          leaveType.requires_documentation,
+        ]
+      );
+
+      // Create or update leave balance
+      await client.query(
+        `
+        INSERT INTO leave_balances (
+          user_id,
+          leave_type_id,
+          total_days,
+          used_days,
+          pending_days,
+          year,
+          created_at,
+          updated_at
+        ) 
+        VALUES ($1, $2, $3, $4, $5, EXTRACT(YEAR FROM CURRENT_DATE), NOW(), NOW())
+        ON CONFLICT (user_id, leave_type_id, year) 
+        DO UPDATE SET 
+          pending_days = leave_balances.pending_days + $6,
+          updated_at = NOW()
+        `,
+        [
+          userId.id,
+          leave_type_id,
+          leaveType.policy_default_days || leaveType.max_days,
+          leaveType.used_days,
+          leaveType.pending_days,
+          days_requested
+        ]
+      );
 
       // Handle document uploads if any
       if (documents && documents.length > 0) {
         for (const doc of documents) {
-          await client.query(`
+          await client.query(
+            `
             INSERT INTO leave_documents (
               request_id,
               file_name,
@@ -485,13 +471,15 @@ router.post(
               file_data,
               upload_method
             ) VALUES ($1, $2, $3, $4, $5)
-          `, [
-            requestResult.rows[0].id,
-            doc.file_name,
-            doc.file_type,
-            doc.file_data,
-            doc.upload_method,
-          ]);
+          `,
+            [
+              requestResult.rows[0].id,
+              doc.file_name,
+              doc.file_type,
+              doc.file_data,
+              doc.upload_method,
+            ]
+          );
         }
       }
 
@@ -511,74 +499,6 @@ router.post(
         error: "Failed to submit leave request",
         details: error instanceof Error ? error.message : String(error),
       });
-    } finally {
-      client.release();
-    }
-  }
-);
-
-// Cancel leave request
-router.post(
-  "/cancel/:id",
-  authMiddleware,
-  async (req: CustomRequest, res: Response) => {
-    const client = await pool.connect();
-    try {
-      const { id } = req.params;
-
-      // Get user's company ID
-      const userResult = await client.query(
-        `SELECT company_id FROM users WHERE id = $1`,
-        [req.user?.id]
-      );
-
-      if (!userResult.rows.length) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const companyId = userResult.rows[0].company_id;
-
-      // Verify ownership, status, and company
-      const verifyResult = await client.query(`
-        SELECT lr.*, lb.id as balance_id 
-        FROM leave_requests lr
-        JOIN leave_types lt ON lr.leave_type_id = lt.id
-        JOIN leave_balances lb ON lr.user_id = lb.user_id 
-          AND lr.leave_type_id = lb.leave_type_id 
-          AND EXTRACT(YEAR FROM lr.start_date) = lb.year
-        WHERE lr.id = $1 
-          AND lr.user_id = $2 
-          AND lt.company_id = $3
-      `, [id, req.user?.id, companyId]);
-
-      if (!verifyResult.rows.length) {
-        return res.status(404).json({ error: "Leave request not found" });
-      }
-
-      if (verifyResult.rows[0].status !== "pending") {
-        return res.status(400).json({ error: "Can only cancel pending requests" });
-      }
-
-      await client.query("BEGIN");
-
-      // Update request status
-      await client.query(
-        "UPDATE leave_requests SET status = $1 WHERE id = $2",
-        ["cancelled", id]
-      );
-
-      // Update balance - remove pending days
-      await client.query(
-        "UPDATE leave_balances SET pending_days = pending_days - $1 WHERE id = $2",
-        [verifyResult.rows[0].days_requested, verifyResult.rows[0].balance_id]
-      );
-
-      await client.query("COMMIT");
-      res.json({ message: "Leave request cancelled successfully" });
-    } catch (error) {
-      await client.query("ROLLBACK");
-      console.error("Error cancelling leave request:", error);
-      res.status(500).json({ error: "Failed to cancel leave request" });
     } finally {
       client.release();
     }
@@ -703,6 +623,7 @@ router.get(
   }
 );
 
+
 // Helper function to calculate working days between two dates (excluding weekends)
 function calculateWorkingDays(startDate: Date, endDate: Date): number {
   let days = 0;
@@ -720,6 +641,57 @@ function calculateWorkingDays(startDate: Date, endDate: Date): number {
   }
   return days;
 }
+
+// Cancel leave request
+router.post(
+  "/cancel/:id",
+  authMiddleware,
+  async (req: CustomRequest, res: Response) => {
+    const client = await pool.connect();
+    try {
+      const { id } = req.params;
+
+      // Verify ownership and status
+      const verifyResult = await client.query(
+        "SELECT lr.*, lb.id as balance_id FROM leave_requests lr JOIN leave_balances lb ON lr.user_id = lb.user_id AND lr.leave_type_id = lb.leave_type_id WHERE lr.id = $1 AND lr.user_id = $2 AND lb.year = EXTRACT(YEAR FROM CURRENT_DATE)",
+        [id, req.user?.id]
+      );
+
+      if (!verifyResult.rows.length) {
+        return res.status(404).json({ error: "Leave request not found" });
+      }
+
+      if (verifyResult.rows[0].status !== "pending") {
+        return res
+          .status(400)
+          .json({ error: "Can only cancel pending requests" });
+      }
+
+      await client.query("BEGIN");
+
+      // Update request status
+      await client.query(
+        "UPDATE leave_requests SET status = $1 WHERE id = $2",
+        ["cancelled", id]
+      );
+
+      // Update balance - remove pending days
+      await client.query(
+        "UPDATE leave_balances SET pending_days = pending_days - $1 WHERE id = $2",
+        [verifyResult.rows[0].days_requested, verifyResult.rows[0].balance_id]
+      );
+
+      await client.query("COMMIT");
+      res.json({ message: "Leave request cancelled successfully" });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Error cancelling leave request:", error);
+      res.status(500).json({ error: "Failed to cancel leave request" });
+    } finally {
+      client.release();
+    }
+  }
+);
 
 // Fetch document by ID
 router.get('/document/:id', authMiddleware, async (req: CustomRequest, res: Response) => {

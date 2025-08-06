@@ -34,14 +34,8 @@ interface LeaveType {
 interface LeaveBalance {
   id: number;
   name: string;
-  total_days: number;
-  used_days: number;
-  pending_days: number;
-  available_days: number;
-  carry_forward_days: number;
-  is_paid: boolean;
-  requires_documentation: boolean;
   max_days: number;
+  days_used: number;
 }
 
 interface Document {
@@ -334,7 +328,7 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
 
       // Calculate requested days
       const requestedDays = calculateWorkingDays(startDate, endDate);
-      const availableDays = leaveBalance.available_days;
+      const availableDays = leaveBalance.max_days - leaveBalance.days_used;
 
       // Check if enough days are available
       if (availableDays < requestedDays) {
@@ -343,9 +337,8 @@ export default function RequestLeaveModal({ visible, onClose, onSuccess, leaveTy
           `Insufficient leave balance.\n\n` +
             `• Available Balance: ${availableDays} days\n` +
             `• Requested Days: ${requestedDays} days\n` +
-            `• Total Balance: ${leaveBalance.total_days} days\n` +
-            `• Used Days: ${leaveBalance.used_days} days\n` +
-            `• Pending Days: ${leaveBalance.pending_days} days`,
+            `• Total Balance: ${leaveBalance.max_days} days\n` +
+            `• Used Days: ${leaveBalance.days_used} days`,
           "warning"
         );
         return;

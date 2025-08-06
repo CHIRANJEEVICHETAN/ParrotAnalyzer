@@ -151,7 +151,7 @@ export default function EmployeeLeaveInsights() {
         {activeTab === 'requests' ? (
           <LeaveRequests />
         ) : activeTab === 'balances' ? (
-          <LeaveBalances />
+          <LeaveBalances className="px-2" />
         ) : activeTab === 'calendar' ? (
           <LeaveCalendar />
         ) : (
