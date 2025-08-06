@@ -4,19 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import ThemeContext from '../../../context/ThemeContext';
 import LeaveRequests from './components/LeaveRequests';
 import LeaveBalance from './components/LeaveBalance';
-import LeaveApprovalList from '../../employee/leave-insights/components/LeaveApprovalList';
 import { useRouter } from 'expo-router';
 
-type Tab = 'requests' | 'balance' | 'approvals';
+type Tab = 'requests' | 'balance';
 
 export default function GroupAdminLeaveInsights() {
   const { theme } = ThemeContext.useTheme();
   const isDark = theme === 'dark';
-  const [activeTab, setActiveTab] = useState<Tab>('approvals');
+  const [activeTab, setActiveTab] = useState<Tab>('requests');
   const router = useRouter();
 
   const tabs = [
-    { id: 'approvals', label: 'Approvals', icon: 'checkmark-circle' },
     { id: 'requests', label: 'Leave Requests', icon: 'document-text' },
     { id: 'balance', label: 'Leave Balance', icon: 'calendar' },
   ] as const;
@@ -92,9 +90,7 @@ export default function GroupAdminLeaveInsights() {
 
       {/* Content */}
       <View className="flex-1">
-        {activeTab === 'approvals' ? (
-          <LeaveApprovalList />
-        ) : activeTab === 'requests' ? (
+        {activeTab === 'requests' ? (
           <LeaveRequests />
         ) : (
           <LeaveBalance />

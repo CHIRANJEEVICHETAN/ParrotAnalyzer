@@ -68,7 +68,7 @@ export default function LeaveBalances() {
     try {
       // Fetch list of employees under this group admin
       const employeesResponse = await axios.get(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin-leave/employees`,
+        `${process.env.EXPO_PUBLIC_API_URL}/api/group-admin/employees`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
